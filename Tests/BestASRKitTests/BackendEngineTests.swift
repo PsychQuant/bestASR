@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import WhisperKit
 @testable import BestASRKit
 
 struct WhisperKitEngineTests {
@@ -105,5 +106,22 @@ struct PromptForwardingTests {
             options: TranscribeOptions(
                 model: "tiny", quantization: "default", language: "zh", prompt: "鄭澈, CoreML")
         )
+    }
+}
+
+struct DecodeOptionsTests {
+    @Test func `Special tokens are always skipped — the #6 regression lock`() {
+        let options = WhisperKitEngine.makeDecodeOptions(language: "en", promptTokens: nil)
+        #expect(options.skipSpecialTokens == true)
+        #expect(options.language == "en")
+        #expect(options.detectLanguage == false)
+    }
+
+    @Test func `Prompt tokens switch on prefill; auto language switches on detection`() {
+        let with = WhisperKitEngine.makeDecodeOptions(language: nil, promptTokens: [1, 2, 3])
+        #expect(with.skipSpecialTokens == true)
+        #expect(with.promptTokens == [1, 2, 3])
+        #expect(with.usePrefillPrompt == true)
+        #expect(with.detectLanguage == true)
     }
 }

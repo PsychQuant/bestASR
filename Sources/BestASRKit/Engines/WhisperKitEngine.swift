@@ -31,6 +31,22 @@ public struct WhisperKitEngine: Engine {
         tokens.count <= limit ? tokens : Array(tokens.suffix(limit))
     }
 
+    /// Decode options for one run. skipSpecialTokens MUST stay true: without it
+    /// WhisperKit returns `<|startoftranscript|>`/timestamp tokens inside
+    /// segment text, polluting transcripts and inflating WER (#6 — caught by
+    /// real-model verification against jfk.wav / OSR Harvard).
+    static func makeDecodeOptions(language: String?, promptTokens: [Int]?) -> DecodingOptions {
+        var decodeOptions = DecodingOptions()
+        decodeOptions.language = language
+        decodeOptions.detectLanguage = language == nil
+        decodeOptions.skipSpecialTokens = true
+        if let promptTokens {
+            decodeOptions.promptTokens = promptTokens
+            decodeOptions.usePrefillPrompt = true
+        }
+        return decodeOptions
+    }
+
     public func transcribeRaw(
         audioPath: String, options: TranscribeOptions
     ) async throws -> RawTranscription {
@@ -49,18 +65,15 @@ public struct WhisperKitEngine: Engine {
             )
         }
 
-        var decodeOptions = DecodingOptions()
-        decodeOptions.language = options.language
-        decodeOptions.detectLanguage = options.language == nil
+        var promptTokens: [Int]?
         if let prompt = options.prompt, let tokenizer = pipe.tokenizer {
             // Context prompt (spec asr-engine): conditioning tokens prepended to
             // the prefill; clamped as a safety net under Whisper's ~224 limit.
             let tokens = Self.clampedPromptTokens(tokenizer.encode(text: " " + prompt))
-            if !tokens.isEmpty {
-                decodeOptions.promptTokens = tokens
-                decodeOptions.usePrefillPrompt = true
-            }
+            if !tokens.isEmpty { promptTokens = tokens }
         }
+        let decodeOptions = Self.makeDecodeOptions(
+            language: options.language, promptTokens: promptTokens)
 
         let results = try await pipe.transcribe(audioPath: audioPath, decodeOptions: decodeOptions)
         let segments = results.flatMap(\.segments).map { seg in
