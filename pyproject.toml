@@ -1,0 +1,44 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "bestasr"
+version = "0.1.0"
+description = "Automatically choose the best local ASR model and backend for your machine."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "PsychQuant" }]
+keywords = ["asr", "speech-to-text", "whisper", "transcription", "router"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Topic :: Multimedia :: Sound/Audio :: Speech",
+]
+# Core has NO hard runtime deps — detection and routing degrade gracefully
+# when optional probes (psutil) or backends are absent. See design D6/D7.
+dependencies = []
+
+[project.optional-dependencies]
+# Hardware probing (RAM/CPU). Absence degrades to OS-level fallback + warning.
+hardware = ["psutil>=5.9"]
+# ASR backends — platform-specific, probed via is_available(), never hard-required.
+faster-whisper = ["faster-whisper>=1.0"]
+mlx = ["mlx-whisper>=0.3"]
+whispercpp = ["pywhispercpp>=1.2"]
+dev = ["pytest>=7.0"]
+
+[project.scripts]
+bestasr = "bestasr.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/PsychQuant/bestASR"
+Issues = "https://github.com/PsychQuant/bestASR/issues"
+
+[tool.setuptools.packages.find]
+include = ["bestasr*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
