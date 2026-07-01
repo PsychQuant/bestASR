@@ -1,125 +1,113 @@
 # bestASR
 
-**The intelligent model router for local speech recognition.**
+**The benchmark-driven local ASR router for Apple Silicon.**
 
-bestASR automatically selects the best local automatic speech recognition setup
-for your machine. It detects your hardware, operating system, available
-acceleration backend, memory, audio properties, and language, then chooses the
-most suitable ASR **backend**, **model**, and **compute type** — and explains
-why.
+bestASR measures how speech-recognition backends and models *actually perform
+on your machine* — then recommends and runs the best setup, and explains why.
 
-Instead of asking you to decide between Whisper, faster-whisper, whisper.cpp,
-MLX, CUDA, Metal, fp16, int8, `large-v3`, turbo, or quantized models, bestASR
-makes the decision for you.
+Instead of guessing between WhisperKit, whisper.cpp, model sizes, and
+quantization levels, you benchmark them once against your own audio and a
+ground-truth `.srt`, and every later `recommend` / `transcribe` is backed by
+real numbers:
 
-> bestASR does not just run transcription. It explains *why* a model was chosen.
->
 > Not: `Using medium model.`
-> But: `Using faster-whisper medium int8_float16 because CUDA is available but VRAM is below 8 GB.`
+> But: `whisperkit large-v3-turbo — measured on this machine: CER 5.0%, 12.0x realtime.`
 
 ## Why bestASR?
 
-Local speech-to-text is powerful, but choosing the right model is confusing.
-Should you use Whisper? faster-whisper? whisper.cpp? MLX? CUDA? Metal? fp16?
-int8? `large-v3`? turbo? bestASR handles this decision — and, crucially, tells
-you the reasoning so you can trust or override it.
+Local speech-to-text on a Mac has real choices with real trade-offs:
+WhisperKit rides CoreML and the Neural Engine; whisper.cpp brings flexible
+GGML quantization. Which is *best* depends on your machine, your audio, your
+language, and whether you care more about accuracy or speed.
 
-Its moat is three things: **accurate recommendations**, **stable fallback**, and
-**clear explanations**.
+"Best" should not be a guess. bestASR's moat is three things: **measured
+recommendations**, **stable fallback**, and **clear explanations**.
+
+## Requirements
+
+- Apple Silicon Mac (arm64) — Intel Macs and Rosetta are not supported
+- macOS 14 (Sonoma) or later
 
 ## Install
 
 ```bash
-pip install bestasr
+git clone https://github.com/PsychQuant/bestASR.git
+cd bestASR
+swift build -c release
+cp .build/release/bestasr /usr/local/bin/  # or anywhere on PATH
 ```
 
-Backends are optional and platform-specific — install what fits your machine:
+Backends:
 
-```bash
-pip install "bestasr[faster-whisper]"   # NVIDIA CUDA / CPU
-pip install "bestasr[mlx]"              # Apple Silicon (Metal / MLX)
-pip install "bestasr[whispercpp]"       # quantized CPU
-```
-
-If no backend is installed, `bestasr diagnose` still reports your environment
-and tells you exactly what to install.
+- **WhisperKit** is built in — models download on demand at first use.
+- **whisper.cpp** is optional: `brew install whisper-cpp`, then place GGML
+  model files under `~/.bestasr/models/whisper-cpp/` (the error message tells
+  you the exact file name and download URL when one is missing).
 
 ## Quick start
 
 ```bash
-bestasr diagnose                 # what's my machine, and what does it recommend?
-bestasr recommend input.mp3      # print a JSON recommendation, no transcription
-bestasr transcribe input.mp3     # transcribe using the auto-chosen setup
+bestasr diagnose                 # what is this machine, and what would it recommend?
+bestasr transcribe input.mp3     # transcribe with the best known setup
 ```
 
-### Choose a profile
+### The benchmark workflow (where "best" gets real)
 
 ```bash
-bestasr transcribe input.mp3 --profile fast       # prioritize speed
-bestasr transcribe input.mp3 --profile balanced   # default
-bestasr transcribe input.mp3 --profile accurate   # prioritize accuracy
+# 1. Measure every available backend/model/quantization against ground truth
+bestasr benchmark clip.wav --reference clip.srt --language zh
+
+# 2. From now on, recommendations cite your machine's measured numbers
+bestasr recommend clip2.wav --language zh
+# → "data_source": "measured", CER + x-realtime from YOUR benchmark
+
+# 3. Transcribe with the winner — and see why it won
+bestasr transcribe clip2.wav --language zh --explain
 ```
 
-### Output formats
+The ground truth is a standard `.srt` subtitle file. Accuracy is scored as
+**CER** for languages without word spacing (zh / ja / ko) and **WER**
+otherwise; speed as measured times-realtime (model download/load excluded);
+results persist in `~/.bestasr/benchmarks.json` per machine.
 
-```bash
-bestasr transcribe input.mp3 --format srt
-bestasr transcribe input.mp3 --format vtt
-bestasr transcribe input.mp3 --format json
-bestasr transcribe input.mp3 --output transcript.txt
-```
+### Commands
 
-### See the reasoning
+| Command | What it does |
+|---------|--------------|
+| `bestasr diagnose` | Hardware profile (chip / unified memory / ANE / macOS) + recommendation |
+| `bestasr benchmark <audio> --reference <gt.srt>` | Measure candidates, print ranked table, persist results (`--json` for machines) |
+| `bestasr recommend <audio>` | JSON recommendation only — measured when data exists, cold-start prior otherwise |
+| `bestasr transcribe <audio>` | Transcribe; `--format txt\|json\|srt\|vtt`, `--output`, `--explain` |
+| `bestasr list-backends` | Backend availability on this machine |
+| `bestasr list-models` | Model sizes and quantization variants |
 
-```bash
-bestasr transcribe input.mp3 --explain
-```
-
-### Override the automatic choice
-
-```bash
-bestasr transcribe input.mp3 --backend faster-whisper --model medium --language zh
-```
+Shared selection flags: `--profile fast|balanced|accurate`, `--backend`,
+`--model`, `--language`.
 
 ## How it works
 
-bestASR is a five-layer pipeline:
-
 ```
-CLI  →  Detection  →  Routing  →  Engine  →  Output
+CLI → Detect (chip/memory/ANE, AVFoundation audio probing)
+    → Route  (tier 1: rank measured benchmark records for this chip;
+              tier 2: cold-start prior + memory downgrade — and it tells you
+              to benchmark)
+    → Engine (WhisperKit · whisper.cpp, one normalized interface)
+    → Output (txt / json / srt / vtt)
 ```
 
-- **Detection** — OS, CPU, RAM, GPU/VRAM, CUDA/Metal/MLX, ffmpeg, and audio properties.
-- **Routing** — a rule-based decision table picks a backend (Apple Silicon → MLX,
-  CUDA → faster-whisper, CPU → whisper.cpp), then a profile picks the model and
-  compute type, downgrading if memory is tight and falling back if a backend is
-  missing. Every choice records a reason.
-- **Engine** — a common interface over faster-whisper, whisper.cpp, and mlx-whisper.
-- **Output** — txt, json, srt, vtt.
-
-## Supported backends
-
-- `faster-whisper`
-- `whisper.cpp`
-- `mlx-whisper`
-
-## Supported output formats
-
-- `txt`, `json`, `srt`, `vtt`
-
-## Philosophy
-
-bestASR is not another ASR model. It is an intelligent local ASR router whose
-job is to answer one question:
-
-> What is the best speech recognition setup for this machine and this audio file?
+Every recommendation carries a `reason` list. Cold-start recommendations say
+so honestly and point you at `bestasr benchmark`.
 
 ## Development
 
 ```bash
-pip install -e ".[dev]"
-pytest
+swift test          # 95+ tests, no real models needed (engines are mocked)
+swift build         # debug build
 ```
+
+Specs live in `openspec/specs/` (Spectra spec-driven development). The
+original cross-platform Python implementation is preserved under
+`archive/python/` for reference.
 
 ## License
 
