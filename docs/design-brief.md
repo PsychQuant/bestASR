@@ -4,6 +4,7 @@
 > 後續所有 Spectra proposal / spec / tasks 都是對這份草案的「詮釋與結構化」；當結構化文件與這份草案衝突時，以這份草案的原意為準，並回頭修正結構化文件。
 > — 來源：使用者於 2026-07-01 透過 `/issue-driven-dev:idd-issue` 提供的專案草案
 > — 保留原因：Spectra 的 proposal 是 AI 濃縮過的產物，會流失原文細節（CLI 範例、router 決策表、資料結構）。此檔逐字保存以供審計與追溯。
+> — 追蹤 issue：[PsychQuant/bestASR#1](https://github.com/PsychQuant/bestASR/issues/1)（同份原文亦逐字嵌於該 issue 的 `<details>` 區塊）
 
 ---
 
