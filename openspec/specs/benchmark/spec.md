@@ -1007,3 +1007,56 @@ tests:
   - archive/python/tests/test_dataclasses.py
   - archive/python/tests/test_engines.py
 -->
+
+---
+### Requirement: Measure the context-biasing delta
+
+When a context directory is provided, the benchmark SHALL measure each candidate twice — a baseline run without the context prompt and a run with it — and report both error rates plus their delta per candidate, in the table and in the JSON output. Only the baseline record SHALL be persisted to the machine-local cache: context effects vary per audio and per document set, and cached routing data stays context-neutral.
+
+#### Scenario: Delta appears per candidate
+
+- **WHEN** a benchmark runs with a context directory over two candidates
+- **THEN** each reported candidate carries a baseline error rate, a with-context error rate, and their delta
+
+##### Example: biasing improves the name-heavy clip
+
+| Candidate       | WER (baseline) | WER (ctx) | Delta  |
+| --------------- | -------------- | --------- | ------ |
+| whisperkit tiny | 0.25           | 0.15      | -0.10  |
+
+#### Scenario: Cache stays context-neutral
+
+- **WHEN** a context-enabled benchmark completes
+- **THEN** the machine-local cache holds the baseline measurements only
+
+#### Scenario: No context directory means no extra runs
+
+- **WHEN** a benchmark runs without a context directory
+- **THEN** each candidate is measured once and the report shape is unchanged from the pre-context feature
+
+<!-- @trace
+source: context-calibration-and-marketplace
+updated: 2026-07-02
+code:
+  - Sources/BestASRKit/Models/DataModels.swift
+  - Tests/BestASRKitTests/PluginTests.swift
+  - Sources/BestASRKit/Context/ContextSchema.swift
+  - plugins/bestasr/skills/context-ingest/SKILL.md
+  - Sources/BestASRKit/Context/PromptRenderer.swift
+  - Sources/bestasr/BestASRCommand.swift
+  - Tests/BestASRKitTests/ContextTests.swift
+  - plugins/bestasr/.claude-plugin/plugin.json
+  - README.md
+  - .claude-plugin/marketplace.json
+  - Tests/BestASRKitTests/DataModelTests.swift
+  - Sources/BestASRKit/CommandCore.swift
+  - plugins/bestasr/skills/srt-proofread/SKILL.md
+  - Sources/BestASRKit/Engines/WhisperCppEngine.swift
+  - Sources/BestASRKit/Benchmark/BenchmarkReport.swift
+  - Tests/BestASRKitTests/BenchmarkTests.swift
+  - Sources/BestASRKit/Engines/WhisperKitEngine.swift
+  - Tests/BestASRKitTests/BackendEngineTests.swift
+  - Sources/BestASRKit/Context/ContextLoader.swift
+  - Sources/BestASRKit/Benchmark/BenchmarkRunner.swift
+  - Tests/BestASRKitTests/CLITests.swift
+-->
