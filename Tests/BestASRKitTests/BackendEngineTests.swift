@@ -66,3 +66,44 @@ struct WhisperCppEngineTests {
         }
     }
 }
+
+struct PromptForwardingTests {
+    @Test func `whisper-cli arguments carry the prompt when present`() {
+        let args = WhisperCppEngine.makeArguments(
+            modelPath: "/m/ggml-small-q5_0.bin", audioPath: "clip.wav",
+            outputBase: "/tmp/out", language: "zh", prompt: "鄭澈, Che, CoreML")
+        #expect(args.contains("--prompt"))
+        let idx = args.firstIndex(of: "--prompt")!
+        #expect(args[idx + 1] == "鄭澈, Che, CoreML")
+    }
+
+    @Test func `Absent prompt adds nothing to the whisper-cli invocation`() {
+        let args = WhisperCppEngine.makeArguments(
+            modelPath: "/m/x.bin", audioPath: "clip.wav",
+            outputBase: "/tmp/out", language: nil, prompt: nil)
+        #expect(!args.contains("--prompt"))
+    }
+
+    @Test func `WhisperKit prompt tokens are clamped under the 224 window`() {
+        let big = Array(0..<500)
+        let clamped = WhisperKitEngine.clampedPromptTokens(big)
+        #expect(clamped.count == 224)
+        #expect(clamped.last == 499)  // suffix keeps the most recent tokens
+        #expect(WhisperKitEngine.clampedPromptTokens([1, 2, 3]) == [1, 2, 3])
+    }
+
+    @Test func `Options prompt flows through the engine seam`() async throws {
+        // MockEngine's raw closure sees the same options the caller passed —
+        // the transcribe template method forwards prompt untouched.
+        let engine = MockEngine(id: .whisperKit, available: true) { _, options in
+            #expect(options.prompt == "鄭澈, CoreML")
+            return RawTranscription(
+                segments: [.init(start: 0, end: 1, text: "hi")], language: "zh", duration: 1)
+        }
+        _ = try await engine.transcribe(
+            audioPath: "clip.wav",
+            options: TranscribeOptions(
+                model: "tiny", quantization: "default", language: "zh", prompt: "鄭澈, CoreML")
+        )
+    }
+}

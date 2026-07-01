@@ -46,6 +46,50 @@ public struct CommandCore: Sendable {
         return result
     }
 
+    // MARK: - Context (spec context-calibration; design D1/D4/D9)
+
+    struct ContextBundle {
+        let loaded: LoadedContext
+        let rendered: PromptRenderer.Rendered
+    }
+
+    /// Resolve + load + render. Returns nil when nothing resolves or the
+    /// directory holds neither values nor ignorable files — zero impact.
+    /// A directory that only holds unsupported files still returns a bundle
+    /// (prompt nil) so the ignore list is disclosed loudly, never silently.
+    func loadContext(flag: String?) throws -> ContextBundle? {
+        guard let loaded = try ContextLoader.load(flag: flag) else { return nil }
+        if loaded.isEmpty && loaded.ignoredFiles.isEmpty { return nil }
+        return ContextBundle(loaded: loaded, rendered: PromptRenderer.render(loaded))
+    }
+
+    static func contextReasonLine(_ bundle: ContextBundle) -> String {
+        if bundle.rendered.injected.isEmpty {
+            return "context: \(bundle.loaded.directory) — 0 values injected; "
+                + "\(bundle.loaded.ignoredFiles.count) file(s) ignored (run the context-ingest skill)"
+        }
+        return "context: \(bundle.loaded.directory) — \(bundle.rendered.injected.count) value(s) injected"
+    }
+
+    /// Explain-mode disclosure (design D9): resolved dir, injected values,
+    /// truncated items, ignored files with ingestion guidance.
+    static func contextExplanation(_ bundle: ContextBundle) -> [String] {
+        var lines = ["Context: \(bundle.loaded.directory)"]
+        lines.append(
+            "  injected (\(bundle.rendered.injected.count)): "
+                + (bundle.rendered.injected.isEmpty
+                    ? "(none)" : bundle.rendered.injected.joined(separator: ", ")))
+        if !bundle.rendered.truncated.isEmpty {
+            lines.append(
+                "  truncated (\(bundle.rendered.truncated.count)): "
+                    + bundle.rendered.truncated.joined(separator: ", "))
+        }
+        for file in bundle.loaded.ignoredFiles {
+            lines.append("  ignored: \(file) — \(LoadedContext.ingestGuidance)")
+        }
+        return lines
+    }
+
     // MARK: - diagnose (spec cli: diagnose command)
 
     public func diagnose() async throws -> String {
@@ -124,7 +168,16 @@ public struct CommandCore: Sendable {
     public func recommendJSON(audioPath: String, selection: SelectionRequest) async throws -> String {
         let audio = try AudioProber.probe(
             path: audioPath, requestedLanguage: selection.requestedLanguage)
-        let rec = try await resolveRecommendation(selection: selection, language: audio.language)
+        var rec = try await resolveRecommendation(selection: selection, language: audio.language)
+        if let bundle = try loadContext(flag: selection.contextDir) {
+            rec = ASRRecommendation(
+                backend: rec.backend, model: rec.model, quantization: rec.quantization,
+                profile: rec.profile, language: rec.language, dataSource: rec.dataSource,
+                measured: rec.measured,
+                reason: rec.reason + [Self.contextReasonLine(bundle)],
+                warnings: rec.warnings
+            )
+        }
         let document = RecommendationJSON(
             backend: rec.backend.rawValue,
             model: rec.model,
@@ -159,10 +212,12 @@ public struct CommandCore: Sendable {
             throw BestASRError.runtime("no engine registered for backend \(rec.backend.rawValue)")
         }
 
+        let context = try loadContext(flag: selection.contextDir)
         let transcript = try await engine.transcribe(
             audioPath: audio.path,
             options: TranscribeOptions(
-                model: rec.model, quantization: rec.quantization, language: audio.language)
+                model: rec.model, quantization: rec.quantization,
+                language: audio.language, prompt: context?.rendered.prompt)
         )
 
         let destination = outputPath ?? Self.derivedOutputPath(audioPath: audioPath, format: format)
@@ -174,6 +229,9 @@ public struct CommandCore: Sendable {
         ]
         explanation += rec.reason.map { "  - \($0)" }
         explanation += rec.warnings.map { "  ! \($0)" }
+        if let context {
+            explanation += Self.contextExplanation(context)
+        }
         return TranscribeOutcome(
             outputPath: destination,
             format: format.rawValue,
@@ -195,7 +253,8 @@ public struct CommandCore: Sendable {
         backendFilter: [String]?,
         modelFilter: [String]?,
         profileName: String,
-        asJSON: Bool
+        asJSON: Bool,
+        contextDir: String? = nil
     ) async throws -> String {
         guard let profile = RouterProfile(rawValue: profileName.lowercased()) else {
             throw BestASRError.usage(
@@ -228,13 +287,22 @@ public struct CommandCore: Sendable {
             )
         }
 
+        // ±context delta mode (spec benchmark; design D6): context is loaded
+        // via the same three-layer resolution; the runner measures a second
+        // with-context pass per candidate while the cache stays baseline-only.
+        let contextBundle = try loadContext(flag: contextDir)
         let outcome = await runner.run(
             candidates: enumeration.candidates,
-            notes: enumeration.notes,
+            notes: enumeration.notes
+                + (contextBundle.map {
+                    ["context: \($0.loaded.directory) — "
+                     + "\($0.rendered.injected.count) value(s) in the with-context pass"]
+                } ?? []),
             audio: audio,
             referenceText: referenceText,
             metricKind: metricKind,
-            language: resolvedLanguage ?? "auto"
+            language: resolvedLanguage ?? "auto",
+            contextPrompt: contextBundle?.rendered.prompt
         )
 
         if !outcome.measured.isEmpty {

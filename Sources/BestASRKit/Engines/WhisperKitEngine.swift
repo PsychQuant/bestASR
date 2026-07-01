@@ -25,6 +25,12 @@ public struct WhisperKitEngine: Engine {
         }
     }
 
+    /// Whisper's practical prompt window is ~224 tokens; the renderer budgets
+    /// ~200 with a heuristic, this clamp is the tokenizer-measured net.
+    static func clampedPromptTokens(_ tokens: [Int], limit: Int = 224) -> [Int] {
+        tokens.count <= limit ? tokens : Array(tokens.suffix(limit))
+    }
+
     public func transcribeRaw(
         audioPath: String, options: TranscribeOptions
     ) async throws -> RawTranscription {
@@ -46,6 +52,15 @@ public struct WhisperKitEngine: Engine {
         var decodeOptions = DecodingOptions()
         decodeOptions.language = options.language
         decodeOptions.detectLanguage = options.language == nil
+        if let prompt = options.prompt, let tokenizer = pipe.tokenizer {
+            // Context prompt (spec asr-engine): conditioning tokens prepended to
+            // the prefill; clamped as a safety net under Whisper's ~224 limit.
+            let tokens = Self.clampedPromptTokens(tokenizer.encode(text: " " + prompt))
+            if !tokens.isEmpty {
+                decodeOptions.promptTokens = tokens
+                decodeOptions.usePrefillPrompt = true
+            }
+        }
 
         let results = try await pipe.transcribe(audioPath: audioPath, decodeOptions: decodeOptions)
         let segments = results.flatMap(\.segments).map { seg in

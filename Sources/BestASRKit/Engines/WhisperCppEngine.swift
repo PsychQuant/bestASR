@@ -46,6 +46,28 @@ public struct WhisperCppEngine: Engine {
         "ggml-\(model)-\(quantization).bin"
     }
 
+    /// whisper-cli argument assembly — pure so tests can assert the prompt
+    /// forwarding contract without launching a process (spec asr-engine).
+    static func makeArguments(
+        modelPath: String, audioPath: String, outputBase: String,
+        language: String?, prompt: String?
+    ) -> [String] {
+        var arguments = [
+            "-m", modelPath,
+            "-f", audioPath,
+            "-oj",  // JSON output
+            "-of", outputBase,
+            "-np",  // no runtime prints
+        ]
+        if let language {
+            arguments += ["-l", language]
+        }
+        if let prompt {
+            arguments += ["--prompt", prompt]
+        }
+        return arguments
+    }
+
     public func transcribeRaw(
         audioPath: String, options: TranscribeOptions
     ) async throws -> RawTranscription {
@@ -73,16 +95,13 @@ public struct WhisperCppEngine: Engine {
             .appendingPathComponent("bestasr-wcpp-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: outputBase.appendingPathExtension("json")) }
 
-        var arguments = [
-            "-m", modelFile.path,
-            "-f", audioPath,
-            "-oj",  // JSON output
-            "-of", outputBase.path,
-            "-np",  // no runtime prints
-        ]
-        if let language = options.language {
-            arguments += ["-l", language]
-        }
+        let arguments = Self.makeArguments(
+            modelPath: modelFile.path,
+            audioPath: audioPath,
+            outputBase: outputBase.path,
+            language: options.language,
+            prompt: options.prompt
+        )
 
         let process = Process()
         process.executableURL = URL(fileURLWithPath: binary)

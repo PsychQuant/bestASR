@@ -136,6 +136,9 @@ struct Benchmark: AsyncParsableCommand {
     @Option(help: "Optimization profile: fast | balanced | accurate")
     var profile: String = RouterProfile.balanced.rawValue
 
+    @Option(help: "Context documents directory — adds a with-context pass and delta columns")
+    var contextDir: String?
+
     @Flag(help: "Emit machine-readable JSON instead of the table")
     var json = false
 
@@ -149,7 +152,8 @@ struct Benchmark: AsyncParsableCommand {
                     backendFilter: Benchmark.parseList(backends),
                     modelFilter: Benchmark.parseList(models),
                     profileName: profile,
-                    asJSON: json
+                    asJSON: json,
+                    contextDir: contextDir
                 )
             )
         }
@@ -197,12 +201,16 @@ struct SelectionOptions: ParsableArguments {
     @Option(help: "Audio language code, or 'auto'")
     var language: String = "auto"
 
+    @Option(help: "Context documents directory (default: three-layer resolution)")
+    var contextDir: String?
+
     func resolved() -> SelectionRequest {
         SelectionRequest(
             profileName: profile,
             backendOverride: backend == "auto" ? nil : backend,
             modelOverride: model == "auto" ? nil : model,
-            requestedLanguage: language
+            requestedLanguage: language,
+            contextDir: contextDir
         )
     }
 }

@@ -16,27 +16,50 @@ public enum BenchmarkReport {
                     (BenchmarkCache.key($0.record), $0.warmupSeconds)
                 })
 
-            let header = [
+            let contextByKey = Dictionary(
+                uniqueKeysWithValues: outcome.measured.map {
+                    (BenchmarkCache.key($0.record), $0.contextErrorRate)
+                })
+            let hasContext = outcome.measured.contains { $0.contextErrorRate != nil }
+
+            var columns = [
                 pad("RANK", 4), pad("BACKEND", 12), pad("MODEL", 16), pad("QUANT", 8),
-                pad("\(metric)%", 7), pad("X-REAL", 7), pad("PEAK-GB", 8), pad("WARMUP-S", 8),
-            ].joined(separator: "  ")
+                pad("\(metric)%", 7),
+            ]
+            if hasContext {
+                columns += [pad("\(metric)(CTX)%", 10), pad("DELTA", 7)]
+            }
+            columns += [pad("X-REAL", 7), pad("PEAK-GB", 8), pad("WARMUP-S", 8)]
+            let header = columns.joined(separator: "  ")
             lines.append(header)
             lines.append(String(repeating: "-", count: header.count))
             for scored in ranked {
                 let record = scored.record
-                let warmup = warmupByKey[BenchmarkCache.key(record)] ?? 0
-                lines.append(
-                    [
-                        pad("\(scored.rank)", 4),
-                        pad(record.backend, 12),
-                        pad(record.model, 16),
-                        pad(record.quantization, 8),
-                        pad(String(format: "%.1f", record.errorRate * 100), 7),
-                        pad(String(format: "%.1f", record.timesRealtime), 7),
-                        pad(String(format: "%.2f", record.peakMemoryGB), 8),
-                        pad(String(format: "%.1f", warmup), 8),
-                    ].joined(separator: "  ")
-                )
+                let key = BenchmarkCache.key(record)
+                let warmup = warmupByKey[key] ?? 0
+                var row = [
+                    pad("\(scored.rank)", 4),
+                    pad(record.backend, 12),
+                    pad(record.model, 16),
+                    pad(record.quantization, 8),
+                    pad(String(format: "%.1f", record.errorRate * 100), 7),
+                ]
+                if hasContext {
+                    if let ctx = contextByKey[key] ?? nil {
+                        row += [
+                            pad(String(format: "%.1f", ctx * 100), 10),
+                            pad(String(format: "%+.1f", (ctx - record.errorRate) * 100), 7),
+                        ]
+                    } else {
+                        row += [pad("—", 10), pad("—", 7)]
+                    }
+                }
+                row += [
+                    pad(String(format: "%.1f", record.timesRealtime), 7),
+                    pad(String(format: "%.2f", record.peakMemoryGB), 8),
+                    pad(String(format: "%.1f", warmup), 8),
+                ]
+                lines.append(row.joined(separator: "  "))
             }
             lines.append("")
             lines.append(
@@ -69,6 +92,10 @@ public enum BenchmarkReport {
         let quantization: String
         let metric_kind: String
         let error_rate: Double
+        /// With-context pass error rate (spec: Measure the context-biasing
+        /// delta); null when the run had no context directory.
+        let context_error_rate: Double?
+        let delta: Double?
         let rtf: Double
         let times_realtime: Double
         let peak_memory_gb: Double
@@ -97,22 +124,30 @@ public enum BenchmarkReport {
             uniqueKeysWithValues: outcome.measured.map {
                 (BenchmarkCache.key($0.record), $0.warmupSeconds)
             })
+        let contextByKey = Dictionary(
+            uniqueKeysWithValues: outcome.measured.map {
+                (BenchmarkCache.key($0.record), $0.contextErrorRate)
+            })
         let document = JSONDocument(
             profile: profile.rawValue,
             language: outcome.language,
             metric_kind: outcome.metricKind.rawValue,
             results: ranked.map { scored in
-                JSONRow(
+                let key = BenchmarkCache.key(scored.record)
+                let contextRate = contextByKey[key] ?? nil
+                return JSONRow(
                     rank: scored.rank,
                     backend: scored.record.backend,
                     model: scored.record.model,
                     quantization: scored.record.quantization,
                     metric_kind: scored.record.metricKind.rawValue,
                     error_rate: scored.record.errorRate,
+                    context_error_rate: contextRate,
+                    delta: contextRate.map { $0 - scored.record.errorRate },
                     rtf: scored.record.rtf,
                     times_realtime: scored.record.timesRealtime,
                     peak_memory_gb: scored.record.peakMemoryGB,
-                    warmup_seconds: warmupByKey[BenchmarkCache.key(scored.record)] ?? 0
+                    warmup_seconds: warmupByKey[key] ?? 0
                 )
             },
             failures: outcome.failures.map {

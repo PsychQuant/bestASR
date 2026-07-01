@@ -196,3 +196,96 @@ struct BenchmarkCacheTests {
         #expect(try cache.load().count == 2)
     }
 }
+
+// MARK: - ±context delta (task 4.1; spec benchmark: Measure the context-biasing delta)
+
+struct ContextDeltaBenchmarkTests {
+    /// Baseline mishears ("hello"), the context prompt fixes it ("hello world")
+    /// against reference "hello world": WER 0.5 → 0.0, delta -0.5.
+    static func biasedEngine() -> MockEngine {
+        MockEngine(id: .whisperKit, available: true) { _, options in
+            let text = options.prompt == nil ? "hello" : "hello world"
+            return RawTranscription(
+                segments: [.init(start: 0, end: 2, text: text)], language: "en", duration: 2)
+        }
+    }
+
+    private let candidate = BenchmarkCandidate(
+        backend: .whisperKit, model: "tiny", quantization: "default")
+    private let audio = AudioInfo(
+        path: "clip.wav", duration: 60, format: "wav", sampleRate: 16000, channels: 1)
+
+    @Test func `Context prompt adds a with-context pass and the delta per candidate`() async {
+        let runner = BenchmarkRunner(
+            engines: [Self.biasedEngine()], host: Fixtures.m5Max,
+            probe: FakeClock(step: 1).probe())
+        let outcome = await runner.run(
+            candidates: [candidate], notes: [], audio: audio,
+            referenceText: "hello world", metricKind: .wer, language: "en",
+            contextPrompt: "鄭澈, world"
+        )
+        let measured = try! #require(outcome.measured.first)
+        #expect(measured.record.errorRate == 0.5)       // baseline pass, persisted
+        #expect(measured.contextErrorRate == 0.0)        // with-context pass
+    }
+
+    @Test func `Report gains ctx and delta columns and cache stays baseline-only`() async throws {
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let ctxDir = dir.appendingPathComponent("ctx")
+        try FileManager.default.createDirectory(at: ctxDir, withIntermediateDirectories: true)
+        try #"{"version":1,"terms":["world"]}"#.write(
+            to: ctxDir.appendingPathComponent("context.json"), atomically: true, encoding: .utf8)
+        let audioPath = try makeWavFile(in: dir, seconds: 2.0)
+        let srt = dir.appendingPathComponent("truth.srt").path
+        try "1\n00:00:00,000 --> 00:00:02,000\nhello world\n".write(
+            toFile: srt, atomically: true, encoding: .utf8)
+        let cache = BenchmarkCache(fileURL: dir.appendingPathComponent("benchmarks.json"))
+        let core = CommandCore(
+            engines: [Self.biasedEngine()],
+            detect: { Fixtures.m5Max },
+            cache: cache,
+            probe: FakeClock(step: 1).probe()
+        )
+
+        let report = try await core.benchmark(
+            audioPath: audioPath, referencePath: srt, language: "en",
+            backendFilter: nil, modelFilter: ["tiny"], profileName: "balanced",
+            asJSON: false, contextDir: ctxDir.path
+        )
+        #expect(report.contains("WER(CTX)%"))
+        #expect(report.contains("DELTA"))
+        #expect(report.contains("-50.0"))  // 0.5 → 0.0 in percent
+
+        // Cache stays context-neutral: one baseline record (spec scenario).
+        let records = try cache.load()
+        #expect(records.count == 1)
+        #expect(records[0].errorRate == 0.5)
+
+        // JSON mode carries the machine-readable fields.
+        let json = try await core.benchmark(
+            audioPath: audioPath, referencePath: srt, language: "en",
+            backendFilter: nil, modelFilter: ["tiny"], profileName: "balanced",
+            asJSON: true, contextDir: ctxDir.path
+        )
+        let doc = try #require(
+            try JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any])
+        let results = try #require(doc["results"] as? [[String: Any]])
+        #expect(results[0]["context_error_rate"] as? Double == 0.0)
+        #expect(results[0]["delta"] as? Double == -0.5)
+    }
+
+    @Test func `No context directory means single-pass runs and an unchanged report shape`() async {
+        let runner = BenchmarkRunner(
+            engines: [Self.biasedEngine()], host: Fixtures.m5Max,
+            probe: FakeClock(step: 1).probe())
+        let outcome = await runner.run(
+            candidates: [candidate], notes: [], audio: audio,
+            referenceText: "hello world", metricKind: .wer, language: "en"
+        )
+        #expect(outcome.measured.first?.contextErrorRate == nil)
+        let report = BenchmarkReport.table(outcome: outcome, profile: .balanced)
+        #expect(!report.contains("(CTX)%"))
+        #expect(!report.contains("DELTA"))
+    }
+}

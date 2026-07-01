@@ -70,6 +70,31 @@ The ground truth is a standard `.srt` subtitle file. Accuracy is scored as
 otherwise; speed as measured times-realtime (model download/load excluded);
 results persist in `~/.bestasr/benchmarks.json` per machine.
 
+### Context calibration (make domain terms and names come out right)
+
+Put your documents into a context folder and bestASR biases the decoder toward
+your vocabulary — and an agent can proofread the result:
+
+```bash
+# 1. Distill documents (pdf/docx/…) into context.json — agent skill
+claude plugin marketplace add PsychQuant/bestASR
+#    then ask Claude to run the context-ingest skill on your docs folder
+
+# 2. Transcribe with context (auto-resolves --context-dir >
+#    ./bestasr-context/ > ~/.bestasr/context/) and see what got injected
+bestasr transcribe input.mp3 --explain
+
+# 3. Prove the biasing works on YOUR audio (± context delta columns)
+bestasr benchmark clip.wav --reference clip.srt --context-dir ./bestasr-context
+
+# 4. Agent-side proofreading (three-axis: speaker / timestamp / text,
+#    timecodes immutable) — srt-proofread skill
+```
+
+`context.json` v1 carries `terms`, `names` (with aliases + roles — the speaker
+axis), and `phrases`; plain `.txt`/`.md` term lists work too. Unsupported
+formats are loudly ignored with guidance. An empty folder changes nothing.
+
 ### Commands
 
 | Command | What it does |
@@ -77,7 +102,7 @@ results persist in `~/.bestasr/benchmarks.json` per machine.
 | `bestasr diagnose` | Hardware profile (chip / unified memory / ANE / macOS) + recommendation |
 | `bestasr benchmark <audio> --reference <gt.srt>` | Measure candidates, print ranked table, persist results (`--json` for machines) |
 | `bestasr recommend <audio>` | JSON recommendation only — measured when data exists, cold-start prior otherwise |
-| `bestasr transcribe <audio>` | Transcribe; `--format txt\|json\|srt\|vtt`, `--output`, `--explain` |
+| `bestasr transcribe <audio>` | Transcribe; `--format txt\|json\|srt\|vtt`, `--output`, `--context-dir`, `--explain` |
 | `bestasr list-backends` | Backend availability on this machine |
 | `bestasr list-models` | Model sizes and quantization variants |
 

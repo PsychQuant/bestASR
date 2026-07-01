@@ -40,6 +40,16 @@ public struct MeasuredCandidate: Sendable {
     /// Warm-up wall-clock seconds (model download + first load) — reported
     /// separately, never part of RTF (design D7).
     public let warmupSeconds: Double
+    /// Error rate of the with-context pass (spec benchmark: Measure the
+    /// context-biasing delta); nil when no context directory was provided.
+    /// Only the baseline record is ever persisted (design D6).
+    public let contextErrorRate: Double?
+
+    public init(record: BenchmarkRecord, warmupSeconds: Double, contextErrorRate: Double? = nil) {
+        self.record = record
+        self.warmupSeconds = warmupSeconds
+        self.contextErrorRate = contextErrorRate
+    }
 }
 
 public struct BenchmarkFailure: Sendable {
@@ -135,7 +145,8 @@ public struct BenchmarkRunner {
         audio: AudioInfo,
         referenceText: String,
         metricKind: MetricKind,
-        language: String
+        language: String,
+        contextPrompt: String? = nil
     ) async -> BenchmarkOutcome {
         var measured: [MeasuredCandidate] = []
         var failures: [BenchmarkFailure] = []
@@ -159,10 +170,13 @@ public struct BenchmarkRunner {
                     BenchmarkFailure(candidate: candidate, reason: "no engine for backend"))
                 continue
             }
+            let effectiveLanguage = language == "auto" ? nil : language
+            // Baseline options never carry the prompt — the persisted record
+            // stays context-neutral (design D6).
             let options = TranscribeOptions(
                 model: candidate.model,
                 quantization: candidate.quantization,
-                language: language == "auto" ? nil : language
+                language: effectiveLanguage
             )
             do {
                 // Warm-up run: downloads/loads the model; excluded from RTF.
@@ -179,6 +193,26 @@ public struct BenchmarkRunner {
 
                 let errorRate = ErrorRate.compute(
                     hypothesis: transcript.text, reference: referenceText, kind: metricKind)
+
+                // Optional second pass with the context prompt (spec benchmark:
+                // Measure the context-biasing delta). Model is warm; failures
+                // here degrade to a note-worthy nil, not a candidate failure.
+                var contextErrorRate: Double?
+                if let contextPrompt {
+                    let contextOptions = TranscribeOptions(
+                        model: candidate.model,
+                        quantization: candidate.quantization,
+                        language: effectiveLanguage,
+                        prompt: contextPrompt
+                    )
+                    if let contextTranscript = try? await engine.transcribe(
+                        audioPath: audio.path, options: contextOptions)
+                    {
+                        contextErrorRate = ErrorRate.compute(
+                            hypothesis: contextTranscript.text,
+                            reference: referenceText, kind: metricKind)
+                    }
+                }
                 let record = BenchmarkRecord(
                     backend: candidate.backend.rawValue,
                     model: candidate.model,
@@ -194,7 +228,10 @@ public struct BenchmarkRunner {
                     macosVersion: host.macosVersion,
                     appVersion: BestASRVersion.current
                 )
-                measured.append(MeasuredCandidate(record: record, warmupSeconds: warmupSeconds))
+                measured.append(
+                    MeasuredCandidate(
+                        record: record, warmupSeconds: warmupSeconds,
+                        contextErrorRate: contextErrorRate))
             } catch {
                 let reason = (error as? TranscriptionError)?.errorDescription
                     ?? error.localizedDescription

@@ -248,3 +248,122 @@ struct ListCommandTests {
         #expect(output.contains("q5_0"))
     }
 }
+
+// MARK: - Context wiring (tasks 3.1/3.2; spec context-calibration + cli MODIFIED)
+
+private func makeContextFixture(in dir: URL) throws -> String {
+    let ctx = dir.appendingPathComponent("ctx")
+    try FileManager.default.createDirectory(at: ctx, withIntermediateDirectories: true)
+    try """
+        {"version":1,"terms":["benchmark-driven","CoreML"],
+         "names":[{"name":"鄭澈","aliases":["Che"],"role":"主持人"}]}
+        """.write(to: ctx.appendingPathComponent("context.json"), atomically: true, encoding: .utf8)
+    try "WhisperKit\n".write(
+        to: ctx.appendingPathComponent("terms.txt"), atomically: true, encoding: .utf8)
+    try Data("fake".utf8).write(to: ctx.appendingPathComponent("lecture.pdf"))
+    return ctx.path
+}
+
+/// Captures the options each transcription received — parallel-test safe.
+final class OptionsBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var stored: [TranscribeOptions] = []
+    func append(_ options: TranscribeOptions) {
+        lock.lock(); defer { lock.unlock() }
+        stored.append(options)
+    }
+    var all: [TranscribeOptions] {
+        lock.lock(); defer { lock.unlock() }
+        return stored
+    }
+}
+
+private func capturingEngine(_ box: OptionsBox) -> MockEngine {
+    MockEngine(id: .whisperKit, available: true) { _, options in
+        box.append(options)
+        return RawTranscription(
+            segments: [.init(start: 0.0, end: 2.5, text: "hello world")],
+            language: "en", duration: 2.5)
+    }
+}
+
+struct ContextCommandTests {
+    @Test func `Explicit context directory feeds the transcription and explain discloses usage`() async throws {
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let audio = try makeWavFile(in: dir)
+        let ctxDir = try makeContextFixture(in: dir)
+        let box = OptionsBox()
+        let core = CommandCore(
+            engines: [capturingEngine(box)],
+            detect: { Fixtures.m5Max },
+            cache: BenchmarkCache(fileURL: dir.appendingPathComponent("b.json")),
+            probe: FakeClockProbe.probe()
+        )
+        let selection = SelectionRequest(
+            profileName: "balanced", backendOverride: nil, modelOverride: nil,
+            requestedLanguage: "auto", contextDir: ctxDir)
+
+        let outcome = try await core.transcribe(
+            audioPath: audio, selection: selection, formatName: "txt", outputPath: nil)
+
+        // Prompt reached the engine, names first (spec worked-example ordering).
+        let prompt = try #require(box.all.first?.prompt)
+        #expect(prompt.hasPrefix("鄭澈, Che"))
+        #expect(prompt.contains("WhisperKit"))  // txt term merged after json terms
+
+        // Explain discloses dir, injected, ignored (D9).
+        #expect(outcome.explanation.contains("Context: \(ctxDir)"))
+        #expect(outcome.explanation.contains("injected (5)"))
+        #expect(outcome.explanation.contains("ignored: lecture.pdf"))
+        #expect(outcome.explanation.contains("context-ingest"))
+
+        // Transcript file stays free of explanations.
+        let written = try String(contentsOfFile: outcome.outputPath, encoding: .utf8)
+        #expect(written == "hello world")
+    }
+
+    @Test func `Zero impact when the context directory is empty`() async throws {
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let audio = try makeWavFile(in: dir)
+        let emptyCtx = dir.appendingPathComponent("empty-ctx")
+        try FileManager.default.createDirectory(at: emptyCtx, withIntermediateDirectories: true)
+        let box = OptionsBox()
+        let core = CommandCore(
+            engines: [capturingEngine(box)],
+            detect: { Fixtures.m5Max },
+            cache: BenchmarkCache(fileURL: dir.appendingPathComponent("b.json")),
+            probe: FakeClockProbe.probe()
+        )
+        let selection = SelectionRequest(
+            profileName: "balanced", backendOverride: nil, modelOverride: nil,
+            requestedLanguage: "auto", contextDir: emptyCtx.path)
+
+        let outcome = try await core.transcribe(
+            audioPath: audio, selection: selection, formatName: "txt", outputPath: nil)
+        #expect(box.all.first?.prompt == nil)
+        #expect(!outcome.explanation.contains("Context:"))
+    }
+
+    @Test func `recommend reason carries the context summary line`() async throws {
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let audio = try makeWavFile(in: dir)
+        let ctxDir = try makeContextFixture(in: dir)
+        let core = CommandCore(
+            engines: [MockEngine.fixed(.whisperKit)],
+            detect: { Fixtures.m5Max },
+            cache: BenchmarkCache(fileURL: dir.appendingPathComponent("b.json")),
+            probe: FakeClockProbe.probe()
+        )
+        let selection = SelectionRequest(
+            profileName: "balanced", backendOverride: nil, modelOverride: nil,
+            requestedLanguage: "auto", contextDir: ctxDir)
+        let output = try await core.recommendJSON(audioPath: audio, selection: selection)
+        let json = try #require(
+            try JSONSerialization.jsonObject(with: Data(output.utf8)) as? [String: Any])
+        let reasons = try #require(json["reason"] as? [String])
+        #expect(reasons.contains { $0.contains("context:") && $0.contains("5 value(s) injected") })
+    }
+}

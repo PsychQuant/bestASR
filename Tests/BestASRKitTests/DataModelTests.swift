@@ -16,11 +16,15 @@ struct DataModelTests {
         #expect(info.hasANE == nil)
     }
 
-    @Test func `TranscribeOptions carries model, quantization, and language`() {
-        let options = TranscribeOptions(model: "small", quantization: "q5_0", language: "zh")
+    @Test func `TranscribeOptions carries model, quantization, language, and prompt`() {
+        let options = TranscribeOptions(
+            model: "small", quantization: "q5_0", language: "zh", prompt: "鄭澈, CoreML")
         #expect(options.model == "small")
         #expect(options.quantization == "q5_0")
         #expect(options.language == "zh")
+        #expect(options.prompt == "鄭澈, CoreML")
+        // Absent prompt defaults to nil (spec: adds nothing to the invocation).
+        #expect(TranscribeOptions(model: "tiny", quantization: "default").prompt == nil)
     }
 
     @Test func `TranscriptSegment confidence is optional`() {

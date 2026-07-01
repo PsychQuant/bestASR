@@ -63,11 +63,17 @@ public struct TranscribeOptions: Sendable, Equatable {
     public let model: String
     public let quantization: String
     public let language: String?
+    /// Rendered context vocabulary (spec asr-engine: forwarded to the
+    /// backend's prompt mechanism; nil adds nothing to the invocation).
+    public let prompt: String?
 
-    public init(model: String, quantization: String, language: String? = nil) {
+    public init(
+        model: String, quantization: String, language: String? = nil, prompt: String? = nil
+    ) {
         self.model = model
         self.quantization = quantization
         self.language = language
+        self.prompt = prompt
     }
 }
 
@@ -267,17 +273,21 @@ public struct SelectionRequest: Sendable {
     public let backendOverride: String?
     public let modelOverride: String?
     public let requestedLanguage: String?
+    /// Explicit --context-dir; nil resolves per the three-layer precedence.
+    public let contextDir: String?
 
     public init(
         profileName: String,
         backendOverride: String?,
         modelOverride: String?,
-        requestedLanguage: String?
+        requestedLanguage: String?,
+        contextDir: String? = nil
     ) {
         self.profileName = profileName
         self.backendOverride = backendOverride
         self.modelOverride = modelOverride
         self.requestedLanguage = requestedLanguage
+        self.contextDir = contextDir
     }
 }
 
