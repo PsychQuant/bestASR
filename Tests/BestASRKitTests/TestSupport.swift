@@ -1,3 +1,4 @@
+import AVFoundation
 import Foundation
 @testable import BestASRKit
 
@@ -47,6 +48,18 @@ func makeTempDir() throws -> URL {
         .appendingPathComponent("bestasr-tests-\(UUID().uuidString)")
     try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
     return url
+}
+
+/// Writes a real 16 kHz mono wav (silence) so AVFoundation has something to read.
+func makeWavFile(in dir: URL, seconds: Double = 1.0, name: String = "clip.wav") throws -> String {
+    let url = dir.appendingPathComponent(name)
+    let format = AVAudioFormat(standardFormatWithSampleRate: 16000, channels: 1)!
+    let file = try AVAudioFile(forWriting: url, settings: format.settings)
+    let frames = AVAudioFrameCount(16000 * seconds)
+    let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frames)!
+    buffer.frameLength = frames
+    try file.write(from: buffer)
+    return url.path
 }
 
 /// Host fixtures mirroring the machines the spec scenarios talk about.

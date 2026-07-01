@@ -28,6 +28,21 @@ struct BestASR: AsyncParsableCommand {
 // stays a thin argument-parsing shell; behavior lives in the library where the
 // test target can reach it).
 
+/// Maps typed library errors to the design-D10 exit codes: usage → 2,
+/// runtime/transcription → 1. Everything else falls through to ArgumentParser.
+func runMapped(_ body: () async throws -> Void) async throws {
+    do {
+        try await body()
+    } catch let error as BestASRError {
+        FileHandle.standardError.write(Data("error: \(error.errorDescription ?? "failed")\n".utf8))
+        throw ExitCode(error.exitCode)
+    } catch let error as TranscriptionError {
+        FileHandle.standardError.write(
+            Data("error: \(error.errorDescription ?? "transcription failed")\n".utf8))
+        throw ExitCode(1)
+    }
+}
+
 struct Diagnose: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "diagnose",
@@ -35,8 +50,9 @@ struct Diagnose: AsyncParsableCommand {
     )
 
     func run() async throws {
-        let core = CommandCore.live()
-        print(try await core.diagnose())
+        try await runMapped {
+            print(try await CommandCore.live().diagnose())
+        }
     }
 }
 
@@ -52,8 +68,11 @@ struct Recommend: AsyncParsableCommand {
     @OptionGroup var selection: SelectionOptions
 
     func run() async throws {
-        let core = CommandCore.live()
-        print(try await core.recommendJSON(audioPath: audio, selection: selection.resolved()))
+        try await runMapped {
+            print(
+                try await CommandCore.live().recommendJSON(
+                    audioPath: audio, selection: selection.resolved()))
+        }
     }
 }
 
@@ -78,16 +97,17 @@ struct Transcribe: AsyncParsableCommand {
     var explain = false
 
     func run() async throws {
-        let core = CommandCore.live()
-        let result = try await core.transcribe(
-            audioPath: audio,
-            selection: selection.resolved(),
-            formatName: format,
-            outputPath: output
-        )
-        print("Wrote \(result.format) transcript to \(result.outputPath)")
-        if explain {
-            FileHandle.standardError.write(Data((result.explanation + "\n").utf8))
+        try await runMapped {
+            let result = try await CommandCore.live().transcribe(
+                audioPath: audio,
+                selection: selection.resolved(),
+                formatName: format,
+                outputPath: output
+            )
+            print("Wrote \(result.format) transcript to \(result.outputPath)")
+            if explain {
+                FileHandle.standardError.write(Data((result.explanation + "\n").utf8))
+            }
         }
     }
 }
@@ -120,18 +140,19 @@ struct Benchmark: AsyncParsableCommand {
     var json = false
 
     func run() async throws {
-        let core = CommandCore.live()
-        print(
-            try await core.benchmark(
-                audioPath: audio,
-                referencePath: reference,
-                language: language,
-                backendFilter: Benchmark.parseList(backends),
-                modelFilter: Benchmark.parseList(models),
-                profileName: profile,
-                asJSON: json
+        try await runMapped {
+            print(
+                try await CommandCore.live().benchmark(
+                    audioPath: audio,
+                    referencePath: reference,
+                    language: language,
+                    backendFilter: Benchmark.parseList(backends),
+                    modelFilter: Benchmark.parseList(models),
+                    profileName: profile,
+                    asJSON: json
+                )
             )
-        )
+        }
     }
 
     static func parseList(_ raw: String?) -> [String]? {

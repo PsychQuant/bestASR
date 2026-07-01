@@ -77,22 +77,10 @@ struct LanguageResolverTests {
 }
 
 struct AudioProberTests {
-    /// Writes a real 16 kHz mono wav so AVFoundation has something to read.
-    func makeWav(in dir: URL, seconds: Double = 1.0) throws -> String {
-        let url = dir.appendingPathComponent("clip.wav")
-        let format = AVAudioFormat(standardFormatWithSampleRate: 16000, channels: 1)!
-        let file = try AVAudioFile(forWriting: url, settings: format.settings)
-        let frames = AVAudioFrameCount(16000 * seconds)
-        let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frames)!
-        buffer.frameLength = frames
-        try file.write(from: buffer)
-        return url.path
-    }
-
     @Test func `Probing a valid audio file fills duration, format, rate, and channels`() throws {
         let dir = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: dir) }
-        let path = try makeWav(in: dir, seconds: 2.0)
+        let path = try makeWavFile(in: dir, seconds: 2.0)
         let info = try AudioProber.probe(path: path, requestedLanguage: "zh")
         #expect(info.duration != nil)
         #expect(abs((info.duration ?? 0) - 2.0) < 0.05)
