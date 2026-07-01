@@ -94,6 +94,13 @@ def test_compute_type_fp16_when_vram_ample(cuda_system):
     assert select_compute_type("faster-whisper", big) == "fp16"
 
 
+def test_compute_type_int8_when_vram_very_low(cuda_system):
+    from dataclasses import replace
+
+    tiny_gpu = replace(cuda_system, vram_gb=3.0)  # < 4 GB -> most aggressive
+    assert select_compute_type("faster-whisper", tiny_gpu) == "int8"
+
+
 # --- 3.5 Downgrade model when memory is insufficient (SBE example) ---
 
 @pytest.mark.parametrize(

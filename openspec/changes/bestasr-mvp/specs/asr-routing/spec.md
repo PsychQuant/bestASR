@@ -33,7 +33,7 @@ When the caller specifies an explicit backend, the router SHALL use it if availa
 
 ### Requirement: Select model and compute type by profile scoring
 
-The router SHALL select the model from the active profile's candidate model list (`fast` → tiny/base/small, `balanced` → small/medium, `accurate` → medium/large-v3-turbo/large-v3), choosing the most accurate candidate whose estimated memory requirement fits available memory. The candidate lists encode each profile's speed/accuracy trade-off. The profile SHALL default to `balanced` when unspecified. The compute type SHALL be chosen per backend and available memory: `fp16` for MLX, `fp16` or `int8_float16` for CUDA depending on VRAM, and `int8` for CPU whisper.cpp.
+The router SHALL select the model from the active profile's candidate model list (`fast` → tiny/base/small, `balanced` → small/medium, `accurate` → medium/large-v3-turbo/large-v3), choosing the most accurate candidate whose estimated memory requirement fits available memory. The candidate lists encode each profile's speed/accuracy trade-off. The profile SHALL default to `balanced` when unspecified. The compute type SHALL be chosen per backend and available memory: `fp16` for MLX; `fp16`, `int8_float16`, or `int8` for CUDA depending on VRAM; and `int8` for CPU whisper.cpp.
 
 #### Scenario: Accurate profile prefers a larger model when memory allows
 

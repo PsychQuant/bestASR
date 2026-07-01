@@ -62,13 +62,13 @@
     - bestasr/output/json_writer.py
     - bestasr/output/srt.py
     - bestasr/output/vtt.py
+    - bestasr/output/_timecode.py
     - bestasr/models/__init__.py
     - bestasr/models/registry.py
     - bestasr/models/requirements.py
     - bestasr/utils/__init__.py
     - bestasr/utils/ffmpeg.py
-    - bestasr/utils/logging.py
-    - bestasr/utils/paths.py
+    - (logging uses stdlib print for CLI output; output-path derivation is inlined in bestasr/cli.py rather than a separate paths module)
     - tests/test_hardware_detection.py
     - tests/test_router.py
     - tests/test_output_formats.py

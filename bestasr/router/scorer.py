@@ -79,7 +79,10 @@ def select_compute_type(backend: str, system) -> str:
     if backend == "mlx-whisper":
         return "fp16"
     if backend == "faster-whisper":
-        if system.vram_gb is not None and system.vram_gb >= 8:
+        vram = system.vram_gb
+        if vram is not None and vram >= 8:
             return "fp16"
+        if vram is not None and vram < 4:
+            return "int8"  # very low VRAM — most aggressive quantization
         return "int8_float16"
     return "int8"  # whisper.cpp — quantized/int8
