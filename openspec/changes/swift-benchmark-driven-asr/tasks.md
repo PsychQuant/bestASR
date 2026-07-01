@@ -1,6 +1,6 @@
 ## 1. Python 實作歸檔（Phase 1）
 
-- [ ] 1.1 依 D9: Python 實作遷入 archive 資料夾，用 git mv 把 bestasr/、tests/、examples/、pyproject.toml 遷入 archive/python/ 對應子路徑（git 歷史保留）。同時確認被 REMOVED 的跨平台需求（Select backend by rule-based decision table、Select model and compute type by profile scoring、Detect operating system and CPU、Detect memory and GPU、Detect acceleration backends、Detect CPU instruction sets and ffmpeg presence、Graceful degradation when a probe tool is unavailable）的實作只存在於 archive，主樹不再有 Python 執行路徑。行為：repo 根目錄無 Python 套件、archive/python/ 完整。驗證：git status 顯示 rename、ls 確認新舊路徑。
+- [x] 1.1 依 D9: Python 實作遷入 archive 資料夾，用 git mv 把 bestasr/、tests/、examples/、pyproject.toml 遷入 archive/python/ 對應子路徑（git 歷史保留）。同時確認被 REMOVED 的跨平台需求（Select backend by rule-based decision table、Select model and compute type by profile scoring、Detect operating system and CPU、Detect memory and GPU、Detect acceleration backends、Detect CPU instruction sets and ffmpeg presence、Graceful degradation when a probe tool is unavailable）的實作只存在於 archive，主樹不再有 Python 執行路徑。行為：repo 根目錄無 Python 套件、archive/python/ 完整。驗證：git status 顯示 rename、ls 確認新舊路徑。
 
 ## 2. Swift Package 骨架與資料模型（Phase 2）
 
