@@ -38,9 +38,10 @@ public struct ModelRow: Codable, Sendable, Equatable {
     public let quantization: String
     /// HuggingFace repo id; nil when no verified repo is known.
     public let hfRepo: String?
-    /// Pinned repo revision (commit sha) — verification freezes the exact
-    /// artifact the row was validated against (#15); bumping the pin implies
-    /// re-verifying. nil only when the row is unverified.
+    /// Pinned repo revision (full commit sha) — verification freezes the
+    /// exact artifact the row was validated against (#15); bumping the pin
+    /// implies re-verifying. Required for verified HF-backed mlx-audio rows;
+    /// nil elsewhere (whisper backends fetch through their own engines).
     public let hfRevision: String?
     /// Languages the family advertises ("multi" for 99+/1000+ class models).
     public let languages: [String]

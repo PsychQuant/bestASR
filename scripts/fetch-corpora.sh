@@ -16,7 +16,7 @@ OSR_SHA="0ed4ea79ee09b36f40235992b5bc03009f23167c0525930ddeafee0c04716a49"
 
 fetch_jfk() {
   local wav="$DEST/jfk.wav"
-  [ -f "$wav" ] || curl -sL -o "$wav" \
+  [ -f "$wav" ] || curl -fsSL -o "$wav" \
     "https://raw.githubusercontent.com/ggml-org/whisper.cpp/master/samples/jfk.wav"
   echo "$JFK_SHA  $wav" | shasum -a 256 -c - >/dev/null \
     || { echo "✗ jfk.wav digest mismatch — refusing to register" >&2; return 1; }
@@ -35,7 +35,7 @@ OSR_RAW_SHA="a4bf9becd046d7aedb6d05b6e12347a6294a44f74d263089c636fb0a2b1e6561"
 fetch_osr() {
   local raw="$DEST/osr10_8k.wav" wav="$DEST/osr10.wav"
   [ -f "$wav" ] || {
-    curl -sL --max-time 120 -o "$raw" \
+    curl -fsSL --max-time 120 -o "$raw" \
       "https://www.voiptroubleshooter.com/open_speech/american/OSR_us_000_0010_8k.wav"
     echo "$OSR_RAW_SHA  $raw" | shasum -a 256 -c - >/dev/null \
       || { echo "✗ raw OSR download digest mismatch — refusing to parse" >&2; rm -f "$raw"; return 1; }

@@ -88,7 +88,7 @@ struct MLXAudioEngineTests {
     @Test func `Missing venv reports unavailable and transcribe carries setup guidance`() async {
         let engine = MLXAudioEngine(
             venv: URL(fileURLWithPath: "/nonexistent/mlx-env"),
-            makeTransport: { _, _, _ in SpyTransport() })
+            makeTransport: { _, _ in SpyTransport() })
         #expect(await engine.isAvailable() == false)
         do {
             _ = try await engine.transcribe(
@@ -104,7 +104,7 @@ struct MLXAudioEngineTests {
     @Test func `Verified grid row flows through the transport with language`() async throws {
         let spy = SpyTransport()
         let engine = MLXAudioEngine(
-            venv: try fakeVenv(importSucceeds: true), makeTransport: { _, _, _ in spy })
+            venv: try fakeVenv(importSucceeds: true), makeTransport: { _, _ in spy })
         _ = try? await engine.transcribe(
             audioPath: "clip.wav",
             options: TranscribeOptions(model: "parakeet/0.6b", quantization: "default", language: "en"))
@@ -117,7 +117,7 @@ struct MLXAudioEngineTests {
 
     @Test func `Unverified grid row errors with hub guidance, not a fabricated URL`() async throws {
         let engine = MLXAudioEngine(
-            venv: try fakeVenv(importSucceeds: true), makeTransport: { _, _, _ in SpyTransport() })
+            venv: try fakeVenv(importSucceeds: true), makeTransport: { _, _ in SpyTransport() })
         do {
             _ = try await engine.transcribe(
                 audioPath: "x.wav",
@@ -138,7 +138,7 @@ struct MLXAudioEngineTests {
             func terminate() {}
         }
         let engine = MLXAudioEngine(
-            venv: try fakeVenv(importSucceeds: true), makeTransport: { _, _, _ in ErrorTransport() })
+            venv: try fakeVenv(importSucceeds: true), makeTransport: { _, _ in ErrorTransport() })
         do {
             _ = try await engine.transcribe(
                 audioPath: "x.wav",
@@ -155,7 +155,7 @@ struct MLXAudioEngineTests {
         let spyB = SpyTransport()
         let engine = MLXAudioEngine(
             venv: try fakeVenv(importSucceeds: true),
-            makeTransport: { repo, _, _ in repo.contains("turbo") ? spyB : spyA })
+            makeTransport: { repo, _ in repo.contains("turbo") ? spyB : spyA })
         _ = try? await engine.transcribe(
             audioPath: "a.wav",
             options: TranscribeOptions(model: "parakeet/0.6b", quantization: "default"))
@@ -168,7 +168,7 @@ struct MLXAudioEngineTests {
 
     @Test func `Bad model address is a usage error`() async throws {
         let engine = MLXAudioEngine(
-            venv: try fakeVenv(importSucceeds: true), makeTransport: { _, _, _ in SpyTransport() })
+            venv: try fakeVenv(importSucceeds: true), makeTransport: { _, _ in SpyTransport() })
         do {
             _ = try await engine.transcribe(
                 audioPath: "x.wav",
@@ -188,18 +188,25 @@ struct RevisionPinTests {
         for row in ModelGrid.rows(backend: ModelGrid.backendMLXAudio, priorityCeiling: nil)
         where row.verified {
             #expect(row.hfRevision != nil, "\(row.modelId) verified but unpinned")
-            #expect(row.hfRevision?.count == 40)  // full commit sha
+            // 40 hex chars = immutable commit; anything else is a MOVABLE
+            // ref to huggingface_hub (#15 verify M-2).
+            #expect(row.hfRevision?.range(
+                of: "^[0-9a-f]{40}$", options: .regularExpression) != nil)
         }
     }
 
     @Test func `Worker arguments carry the pin and omit it when absent`() {
         let pinned = ProcessWorkerTransport.workerArguments(
-            script: "/w.py", hfRepo: "a/b", revision: "abc123", family: "parakeet")
-        #expect(pinned == ["/w.py", "--model", "a/b", "--revision", "abc123", "--model-type", "parakeet"])
+            script: "/w.py", hfRepo: "a/b", revision: "abc123")
+        #expect(pinned == ["/w.py", "--model", "a/b", "--revision", "abc123"])
         let unpinned = ProcessWorkerTransport.workerArguments(
-            script: "/w.py", hfRepo: "a/b", revision: nil, family: "parakeet")
+            script: "/w.py", hfRepo: "a/b", revision: nil)
         #expect(!unpinned.contains("--revision"))
-        #expect(!unpinned.contains("--model-type"))
+        // Empty pin is nil-equivalent — never emitted (fail-closed boundary,
+        // #15 verify L-9).
+        let empty = ProcessWorkerTransport.workerArguments(
+            script: "/w.py", hfRepo: "a/b", revision: "")
+        #expect(!empty.contains("--revision"))
     }
 
     @Test func `Factory receives the grid row's revision`() async throws {
@@ -218,7 +225,7 @@ struct RevisionPinTests {
                 try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: py.path)
                 return venv
             }(),
-            makeTransport: { _, revision, _ in
+            makeTransport: { _, revision in
                 captured.set(revision)
                 return MLXAudioEngineTests.SpyTransport()
             })
