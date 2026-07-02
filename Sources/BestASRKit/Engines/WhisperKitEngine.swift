@@ -40,7 +40,10 @@ public struct WhisperKitEngine: Engine {
         decodeOptions.language = language
         decodeOptions.detectLanguage = language == nil
         decodeOptions.skipSpecialTokens = true
-        if let promptTokens {
+        // Empty non-nil is NOT nil-equivalent in WhisperKit 0.18 (a stray
+        // <|startofprev|> enters the decoder context and prefill caching is
+        // silently disabled) — guard here so the factory is safe for any caller.
+        if let promptTokens, !promptTokens.isEmpty {
             decodeOptions.promptTokens = promptTokens
             decodeOptions.usePrefillPrompt = true
         }

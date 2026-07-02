@@ -117,11 +117,17 @@ struct DecodeOptionsTests {
         #expect(options.detectLanguage == false)
     }
 
-    @Test func `Prompt tokens switch on prefill; auto language switches on detection`() {
+    @Test func `Prompt tokens are prepended when present; auto language switches on detection`() {
         let with = WhisperKitEngine.makeDecodeOptions(language: nil, promptTokens: [1, 2, 3])
         #expect(with.skipSpecialTokens == true)
         #expect(with.promptTokens == [1, 2, 3])
-        #expect(with.usePrefillPrompt == true)
         #expect(with.detectLanguage == true)
+    }
+
+    @Test func `Nil and empty prompt tokens both leave the decode options prompt-free`() {
+        // Empty non-nil ≠ nil in WhisperKit 0.18 (stray <|startofprev|> +
+        // disabled prefill cache) — the factory must treat both as no-prompt.
+        #expect(WhisperKitEngine.makeDecodeOptions(language: "en", promptTokens: nil).promptTokens == nil)
+        #expect(WhisperKitEngine.makeDecodeOptions(language: "en", promptTokens: []).promptTokens == nil)
     }
 }
