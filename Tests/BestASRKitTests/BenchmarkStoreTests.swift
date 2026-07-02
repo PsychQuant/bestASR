@@ -172,3 +172,58 @@ struct LegacyMigrationTests {
         #expect(again.measurements.count == 2)
     }
 }
+
+// MARK: - 5.1 CorpusRegistry (spec corpora)
+
+struct CorpusRegistryTests {
+    @Test func `corpus add hashes, probes duration, and lists`() async throws {
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let audio = try makeWavFile(in: dir, seconds: 2.0)
+        let srt = dir.appendingPathComponent("truth.srt").path
+        try "1\n00:00:00,000 --> 00:00:02,000\nhello world\n".write(
+            toFile: srt, atomically: true, encoding: .utf8)
+        let store = BenchmarkStore(directory: dir.appendingPathComponent("store"))
+
+        let row = try CorpusRegistry.add(
+            audioPath: audio, referencePath: srt, language: "ZH", name: nil, store: store)
+        #expect(row.language == "zh")  // normalized
+        #expect(row.duration > 1.5)
+        #expect(row.audioSHA256.count == 64)
+
+        let table = try CorpusRegistry.listTable(store: store)
+        #expect(table.contains("zh"))
+        #expect(table.contains(row.corpusId))
+    }
+
+    @Test func `Re-adding the same audio from a new path is idempotent`() async throws {
+        // Spec scenario: re-add same audio from a new path.
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let audio = try makeWavFile(in: dir, seconds: 1.0)
+        let srt = dir.appendingPathComponent("t.srt").path
+        try "1\n00:00:00,000 --> 00:00:01,000\nhi\n".write(
+            toFile: srt, atomically: true, encoding: .utf8)
+        let store = BenchmarkStore(directory: dir.appendingPathComponent("store"))
+        _ = try CorpusRegistry.add(
+            audioPath: audio, referencePath: srt, language: "en", name: "a", store: store)
+        let moved = dir.appendingPathComponent("moved.wav")
+        try FileManager.default.copyItem(at: URL(fileURLWithPath: audio), to: moved)
+        _ = try CorpusRegistry.add(
+            audioPath: moved.path, referencePath: srt, language: "en", name: "a", store: store)
+        let corpora = try store.load().corpora
+        #expect(corpora.count == 1)
+        #expect(corpora[0].audioPath == moved.path)
+    }
+
+    @Test func `Bad language code is a usage error`() async throws {
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let audio = try makeWavFile(in: dir)
+        #expect(throws: BestASRError.self) {
+            _ = try CorpusRegistry.add(
+                audioPath: audio, referencePath: audio, language: "chinese", name: nil,
+                store: BenchmarkStore(directory: dir.appendingPathComponent("s")))
+        }
+    }
+}

@@ -24,8 +24,8 @@
 
 ## Phase 5 — Corpora
 
-- [ ] 5.1 [P] (D8; req: Corpus registry keyed by content hash; corpus add and list subcommands) `Sources/BestASRKit/Corpora/CorpusRegistry.swift` + `corpus add/list` 子命令：hash、AudioProber duration、同 hash 更新 path 不重複；測試：add/list round-trip、重註冊冪等（`CorpusRegistryTests`）
-- [ ] 5.2 [P] (D8; req: English standard set is scriptable and verified) `scripts/fetch-corpora.sh`：jfk + OSR 下載、afconvert 16k、sha256 pin 驗證、呼叫 corpus add；本機實跑一次入 registry
+- [x] 5.1 [P] (D8; req: Corpus registry keyed by content hash; corpus add and list subcommands) `Sources/BestASRKit/Corpora/CorpusRegistry.swift` + `corpus add/list` 子命令：hash、AudioProber duration、同 hash 更新 path 不重複；測試：add/list round-trip、重註冊冪等（`CorpusRegistryTests`）
+- [x] 5.2 [P] (D8; req: English standard set is scriptable and verified) `scripts/fetch-corpora.sh`：jfk + OSR 下載、afconvert 16k、sha256 pin 驗證、呼叫 corpus add；本機實跑一次入 registry
 
 ## Phase 6 — 真實煙測 + 文件
 

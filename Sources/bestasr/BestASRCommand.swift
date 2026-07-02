@@ -20,6 +20,7 @@ struct BestASR: AsyncParsableCommand {
             Benchmark.self,
             ListBackends.self,
             ListModels.self,
+            Corpus.self,
         ]
     )
 }
@@ -216,5 +217,45 @@ struct SelectionOptions: ParsableArguments {
             requestedLanguage: language,
             contextDir: contextDir
         )
+    }
+}
+
+
+// MARK: - corpus (spec corpora, #14)
+
+struct Corpus: AsyncParsableCommand {
+    static let configuration = CommandConfiguration(
+        abstract: "Manage ground-truth corpora for benchmarking",
+        subcommands: [Add.self, List.self]
+    )
+
+    struct Add: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            abstract: "Register an audio + reference pair as a corpus")
+
+        @Argument(help: "Audio file path") var audio: String
+        @Argument(help: "Reference transcript (.srt) path") var reference: String
+        @Option(help: "Two-letter language code (en/zh/ja/...)") var language: String
+        @Option(help: "Display name (default: audio file name)") var name: String?
+
+        func run() async throws {
+            try await runMapped {
+                let row = try CorpusRegistry.add(
+                    audioPath: audio, referencePath: reference,
+                    language: language, name: name, store: BenchmarkStore())
+                print("Registered corpus \(row.corpusId): \(row.name) [\(row.language)] "
+                    + String(format: "%.1fs", row.duration))
+            }
+        }
+    }
+
+    struct List: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(abstract: "List registered corpora")
+
+        func run() async throws {
+            try await runMapped {
+                print(try CorpusRegistry.listTable(store: BenchmarkStore()))
+            }
+        }
     }
 }
