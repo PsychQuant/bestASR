@@ -22,6 +22,6 @@ mlx rows 留在 `ModelGrid`（backend 欄為字串，無需 enum 成員）；`pr
 
 ## Implementation Contract
 
-- `swift build` 零 error；`grep -ri "mlxaudio\|mlx_worker\|MLXWorker" Sources/ Tests/` 僅剩 ModelGrid 目錄資料與註解
+- `swift build` 零 error；`grep -riE "mlxaudio|mlx-audio|mlx_worker|MLXWorker" Sources/ Tests/` 僅剩 reference-catalog 的合法面：ModelGrid 目錄資料、其顯示（CommandCore list-models）與濾除（BenchmarkRunner/StoreProjection/tests）站點及註解——不得再有可執行路徑或使用者指引宣傳 family/size 位址
 - `list-models` 實跑顯示 reference 段；`benchmark`（雙 backend）實跑正常；store 舊 mlx 量測在 `recommend` 下被濾除（實跑 + 測試）
 - 全套測試綠

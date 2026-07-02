@@ -294,7 +294,7 @@ struct ReferenceCatalogTests {
             backendOverride: nil, modelOverride: nil,
             records: [record],
             availability: [.whisperKit: true, .whisperCpp: true])
-        #expect(rec.backend != BackendID(rawValue: "mlx-audio"))  // never routes there
+        #expect(rec.backend.rawValue != "mlx-audio")  // never routes there
         #expect(rec.dataSource == .coldStartPrior)  // the only record was filtered
     }
 

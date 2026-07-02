@@ -29,4 +29,4 @@ Changes can be parked（暫存）— temporarily moved out of `openspec/changes/
 
 ## References
 
-- **[mlx-audio](https://github.com/Blaizzy/mlx-audio)** — MLX（Apple Silicon 原生）音訊框架，含 15+ 個 STT/ASR 模型家族（Whisper、Distil-Whisper、Qwen3-ASR、Parakeet、Nemotron、Voxtral、Canary、Moonshine、MMS、Granite Speech、Qwen2-Audio、VibeVoice-ASR、Mega-ASR…）與 20+ TTS 模型。`pip install mlx-audio`，提供 CLI / Python API / OpenAI-compatible REST。候選第三 backend 與 benchmark 模型池擴充來源（見對應 issue）。
+- **[mlx-audio](https://github.com/Blaizzy/mlx-audio)** — MLX（Apple Silicon 原生）音訊框架，含 15+ 個 STT/ASR 模型家族（Whisper、Distil-Whisper、Qwen3-ASR、Parakeet、Nemotron、Voxtral、Canary、Moonshine、MMS、Granite Speech、Qwen2-Audio、VibeVoice-ASR、Mega-ASR…）與 20+ TTS 模型。`pip install mlx-audio`，提供 CLI / Python API / OpenAI-compatible REST。reference catalog 的資料來源（backend 曾於 #14 實作、#20 經評估後移除——git history 保有完整實作；模型目錄留在 grid 供查閱）。

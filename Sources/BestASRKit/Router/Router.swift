@@ -21,8 +21,9 @@ public enum Router {
         // Validate overrides early (usage errors, not silent acceptance).
         if let modelOverride, !ModelRegistry.isSupportedModel(modelOverride) {
             throw BestASRError.usage(
-                "unknown model: '\(modelOverride)'; run list-models for the catalog "
-                    + "(whisper sizes or mlx-audio family/size)"
+                "unknown model: '\(modelOverride)'; run list-models for the "
+                    + "runnable catalog (whisper sizes — the mlx-audio section is a "
+                    + "reference catalog with no bundled backend)"
             )
         }
         let overrideBackend: BackendID? = try backendOverride.map { name in
@@ -135,8 +136,7 @@ public enum Router {
         )
 
         // A model address only pairs with backends whose grid lists variants
-        // for it (mlx-audio family/size names never pair with the whisper
-        // backends and vice versa, #14).
+        // for it (#14; since #20 only the whisper backends are runnable).
         guard let quantization = ModelRegistry.quantizations(for: backend, model: model).first
         else {
             throw BestASRError.usage(

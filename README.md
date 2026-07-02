@@ -49,7 +49,7 @@ Backends:
   MLX-native STT families (Parakeet, Qwen3-ASR, Moonshine, Canary, MMS,
   Voxtral, …) with verified HuggingFace repos and pinned revisions — visible
   in `bestasr list-models` for lookup. No engine is bundled for them (the
-  mlx-audio backend was evaluated and removed in 0.4.0; git history has the
+  mlx-audio backend was evaluated and removed (#20); git history has the
   full implementation if it's ever wanted back).
 
 ## Quick start
