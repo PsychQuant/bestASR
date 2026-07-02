@@ -40,15 +40,18 @@ public struct BenchmarkStore: Sendable {
         var warnings: [String] = []
         func rows<T: Decodable>(_ table: String, _ type: T.Type) -> [T] {
             let url = directory.appendingPathComponent("\(table).jsonl")
-            guard let content = try? String(contentsOf: url, encoding: .utf8) else { return [] }
+            // Byte-level read (#16): a String(contentsOf:) guard loaded a table
+            // containing ONE invalid UTF-8 byte as silently EMPTY — the loud
+            // contract must cover encoding-level corruption too.
+            guard let data = try? Data(contentsOf: url) else { return [] }
             let decoder = JSONDecoder()
             decoder.dateDecodingStrategy = .iso8601
             var result: [T] = []
-            for (index, line) in content.split(separator: "\n", omittingEmptySubsequences: true)
+            for (index, line) in data.split(separator: UInt8(ascii: "\n"), omittingEmptySubsequences: true)
                 .enumerated()
             {
                 do {
-                    result.append(try decoder.decode(T.self, from: Data(line.utf8)))
+                    result.append(try decoder.decode(T.self, from: Data(line)))
                 } catch {
                     warnings.append("\(table).jsonl line \(index + 1): skipped malformed row")
                 }
@@ -71,7 +74,9 @@ public struct BenchmarkStore: Sendable {
     }
 
     /// Machines and corpora upsert by key (stable-fact tables); models are
-    /// replaced wholesale by the grid seed (catalog is code-owned).
+    /// re-seeded from the code-owned grid — decodable rows replaced wholesale,
+    /// unparseable lines preserved verbatim per spec (they keep warning on
+    /// every load until the user repairs or removes them).
     public func upsert(machine: MachineRow) throws {
         try migrateLegacyIfPresent()
         guard !loadRaw().machines.contains(where: { $0.machineId == machine.machineId }) else {
@@ -147,8 +152,11 @@ public struct BenchmarkStore: Sendable {
             if seenCorpora.insert(corpus.corpusId).inserted {
                 try appendLine(table: "corpora", row: corpus)
             }
+            // family aligned with the live append path (#16 verify DA): the
+            // legacy era was whisper-only, and a diverging key ("tiny|tiny")
+            // would never collapse with re-benchmarked rows in the projection.
             let modelId = ModelRow.id(
-                backend: record.backend, family: record.model, size: record.model,
+                backend: record.backend, family: "whisper", size: record.model,
                 quantization: record.quantization)
             let measurement = MeasurementRow(
                 modelId: modelId, corpusId: corpus.corpusId, machineId: machine.machineId,
@@ -180,8 +188,25 @@ public struct BenchmarkStore: Sendable {
         }
     }
 
-    private func rewrite<T: Encodable>(table: String, rows: [T]) throws {
+    private func rewrite<T: Codable>(table: String, rows: [T]) throws {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        // Preserve-verbatim (#16, spec: Corrupt rows degrade loudly, not fatally —
+        // extended to rewrites): lines the store cannot decode are user data it
+        // must not delete. BYTE-level, not String-level: a String round-trip
+        // silently dropped non-UTF-8 corruption — exactly the case the contract
+        // most wants to survive — and a swallowed read error would overwrite
+        // the file blind, so an unreadable-but-existing file is a hard error.
+        let url = directory.appendingPathComponent("\(table).jsonl")
+        var preserved: [Data] = []
+        if FileManager.default.fileExists(atPath: url.path) {
+            let existing = try Data(contentsOf: url)  // throws: never overwrite what we could not read
+            let decoder = JSONDecoder()
+            decoder.dateDecodingStrategy = .iso8601
+            for line in existing.split(separator: UInt8(ascii: "\n"), omittingEmptySubsequences: true)
+            where (try? decoder.decode(T.self, from: Data(line))) == nil {
+                preserved.append(Data(line))
+            }
+        }
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
@@ -189,6 +214,9 @@ public struct BenchmarkStore: Sendable {
         for row in rows {
             payload += try encoder.encode(row) + Data("\n".utf8)
         }
-        try payload.write(to: directory.appendingPathComponent("\(table).jsonl"))
+        for line in preserved {
+            payload += line + Data("\n".utf8)
+        }
+        try payload.write(to: url)
     }
 }

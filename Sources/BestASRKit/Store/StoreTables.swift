@@ -140,6 +140,11 @@ public struct MeasurementRow: Codable, Sendable, Equatable {
     public let appVersion: String
     public let macosVersion: String
     public let contextErrorRate: Double?
+    /// Hugging Face revision pin of the model AS SEEDED at measure time (#16 —
+    /// the catalog table is rewritten wholesale on every seed, so the pin a
+    /// number was measured against must live on the measurement itself).
+    /// nil for legacy rows and models without an HF pin.
+    public let hfRevision: String?
 
     enum CodingKeys: String, CodingKey {
         case modelId = "model_id"
@@ -154,13 +159,14 @@ public struct MeasurementRow: Codable, Sendable, Equatable {
         case appVersion = "app_version"
         case macosVersion = "macos_version"
         case contextErrorRate = "context_error_rate"
+        case hfRevision = "hf_revision"
     }
 
     public init(
         modelId: String, corpusId: String, machineId: String, measuredAt: Date,
         metricKind: MetricKind, errorRate: Double, rtf: Double, peakMemoryGB: Double,
         warmupSeconds: Double, appVersion: String, macosVersion: String,
-        contextErrorRate: Double? = nil
+        contextErrorRate: Double? = nil, hfRevision: String? = nil
     ) {
         self.modelId = modelId
         self.corpusId = corpusId
@@ -174,6 +180,7 @@ public struct MeasurementRow: Codable, Sendable, Equatable {
         self.appVersion = appVersion
         self.macosVersion = macosVersion
         self.contextErrorRate = contextErrorRate
+        self.hfRevision = hfRevision
     }
 }
 

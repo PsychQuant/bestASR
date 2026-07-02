@@ -5,6 +5,24 @@ All notable changes to bestASR are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- **Store rewrites preserve unparseable lines (#16)** — `upsert(corpus:)` and wholesale
+  model seeding previously kept only the rows they could parse, silently deleting a
+  malformed line that load had merely warned about. `rewrite()` now appends undecodable
+  lines back verbatim, so they keep surfacing the load warning instead of vanishing —
+  the "corrupt rows degrade loudly, not fatally" contract now covers the rewrite path.
+
+### Added
+
+- **Pin provenance on measurements (#16)** — each appended measurement records
+  `hf_revision` resolved from the models table *as seeded for that run* (the catalog is
+  rewritten wholesale on every seed, so a pin bump used to silently re-associate
+  historical numbers with the new snapshot — #15 verify's find). Audit-only optional
+  column: legacy rows decode `nil`; projection and routing untouched.
+
+## [Unreleased]
+
 ## [0.4.0] - 2026-07-02
 
 ### Removed
