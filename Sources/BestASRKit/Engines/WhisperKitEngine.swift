@@ -61,9 +61,14 @@ public struct WhisperKitEngine: Engine {
         audioPath: String, options: TranscribeOptions
     ) async throws -> RawTranscription {
         let modelName = Self.whisperKitModelName(for: options.model)
+        // Key carries quantization (issue #7 Expected) even though WhisperKit
+        // currently ships a single "default" variant per model.
+        let cacheKey = "\(modelName)|\(options.quantization)"
         let pipe: WhisperKit
         do {
-            pipe = try await Self.pipelines.value(for: modelName) {
+            // Keep only the current model resident (see retainOnly rationale).
+            await Self.pipelines.retainOnly(cacheKey)
+            pipe = try await Self.pipelines.value(for: cacheKey) {
                 try await WhisperKit(WhisperKitConfig(model: modelName, download: true))
             }
         } catch {

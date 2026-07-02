@@ -56,4 +56,19 @@ struct CreateOnceStoreTests {
         let value = try await store.value(for: "tiny") { await counter.bump() }
         #expect(value == 1)
     }
+
+    @Test func `retainOnly keeps the named key and evicts the rest`() async throws {
+        let store = CreateOnceStore<Int>()
+        let counter = Counter()
+        _ = try await store.value(for: "tiny") { await counter.bump() }
+        _ = try await store.value(for: "base") { await counter.bump() }
+        await store.retainOnly(cacheKeyTiny)
+        // tiny survives (no re-create); base was evicted (factory re-runs).
+        let tiny = try await store.value(for: cacheKeyTiny) { await counter.bump() }
+        #expect(tiny == 1)
+        _ = try await store.value(for: "base") { await counter.bump() }
+        #expect(await counter.count == 3)
+    }
+
+    private var cacheKeyTiny: String { "tiny" }
 }

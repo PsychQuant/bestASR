@@ -68,9 +68,10 @@ bestasr transcribe clip2.wav --language zh --explain
 The ground truth is a standard `.srt` subtitle file. Accuracy is scored as
 **CER** for languages without word spacing (zh / ja / ko) and **WER**
 otherwise; speed as measured times-realtime (model download/load excluded —
-WhisperKit pipelines load once per model and are reused, so the timed pass
-measures pure decode speed); results persist in `~/.bestasr/benchmarks.json`
-per machine.
+WhisperKit pipelines load once per model and are reused, so its timed pass
+measures pure decode speed; whisper.cpp runs as a subprocess and its timed
+pass includes a small GGML load); results persist in
+`~/.bestasr/benchmarks.json` per machine.
 
 ### Context calibration (make domain terms and names come out right)
 

@@ -14,6 +14,17 @@ import Foundation
 actor CreateOnceStore<Value> {
     private var inFlight: [String: Task<Value, Error>] = [:]
 
+    /// Evict every entry except `key` — the benchmark sweeps models
+    /// sequentially through one process, and without eviction a full sweep
+    /// keeps every CoreML model resident at once (sum-of-models envelope, up
+    /// to ~26 GB by the registry's own upper bounds). Keeping only the
+    /// current model preserves the warm-up→timed reuse this store exists for
+    /// while restoring the old one-model-at-a-time memory envelope. Dropped
+    /// pipelines are released by ARC once their transcription finishes.
+    func retainOnly(_ key: String) {
+        inFlight = inFlight.filter { $0.key == key }
+    }
+
     func value(
         for key: String, make: @escaping @Sendable () async throws -> Value
     ) async throws -> Value {
