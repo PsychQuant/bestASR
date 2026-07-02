@@ -95,12 +95,15 @@ struct PipelineWiringTests {
     /// state the exact expected encoding (leading space included) without a
     /// real vocabulary. Everything else is inert stubbing.
     struct FakeTokenizer: WhisperTokenizer {
-        func encode(text: String) -> [Int] { Array(text.utf8).map(Int.init) }
-        func decode(tokens: [Int]) -> String {
-            String(decoding: tokens.compactMap { UInt8(exactly: $0) }, as: UTF8.self)
-        }
-        func convertTokenToId(_ token: String) -> Int? { nil }
-        func convertIdToToken(_ id: Int) -> String? { nil }
+        // NON-identity mapping (1000 + byte): a production path that hardcoded
+        // UTF-8 bytes without calling the injected tokenizer cannot match this
+        // (#12 verify F2 — identity fakes can't prove flow-through).
+        func encode(text: String) -> [Int] { text.utf8.map { 1000 + Int($0) } }
+        // The seam must only ever call encode — anything else dying loudly IS
+        // the assertion (#12 verify F4).
+        func decode(tokens: [Int]) -> String { fatalError("seam must not decode") }
+        func convertTokenToId(_ token: String) -> Int? { fatalError("seam must not convertTokenToId") }
+        func convertIdToToken(_ id: Int) -> String? { fatalError("seam must not convertIdToToken") }
         var specialTokens: SpecialTokens {
             SpecialTokens(
                 endToken: 0, englishToken: 0, noSpeechToken: 0, noTimestampsToken: 0,
@@ -108,7 +111,9 @@ struct PipelineWiringTests {
                 timeTokenBegin: 0, transcribeToken: 0, translateToken: 0, whitespaceToken: 0)
         }
         var allLanguageTokens: Set<Int> { [] }
-        func splitToWordTokens(tokenIds: [Int]) -> (words: [String], wordTokens: [[Int]]) { ([], []) }
+        func splitToWordTokens(tokenIds: [Int]) -> (words: [String], wordTokens: [[Int]]) {
+            fatalError("seam must not splitToWordTokens")
+        }
     }
 
     /// #12: the prompt-encode branch (encode → clamp → makeDecodeOptions) had no
@@ -128,7 +133,10 @@ struct PipelineWiringTests {
         let sent = try #require(spy.lastOptions)
         let expected = FakeTokenizer().encode(text: " Kalman filter, Kokoro")
         #expect(sent.promptTokens == expected)          // exact wiring, not just non-nil
-        #expect(expected.first == 32)                   // " " survived — leading space in-band
+        #expect(expected.first == 1032)                 // " " survived — leading space in-band (1000 + 0x20)
+        #expect(sent.usePrefillPrompt == true)          // the switch that makes WhisperKit CONSUME
+                                                        // promptTokens — DA mutation showed deleting it
+                                                        // stayed green before this line (#12 verify F3)
     }
 
     /// #12: the 224-token clamp must act on the ENCODED prompt at the seam —
@@ -137,7 +145,10 @@ struct PipelineWiringTests {
     @Test func `Overlong prompt is clamped to the trailing 224 tokens at the seam`() async throws {
         let spy = SpyPipeline(tokenizer: FakeTokenizer())
         let engine = WhisperKitEngine(pipelineFactory: { _ in spy })
-        let longPrompt = String(repeating: "a", count: 300)
+        // 150 a's + 150 b's: every 224-window is now DISTINCT, so a
+        // prefix-keeping clamp cannot masquerade as suffix-keeping
+        // (#12 verify F1 — homogeneous data made the direction vacuous).
+        let longPrompt = String(repeating: "a", count: 150) + String(repeating: "b", count: 150)
         _ = try await engine.transcribe(
             audioPath: "unused.wav",
             options: TranscribeOptions(
@@ -148,5 +159,6 @@ struct PipelineWiringTests {
         let full = FakeTokenizer().encode(text: " " + longPrompt)  // 301 tokens
         #expect(sent.promptTokens?.count == 224)
         #expect(sent.promptTokens == Array(full.suffix(224)))
+        #expect(sent.promptTokens != Array(full.prefix(224)))  // direction really is decidable now
     }
 }
