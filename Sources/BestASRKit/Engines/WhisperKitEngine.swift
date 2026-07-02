@@ -47,16 +47,25 @@ public struct WhisperKitEngine: Engine {
         return decodeOptions
     }
 
+    /// Process-lifetime pipeline cache (#7): rebuilding WhisperKit per call
+    /// re-paid the CoreML model load inside benchmark's TIMED pass, violating
+    /// the benchmark spec's "model download and first-load time are excluded
+    /// from RTF" and under-reporting WhisperKit X-REAL by an order of
+    /// magnitude. The warm-up pass now populates this store; later calls for
+    /// the same model reuse the loaded pipeline. Trade-off: cached models
+    /// stay resident for the process lifetime — acceptable for a CLI whose
+    /// benchmark loads them anyway.
+    static let pipelines = CreateOnceStore<WhisperKit>()
+
     public func transcribeRaw(
         audioPath: String, options: TranscribeOptions
     ) async throws -> RawTranscription {
-        let config = WhisperKitConfig(
-            model: Self.whisperKitModelName(for: options.model),
-            download: true
-        )
+        let modelName = Self.whisperKitModelName(for: options.model)
         let pipe: WhisperKit
         do {
-            pipe = try await WhisperKit(config)
+            pipe = try await Self.pipelines.value(for: modelName) {
+                try await WhisperKit(WhisperKitConfig(model: modelName, download: true))
+            }
         } catch {
             throw TranscriptionError(
                 backend: id.rawValue,
