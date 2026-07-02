@@ -3,6 +3,17 @@
 All notable changes to bestASR are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow SemVer.
 
+## [Unreleased]
+
+### Security
+
+- **Supply-chain pinning** (#15): the English corpus fetch script verifies the
+  raw third-party download against a pinned digest BEFORE any parser touches
+  it, and verified mlx-audio grid rows pin their HF repo to a commit sha —
+  the worker resolves the pinned snapshot via huggingface_hub and loads the
+  immutable local path through mlx-audio (with explicit model-type dispatch,
+  since snapshot dir names are bare shas). Bumping a pin implies re-verifying.
+
 ## [0.3.0] — 2026-07-02
 
 ### Added

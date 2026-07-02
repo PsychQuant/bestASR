@@ -38,6 +38,10 @@ public struct ModelRow: Codable, Sendable, Equatable {
     public let quantization: String
     /// HuggingFace repo id; nil when no verified repo is known.
     public let hfRepo: String?
+    /// Pinned repo revision (commit sha) — verification freezes the exact
+    /// artifact the row was validated against (#15); bumping the pin implies
+    /// re-verifying. nil only when the row is unverified.
+    public let hfRevision: String?
     /// Languages the family advertises ("multi" for 99+/1000+ class models).
     public let languages: [String]
     public let estMemoryGB: Double
@@ -51,6 +55,7 @@ public struct ModelRow: Codable, Sendable, Equatable {
         case modelId = "model_id"
         case backend, family, size, quantization
         case hfRepo = "hf_repo"
+        case hfRevision = "hf_revision"
         case languages
         case estMemoryGB = "est_memory_gb"
         case priority, verified
@@ -58,7 +63,8 @@ public struct ModelRow: Codable, Sendable, Equatable {
 
     public init(
         backend: String, family: String, size: String, quantization: String,
-        hfRepo: String? = nil, languages: [String] = ["multi"],
+        hfRepo: String? = nil, hfRevision: String? = nil,
+        languages: [String] = ["multi"],
         estMemoryGB: Double, priority: Int, verified: Bool = false
     ) {
         self.backend = backend
@@ -68,6 +74,7 @@ public struct ModelRow: Codable, Sendable, Equatable {
         self.modelId = Self.id(
             backend: backend, family: family, size: size, quantization: quantization)
         self.hfRepo = hfRepo
+        self.hfRevision = hfRevision
         self.languages = languages
         self.estMemoryGB = estMemoryGB
         self.priority = priority

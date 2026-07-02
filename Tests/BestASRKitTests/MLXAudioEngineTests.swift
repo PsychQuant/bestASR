@@ -88,7 +88,7 @@ struct MLXAudioEngineTests {
     @Test func `Missing venv reports unavailable and transcribe carries setup guidance`() async {
         let engine = MLXAudioEngine(
             venv: URL(fileURLWithPath: "/nonexistent/mlx-env"),
-            makeTransport: { _ in SpyTransport() })
+            makeTransport: { _, _, _ in SpyTransport() })
         #expect(await engine.isAvailable() == false)
         do {
             _ = try await engine.transcribe(
@@ -104,7 +104,7 @@ struct MLXAudioEngineTests {
     @Test func `Verified grid row flows through the transport with language`() async throws {
         let spy = SpyTransport()
         let engine = MLXAudioEngine(
-            venv: try fakeVenv(importSucceeds: true), makeTransport: { _ in spy })
+            venv: try fakeVenv(importSucceeds: true), makeTransport: { _, _, _ in spy })
         _ = try? await engine.transcribe(
             audioPath: "clip.wav",
             options: TranscribeOptions(model: "parakeet/0.6b", quantization: "default", language: "en"))
@@ -117,7 +117,7 @@ struct MLXAudioEngineTests {
 
     @Test func `Unverified grid row errors with hub guidance, not a fabricated URL`() async throws {
         let engine = MLXAudioEngine(
-            venv: try fakeVenv(importSucceeds: true), makeTransport: { _ in SpyTransport() })
+            venv: try fakeVenv(importSucceeds: true), makeTransport: { _, _, _ in SpyTransport() })
         do {
             _ = try await engine.transcribe(
                 audioPath: "x.wav",
@@ -138,7 +138,7 @@ struct MLXAudioEngineTests {
             func terminate() {}
         }
         let engine = MLXAudioEngine(
-            venv: try fakeVenv(importSucceeds: true), makeTransport: { _ in ErrorTransport() })
+            venv: try fakeVenv(importSucceeds: true), makeTransport: { _, _, _ in ErrorTransport() })
         do {
             _ = try await engine.transcribe(
                 audioPath: "x.wav",
@@ -155,7 +155,7 @@ struct MLXAudioEngineTests {
         let spyB = SpyTransport()
         let engine = MLXAudioEngine(
             venv: try fakeVenv(importSucceeds: true),
-            makeTransport: { repo in repo.contains("turbo") ? spyB : spyA })
+            makeTransport: { repo, _, _ in repo.contains("turbo") ? spyB : spyA })
         _ = try? await engine.transcribe(
             audioPath: "a.wav",
             options: TranscribeOptions(model: "parakeet/0.6b", quantization: "default"))
@@ -168,7 +168,7 @@ struct MLXAudioEngineTests {
 
     @Test func `Bad model address is a usage error`() async throws {
         let engine = MLXAudioEngine(
-            venv: try fakeVenv(importSucceeds: true), makeTransport: { _ in SpyTransport() })
+            venv: try fakeVenv(importSucceeds: true), makeTransport: { _, _, _ in SpyTransport() })
         do {
             _ = try await engine.transcribe(
                 audioPath: "x.wav",
@@ -177,5 +177,54 @@ struct MLXAudioEngineTests {
         } catch let error as TranscriptionError {
             #expect(error.message.contains("family/size"))
         } catch { Issue.record("unexpected error type \(error)") }
+    }
+}
+
+
+// MARK: - #15 supply-chain pin locks
+
+struct RevisionPinTests {
+    @Test func `Verified grid rows carry a pinned revision`() {
+        for row in ModelGrid.rows(backend: ModelGrid.backendMLXAudio, priorityCeiling: nil)
+        where row.verified {
+            #expect(row.hfRevision != nil, "\(row.modelId) verified but unpinned")
+            #expect(row.hfRevision?.count == 40)  // full commit sha
+        }
+    }
+
+    @Test func `Worker arguments carry the pin and omit it when absent`() {
+        let pinned = ProcessWorkerTransport.workerArguments(
+            script: "/w.py", hfRepo: "a/b", revision: "abc123", family: "parakeet")
+        #expect(pinned == ["/w.py", "--model", "a/b", "--revision", "abc123", "--model-type", "parakeet"])
+        let unpinned = ProcessWorkerTransport.workerArguments(
+            script: "/w.py", hfRepo: "a/b", revision: nil, family: "parakeet")
+        #expect(!unpinned.contains("--revision"))
+        #expect(!unpinned.contains("--model-type"))
+    }
+
+    @Test func `Factory receives the grid row's revision`() async throws {
+        final class Capture: @unchecked Sendable {
+            let lock = NSLock(); var revision: String??
+            func set(_ r: String?) { lock.lock(); revision = r; lock.unlock() }
+        }
+        let captured = Capture()
+        let engine = MLXAudioEngine(
+            venv: try {
+                let venv = try makeTempDir().appendingPathComponent("mlx-env")
+                let bin = venv.appendingPathComponent("bin")
+                try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
+                let py = bin.appendingPathComponent("python")
+                try "#!/bin/sh\nexit 0\n".write(to: py, atomically: true, encoding: .utf8)
+                try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: py.path)
+                return venv
+            }(),
+            makeTransport: { _, revision, _ in
+                captured.set(revision)
+                return MLXAudioEngineTests.SpyTransport()
+            })
+        _ = try? await engine.transcribe(
+            audioPath: "x.wav",
+            options: TranscribeOptions(model: "parakeet/0.6b", quantization: "default"))
+        #expect(captured.revision == "ed2b7e8c15f9aaa0b5772e2efb986255eaef7e15")
     }
 }

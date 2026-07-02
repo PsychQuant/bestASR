@@ -28,11 +28,17 @@ SRT
   "$BIN" corpus add "$wav" "$DEST/jfk.srt" --language en --name jfk
 }
 
+# Raw-download pin: the third-party bytes are verified BEFORE any parser
+# (afconvert/CoreAudio) touches them (#15 — parse-before-verify gap).
+OSR_RAW_SHA="a4bf9becd046d7aedb6d05b6e12347a6294a44f74d263089c636fb0a2b1e6561"
+
 fetch_osr() {
   local raw="$DEST/osr10_8k.wav" wav="$DEST/osr10.wav"
   [ -f "$wav" ] || {
     curl -sL --max-time 120 -o "$raw" \
       "https://www.voiptroubleshooter.com/open_speech/american/OSR_us_000_0010_8k.wav"
+    echo "$OSR_RAW_SHA  $raw" | shasum -a 256 -c - >/dev/null \
+      || { echo "✗ raw OSR download digest mismatch — refusing to parse" >&2; rm -f "$raw"; return 1; }
     afconvert -f WAVE -d LEI16@16000 -c 1 "$raw" "$wav"
     rm -f "$raw"
   }
