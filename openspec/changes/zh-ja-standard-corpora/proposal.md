@@ -12,4 +12,4 @@
 
 - Affected specs: corpora (ADDED)
 - Affected code: scripts/fetch-corpora.sh、CHANGELOG.md
-- Non-goals：大模型量測（#20 後 mlx 家族無執行路徑，已 re-scope 移出）；程式碼行為零改動
+- Non-goals：大模型量測（#20 後 mlx 家族無執行路徑，已 re-scope 移出）；應用程式 runtime 行為零改動（變更僅及 fetch script 與文件）

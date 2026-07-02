@@ -13,4 +13,4 @@ The fetch script SHALL download, verify, and register standard Mandarin and Japa
 
 - **GIVEN** a FLEURS tar whose bytes do not match the pinned digest
 - **WHEN** the fetch script verifies the raw download
-- **THEN** it refuses to extract or convert, and no corpus is registered
+- **THEN** it refuses to extract or convert, that language's corpus is not registered, and the remaining corpora still register (per-corpus isolation)
