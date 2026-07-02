@@ -42,7 +42,9 @@ Backends:
 - **WhisperKit** is built in — models download on demand at first use.
 - **whisper.cpp** is optional: `brew install whisper-cpp`, then place GGML
   model files under `~/.bestasr/models/whisper-cpp/` (the error message tells
-  you the exact file name and download URL when one is missing).
+  you the exact file name and download URL when one is missing). Quantization
+  variants differ per model on HuggingFace — `bestasr list-models` shows the
+  hosted set (e.g. tiny/base/small ship `q5_1`, not `q5_0`).
 
 ## Quick start
 
