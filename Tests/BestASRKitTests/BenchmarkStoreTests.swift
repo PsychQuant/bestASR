@@ -308,3 +308,88 @@ struct ReferenceCatalogTests {
         #expect(enumeration.candidates.allSatisfy { $0.backend.rawValue != "mlx-audio" })
     }
 }
+
+
+// MARK: - #16 rewrite resilience + pin provenance (spec benchmark-store MODIFIED ×2)
+
+struct StoreResilienceTests {
+    private func freshStore() throws -> (BenchmarkStore, URL) {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("bestasr-resilience-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return (BenchmarkStore(directory: dir), dir)
+    }
+
+    private func corpus(_ name: String) -> CorpusRow {
+        // corpusId is content-hash keyed — distinct hashes per name, or upsert
+        // (correctly) collapses them into one row.
+        let seed = String(name.first ?? "x")
+        return CorpusRow(
+            name: name, language: "en", audioSHA256: String(repeating: seed, count: 64),
+            referenceSHA256: String(repeating: seed.uppercased(), count: 64), duration: 1,
+            audioPath: "/tmp/\(name).wav", referencePath: "/tmp/\(name).srt")
+    }
+
+    @Test func `Corpus upsert preserves an unparseable line verbatim and it keeps warning`() throws {
+        let (store, dir) = try freshStore()
+        try store.upsert(corpus: corpus("first"))
+        let table = dir.appendingPathComponent("corpora.jsonl")
+        let garbage = "{this is not json — a hand-edited relic}"
+        var content = try String(contentsOf: table, encoding: .utf8)
+        content += garbage + "\n"
+        try content.write(to: table, atomically: true, encoding: .utf8)
+
+        try store.upsert(corpus: corpus("second"))  // triggers the rewrite path
+
+        let rewritten = try String(contentsOf: table, encoding: .utf8)
+        #expect(rewritten.contains(garbage))  // byte-identical survival
+        let snapshot = try store.load()
+        #expect(snapshot.corpora.count == 2)
+        #expect(snapshot.warnings.contains { $0.contains("corpora.jsonl") })  // still loud
+    }
+
+    @Test func `Model seeding preserves an unparseable line verbatim`() throws {
+        let (store, dir) = try freshStore()
+        try store.seed(models: [ModelRow(
+            backend: "whisperkit", family: "whisper", size: "tiny", quantization: "default",
+            estMemoryGB: 0.4, priority: 1)])
+        let table = dir.appendingPathComponent("models.jsonl")
+        let garbage = "not-even-braces"
+        var content = try String(contentsOf: table, encoding: .utf8)
+        content += garbage + "\n"
+        try content.write(to: table, atomically: true, encoding: .utf8)
+
+        try store.seed(models: [ModelRow(
+            backend: "whisperkit", family: "whisper", size: "base", quantization: "default",
+            estMemoryGB: 0.5, priority: 1)])  // wholesale re-seed = rewrite
+
+        let rewritten = try String(contentsOf: table, encoding: .utf8)
+        #expect(rewritten.contains(garbage))
+        #expect(try store.load().models.count == 1)  // re-seed semantics unchanged
+    }
+
+    @Test func `Measurement carries the seeded pin and legacy rows decode nil`() throws {
+        let (store, dir) = try freshStore()
+        try store.append(measurement: MeasurementRow(
+            modelId: "whisperkit|parakeet|0.6b|default", corpusId: "c", machineId: "m",
+            measuredAt: Date(timeIntervalSince1970: 1_800_000_000), metricKind: .wer,
+            errorRate: 0.1, rtf: 0.2, peakMemoryGB: 1, warmupSeconds: 1,
+            appVersion: "0.4.0", macosVersion: "27.0",
+            hfRevision: "ed2b7e8c15f9aaa0b5772e2efb986255aef7e155"))
+        // a legacy line without hf_revision must decode with nil
+        let table = dir.appendingPathComponent("measurements.jsonl")
+        let legacy = """
+        {"app_version":"0.3.0","corpus_id":"c","error_rate":0.2,"machine_id":"m","macos_version":"27.0","measured_at":"2026-01-01T00:00:00Z","metric_kind":"wer","model_id":"whisperkit|whisper|tiny|default","peak_memory_gb":0.4,"rtf":0.1,"warmup_seconds":2}
+        """
+        var content = try String(contentsOf: table, encoding: .utf8)
+        content += legacy + "\n"
+        try content.write(to: table, atomically: true, encoding: .utf8)
+
+        let rows = try store.load().measurements
+        #expect(rows.count == 2)
+        #expect(rows.first?.hfRevision == "ed2b7e8c15f9aaa0b5772e2efb986255aef7e155")
+        #expect(rows.last?.hfRevision == nil)
+        // and the JSON key is snake_case on disk
+        #expect(try String(contentsOf: table, encoding: .utf8).contains("\"hf_revision\""))
+    }
+}

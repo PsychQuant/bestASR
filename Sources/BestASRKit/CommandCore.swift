@@ -331,20 +331,28 @@ public struct CommandCore: Sendable {
             duration: audio.duration ?? existing?.duration ?? 0,
             audioPath: audio.path, referencePath: referencePath)
         try store.upsert(corpus: corpus)
+        // Pin provenance (#16): resolve each model's hf_revision from the table
+        // AS SEEDED for this run — a measure-time fact that survives later
+        // catalog re-seeding (the models table is rewritten wholesale).
+        let seededModels = Dictionary(
+            try store.load().models.map { ($0.modelId, $0) },
+            uniquingKeysWith: { first, _ in first })
         for measured in outcome.measured {
             let record = measured.record
             let family = "whisper"
             let size = record.model
+            let modelId = ModelRow.id(
+                backend: record.backend, family: family, size: size,
+                quantization: record.quantization)
             try store.append(measurement: MeasurementRow(
-                modelId: ModelRow.id(
-                    backend: record.backend, family: family, size: size,
-                    quantization: record.quantization),
+                modelId: modelId,
                 corpusId: corpus.corpusId, machineId: machine.machineId,
                 measuredAt: record.measuredAt, metricKind: record.metricKind,
                 errorRate: record.errorRate, rtf: record.rtf,
                 peakMemoryGB: record.peakMemoryGB, warmupSeconds: measured.warmupSeconds,
                 appVersion: record.appVersion, macosVersion: record.macosVersion,
-                contextErrorRate: measured.contextErrorRate))
+                contextErrorRate: measured.contextErrorRate,
+                hfRevision: seededModels[modelId]?.hfRevision))
         }
         }
 

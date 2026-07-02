@@ -180,8 +180,23 @@ public struct BenchmarkStore: Sendable {
         }
     }
 
-    private func rewrite<T: Encodable>(table: String, rows: [T]) throws {
+    private func rewrite<T: Codable>(table: String, rows: [T]) throws {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        // Preserve-verbatim (#16, spec: Corrupt rows degrade loudly, not fatally —
+        // extended to rewrites): lines the store cannot decode are user data it
+        // must not delete. Collect them from the current file and append them
+        // back after the new rows; they keep triggering the load warning, which
+        // is the loud part of the contract.
+        let url = directory.appendingPathComponent("\(table).jsonl")
+        var preserved: [Substring] = []
+        if let existing = try? String(contentsOf: url, encoding: .utf8) {
+            let decoder = JSONDecoder()
+            decoder.dateDecodingStrategy = .iso8601
+            for line in existing.split(separator: "\n", omittingEmptySubsequences: true)
+            where (try? decoder.decode(T.self, from: Data(line.utf8))) == nil {
+                preserved.append(line)
+            }
+        }
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
@@ -189,6 +204,9 @@ public struct BenchmarkStore: Sendable {
         for row in rows {
             payload += try encoder.encode(row) + Data("\n".utf8)
         }
-        try payload.write(to: directory.appendingPathComponent("\(table).jsonl"))
+        for line in preserved {
+            payload += Data(line.utf8) + Data("\n".utf8)
+        }
+        try payload.write(to: url)
     }
 }
