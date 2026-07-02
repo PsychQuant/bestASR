@@ -178,13 +178,20 @@ public struct BenchmarkRunner {
                 language: effectiveLanguage
             )
             do {
+                // Memory baseline BEFORE warm-up: with pipeline reuse (#7) the
+                // model is resident after warm-up, so a post-warm-up baseline
+                // would collapse whisperkit peak-GB to decode-only ~0 and be
+                // incomparable with pre-reuse records. Baseline-before-warm-up
+                // keeps the candidate's model footprint in the delta
+                // (subprocess backends still under-report — process-local probe).
+                let memoryBefore = probe.memoryGB()
+
                 // Warm-up run: downloads/loads the model; excluded from RTF.
                 let warmStart = probe.now()
                 _ = try await engine.transcribe(audioPath: audio.path, options: options)
                 let warmupSeconds = probe.now() - warmStart
 
                 // Timed run.
-                let memoryBefore = probe.memoryGB()
                 let start = probe.now()
                 let transcript = try await engine.transcribe(audioPath: audio.path, options: options)
                 let elapsed = probe.now() - start

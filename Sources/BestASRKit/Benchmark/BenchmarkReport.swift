@@ -66,7 +66,8 @@ public enum BenchmarkReport {
                 "profile: \(profile.rawValue) · language: \(outcome.language) · metric: \(metric)"
             )
             lines.append(
-                "peak-GB is an approximate process-footprint delta; warm-up (model "
+                "peak-GB ≈ model + decode footprint for in-process backends "
+                    + "(subprocess backends under-report); warm-up (model "
                     + "download/load) is excluded from X-REAL."
             )
         }
