@@ -117,5 +117,7 @@ struct ModelRegistryTests {
         // Default = first entry, so cold-start never proposes a 404 file.
         #expect(ModelRegistry.defaultQuantization(for: .whisperCpp, model: "tiny") == "q5_1")
         #expect(ModelRegistry.defaultQuantization(for: .whisperCpp, model: "medium") == "q5_0")
+        // Unknown models get no guessed row (drift guard - see registry comment).
+        #expect(ModelRegistry.quantizations(for: .whisperCpp, model: "large-v4").isEmpty)
     }
 }

@@ -49,8 +49,14 @@ public enum ModelRegistry {
         case .whisperCpp:
             switch model {
             case "tiny", "base", "small": return ["q5_1", "q8_0"]
+            case "medium", "large-v3-turbo": return ["q5_0", "q8_0"]
             case "large-v3": return ["q5_0"]
-            default: return ["q5_0", "q8_0"]  // medium, large-v3-turbo
+            // Unknown models get NO variants rather than a guessed row —
+            // HF availability is irregular (3 patterns across 6 models), so a
+            // guess regenerates the dead-URL bug for the next model added.
+            // The all-models parameterized test turns red until a new model
+            // gets an explicit, probed row.
+            default: return []
             }
         }
     }
@@ -58,7 +64,10 @@ public enum ModelRegistry {
     /// The quantization the cold-start prior assumes — the first (preferred)
     /// variant, so a recommendation can never name a file HF does not host.
     public static func defaultQuantization(for backend: BackendID, model: String) -> String {
-        quantizations(for: backend, model: model)[0]
+        guard let first = quantizations(for: backend, model: model).first else {
+            preconditionFailure("no quantization row for \(backend.rawValue) \(model) — add one to ModelRegistry.quantizations(for:model:)")
+        }
+        return first
     }
 
     public static func isSupportedModel(_ name: String) -> Bool {

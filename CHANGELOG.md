@@ -5,6 +5,14 @@ All notable changes to bestASR are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- **BestASRKit API (deliberate pre-1.0 break)**: `ModelRegistry.quantizations`
+  dictionary is replaced by `quantizations(for:model:)`, and
+  `defaultQuantization(for:)` now requires a `model:` parameter. No
+  deprecation shims - the package has no tagged releases or external
+  consumers yet.
+
 ### Fixed
 
 - **whisper.cpp quantization table is now per-model and HF-accurate** (#5):
