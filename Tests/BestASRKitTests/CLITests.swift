@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import BestASRKit
 
-/// CommandCore with everything injected: mock engines, fixed host, temp cache,
+/// CommandCore with everything injected: mock engines, fixed host, temp store,
 /// deterministic clock. No real backend, no real detection, no network.
 private func makeCore(
     engines: [any Engine],
@@ -12,7 +12,7 @@ private func makeCore(
     CommandCore(
         engines: engines,
         detect: { host },
-        cache: BenchmarkCache(fileURL: cacheDir.appendingPathComponent("benchmarks.json")),
+        store: BenchmarkStore(directory: cacheDir.appendingPathComponent("store")),
         probe: FakeClockProbe.probe()
     )
 }
@@ -72,12 +72,14 @@ struct RecommendCommandTests {
         let dir = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: dir) }
         let audio = try makeWavFile(in: dir)
+        // Legacy flat cache seeded on purpose: the store's one-time migration
+        // (spec benchmark-store) is the integration path under test here.
         let cache = BenchmarkCache(fileURL: dir.appendingPathComponent("benchmarks.json"))
         try cache.upsert([Fixtures.record(language: "zh")])  // chip matches Fixtures.m5Max
         let core = CommandCore(
             engines: [MockEngine.fixed(.whisperKit)],
             detect: { Fixtures.m5Max },
-            cache: cache,
+            store: BenchmarkStore(directory: dir.appendingPathComponent("store")),
             probe: FakeClockProbe.probe()
         )
 
@@ -144,11 +146,11 @@ struct BenchmarkCommandTests {
         let srt = dir.appendingPathComponent("truth.srt").path
         try "1\n00:00:00,000 --> 00:00:02,000\nhello world\n".write(
             toFile: srt, atomically: true, encoding: .utf8)
-        let cache = BenchmarkCache(fileURL: dir.appendingPathComponent("benchmarks.json"))
+        let store = BenchmarkStore(directory: dir.appendingPathComponent("store"))
         let core = CommandCore(
             engines: [MockEngine.fixed(.whisperKit)],
             detect: { Fixtures.m5Max },
-            cache: cache,
+            store: store,
             probe: FakeClockProbe.probe()
         )
 
@@ -158,8 +160,10 @@ struct BenchmarkCommandTests {
         )
         #expect(report.contains("RANK"))
         #expect(report.contains("whisperkit"))
-        #expect(try cache.load().count == 1)  // persisted (spec: benchmark command)
-        #expect(try cache.load()[0].errorRate == 0)  // mock says exactly "hello world"
+        let snapshot = try store.load()
+        #expect(snapshot.measurements.count == 1)  // persisted (spec: benchmark-store)
+        #expect(snapshot.measurements[0].errorRate == 0)  // mock says exactly "hello world"
+        #expect(snapshot.models.count >= 30)  // grid seeded wholesale
     }
 
     @Test func `benchmark json mode emits machine-readable results`() async throws {
@@ -298,7 +302,7 @@ struct ContextCommandTests {
         let core = CommandCore(
             engines: [capturingEngine(box)],
             detect: { Fixtures.m5Max },
-            cache: BenchmarkCache(fileURL: dir.appendingPathComponent("b.json")),
+            store: BenchmarkStore(directory: dir.appendingPathComponent("store")),
             probe: FakeClockProbe.probe()
         )
         let selection = SelectionRequest(
@@ -334,7 +338,7 @@ struct ContextCommandTests {
         let core = CommandCore(
             engines: [capturingEngine(box)],
             detect: { Fixtures.m5Max },
-            cache: BenchmarkCache(fileURL: dir.appendingPathComponent("b.json")),
+            store: BenchmarkStore(directory: dir.appendingPathComponent("store")),
             probe: FakeClockProbe.probe()
         )
         let selection = SelectionRequest(
@@ -355,7 +359,7 @@ struct ContextCommandTests {
         let core = CommandCore(
             engines: [MockEngine.fixed(.whisperKit)],
             detect: { Fixtures.m5Max },
-            cache: BenchmarkCache(fileURL: dir.appendingPathComponent("b.json")),
+            store: BenchmarkStore(directory: dir.appendingPathComponent("store")),
             probe: FakeClockProbe.probe()
         )
         let selection = SelectionRequest(

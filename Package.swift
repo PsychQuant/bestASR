@@ -16,6 +16,7 @@ let package = Package(
         .target(
             name: "BestASRKit",
             dependencies: [.product(name: "WhisperKit", package: "WhisperKit")],
+            resources: [.copy("Engines/mlx_worker.py")],
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
         .executableTarget(

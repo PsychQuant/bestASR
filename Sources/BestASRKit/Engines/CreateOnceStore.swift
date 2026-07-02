@@ -25,6 +25,17 @@ actor CreateOnceStore<Value> {
         inFlight = inFlight.filter { $0.key == key }
     }
 
+    /// Like retainOnly, but hands back the evicted values so callers owning
+    /// external resources (worker processes, #14) can terminate them.
+    func retainOnlyReturningEvicted(_ key: String) async -> [Value] {
+        var evicted: [Value] = []
+        for (existingKey, task) in inFlight where existingKey != key {
+            if let value = try? await task.value { evicted.append(value) }
+        }
+        inFlight = inFlight.filter { $0.key == key }
+        return evicted
+    }
+
     func value(
         for key: String, make: @escaping @Sendable () async throws -> Value
     ) async throws -> Value {

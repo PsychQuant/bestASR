@@ -18,24 +18,29 @@ public struct TranscribeOutcome: Sendable {
 public struct CommandCore: Sendable {
     public let engines: [any Engine]
     let detect: @Sendable () throws -> SystemInfo
-    let cache: BenchmarkCache
+    let store: BenchmarkStore
     let probe: MeasurementProbe
 
     public init(
         engines: [any Engine],
         detect: @escaping @Sendable () throws -> SystemInfo = { try SystemDetector.detect() },
-        cache: BenchmarkCache = .live(),
+        store: BenchmarkStore = BenchmarkStore(),
         probe: MeasurementProbe = .live()
     ) {
         self.engines = engines
         self.detect = detect
-        self.cache = cache
+        self.store = store
         self.probe = probe
     }
 
-    /// The production wiring: real engines, real detection, real cache.
+    /// The production wiring: real engines, real detection, real store.
     public static func live() -> CommandCore {
-        CommandCore(engines: [WhisperKitEngine(), WhisperCppEngine()])
+        CommandCore(engines: [WhisperKitEngine(), WhisperCppEngine(), MLXAudioEngine()])
+    }
+
+    /// Store-projected records for the router (design D7).
+    func loadRecords() throws -> [BenchmarkRecord] {
+        try store.load().projectedRecords()
     }
 
     func availability() async -> [BackendID: Bool] {
@@ -107,7 +112,7 @@ public struct CommandCore: Sendable {
             let rec = try Router.recommend(
                 host: host, profile: .balanced, requestedLanguage: nil,
                 backendOverride: nil, modelOverride: nil,
-                records: try cache.load(), availability: await availability()
+                records: try loadRecords(), availability: await availability()
             )
             lines += [
                 "  Backend:      \(rec.backend.rawValue)",
@@ -160,7 +165,7 @@ public struct CommandCore: Sendable {
             requestedLanguage: language,
             backendOverride: selection.backendOverride,
             modelOverride: selection.modelOverride,
-            records: try cache.load(),
+            records: try loadRecords(),
             availability: await availability()
         )
     }
@@ -254,7 +259,8 @@ public struct CommandCore: Sendable {
         modelFilter: [String]?,
         profileName: String,
         asJSON: Bool,
-        contextDir: String? = nil
+        contextDir: String? = nil,
+        allGrid: Bool = false
     ) async throws -> String {
         guard let profile = RouterProfile(rawValue: profileName.lowercased()) else {
             throw BestASRError.usage(
@@ -277,7 +283,7 @@ public struct CommandCore: Sendable {
         let runner = BenchmarkRunner(engines: engines, host: host, probe: probe)
 
         let enumeration = try await runner.enumerateCandidates(
-            backendFilter: backendFilter, modelFilter: modelFilter)
+            backendFilter: backendFilter, modelFilter: modelFilter, allGrid: allGrid)
         guard !enumeration.candidates.isEmpty else {
             throw BestASRError.runtime(
                 "no benchmark candidates: "
@@ -306,7 +312,36 @@ public struct CommandCore: Sendable {
         )
 
         if !outcome.measured.isEmpty {
-            try cache.upsert(outcome.measured.map(\.record))
+        // Persist to the BCNF store (spec benchmark: append-only measurements);
+        // the grid seed keeps the models table code-owned and current.
+        try store.seed(models: ModelGrid.rows)
+        let machine = MachineRow(chip: host.chip, unifiedMemoryGB: host.unifiedMemoryGB)
+        try store.upsert(machine: machine)
+        let corpus = CorpusRow(
+            name: URL(fileURLWithPath: audio.path).lastPathComponent,
+            language: resolvedLanguage ?? "auto",
+            audioSHA256: try fileSHA256(URL(fileURLWithPath: audio.path)),
+            referenceSHA256: try fileSHA256(URL(fileURLWithPath: referencePath)),
+            duration: audio.duration ?? 0,
+            audioPath: audio.path, referencePath: referencePath)
+        try store.upsert(corpus: corpus)
+        for measured in outcome.measured {
+            let record = measured.record
+            let family = record.backend == ModelGrid.backendMLXAudio
+                ? String(record.model.split(separator: "/").first ?? "") : "whisper"
+            let size = record.backend == ModelGrid.backendMLXAudio
+                ? String(record.model.split(separator: "/").last ?? "") : record.model
+            try store.append(measurement: MeasurementRow(
+                modelId: ModelRow.id(
+                    backend: record.backend, family: family, size: size,
+                    quantization: record.quantization),
+                corpusId: corpus.corpusId, machineId: machine.machineId,
+                measuredAt: record.measuredAt, metricKind: record.metricKind,
+                errorRate: record.errorRate, rtf: record.rtf,
+                peakMemoryGB: record.peakMemoryGB, warmupSeconds: measured.warmupSeconds,
+                appVersion: record.appVersion, macosVersion: record.macosVersion,
+                contextErrorRate: measured.contextErrorRate))
+        }
         }
 
         let report =
@@ -334,13 +369,27 @@ public struct CommandCore: Sendable {
     }
 
     public func listModels() -> String {
-        ModelRegistry.supportedModels.map { model in
-            let quants = BackendID.allCases.map { backend in
-                let variants = ModelRegistry.quantizations(for: backend, model: model)
+        var lines: [String] = []
+        for (size, _) in ModelGrid.whisperSizes {
+            let quants = BackendID.allCases.filter { $0 != .mlxAudio }.map { backend in
+                let variants = ModelGrid.rows.filter {
+                    $0.backend == backend.rawValue && $0.size == size
+                }.map(\.quantization)
                 return "\(backend.rawValue): \(variants.joined(separator: "/"))"
             }
-            return "\(model.padding(toLength: 16, withPad: " ", startingAt: 0)) (\(quants.joined(separator: " · ")))"
+            lines.append(
+                "\(size.padding(toLength: 16, withPad: " ", startingAt: 0)) (\(quants.joined(separator: " · ")))")
         }
-        .joined(separator: "\n")
+        lines.append("")
+        lines.append("mlx-audio grid (priority 1 = default sweep; * = verified repo):")
+        for row in ModelGrid.rows(backend: ModelGrid.backendMLXAudio, priorityCeiling: nil)
+            .sorted(by: { ($0.priority, $0.family) < ($1.priority, $1.family) })
+        {
+            let name = "\(row.family)/\(row.size)"
+            lines.append(
+                "  P\(row.priority) \(name.padding(toLength: 28, withPad: " ", startingAt: 0)) "
+                    + "\(row.quantization)\(row.verified ? " *" : "")")
+        }
+        return lines.joined(separator: "\n")
     }
 }

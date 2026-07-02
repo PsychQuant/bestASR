@@ -9,6 +9,7 @@ public enum BestASRVersion {
 public enum BackendID: String, Codable, CaseIterable, Sendable {
     case whisperKit = "whisperkit"
     case whisperCpp = "whisper.cpp"
+    case mlxAudio = "mlx-audio"
 }
 
 // MARK: - Detection

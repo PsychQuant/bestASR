@@ -3,6 +3,23 @@
 All notable changes to bestASR are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow SemVer.
 
+## [Unreleased]
+
+### Added
+
+- **mlx-audio third backend** (#14): MLX-native STT families via a persistent
+  JSON-lines Python worker per model (dedicated uv venv; model load lands in
+  the warm-up pass, timed pass measures pure inference). Models are addressed
+  as `family/size` (e.g. `parakeet/0.6b`).
+- **Model grid** (#14): full-family catalog (15 mlx-audio families + the
+  whisper backends) with priority tiers — the default benchmark sweep runs
+  priority-1 rows; `--all-grid` widens. Unverified HF repos are marked and
+  never turned into guessed URLs.
+- **BCNF benchmark store** (#14): `~/.bestasr/store/` holds four JSONL tables
+  (machines / models / corpora / measurements) with append-only measurements
+  and a latest-per-(model, corpus, machine) projection; the legacy
+  `benchmarks.json` migrates once and gains a `.bak` suffix.
+
 ## [0.2.1] — 2026-07-02
 
 ### Changed

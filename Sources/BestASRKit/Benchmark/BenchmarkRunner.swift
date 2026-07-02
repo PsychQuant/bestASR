@@ -87,7 +87,8 @@ public struct BenchmarkRunner {
 
     public func enumerateCandidates(
         backendFilter: [String]? = nil,
-        modelFilter: [String]? = nil
+        modelFilter: [String]? = nil,
+        allGrid: Bool = false
     ) async throws -> Enumeration {
         let backendNames = Set(BackendID.allCases.map(\.rawValue))
         if let backendFilter {
@@ -98,11 +99,15 @@ public struct BenchmarkRunner {
                 )
             }
         }
+        // Valid model addresses come from the grid: whisper backends by size,
+        // mlx-audio by family/size (spec model-grid).
+        let gridNames = Set(ModelGrid.rows.map { row in
+            row.backend == ModelGrid.backendMLXAudio ? "\(row.family)/\(row.size)" : row.size
+        })
         if let modelFilter {
-            for name in modelFilter where !ModelRegistry.isSupportedModel(name.lowercased()) {
+            for name in modelFilter where !gridNames.contains(name.lowercased()) {
                 throw BestASRError.usage(
-                    "unknown model in filter: '\(name)'; supported models are "
-                        + ModelRegistry.supportedModels.joined(separator: ", ")
+                    "unknown model in filter: '\(name)'; run list-models for the catalog"
                 )
             }
         }
@@ -120,16 +125,25 @@ public struct BenchmarkRunner {
                 notes.append("skipped \(backend.rawValue): backend unavailable on this machine")
                 continue
             }
-            let models = ModelRegistry.supportedModels.filter { model in
-                modelFilter.map { filter in filter.contains(where: { $0.lowercased() == model }) }
-                    ?? true
-            }
-            for model in models {
-                for quantization in ModelRegistry.quantizations(for: backend, model: model) {
-                    candidates.append(
-                        BenchmarkCandidate(
-                            backend: backend, model: model, quantization: quantization))
+            // Priority gates the default mlx-audio sweep (spec benchmark);
+            // existing backends' rows are all priority 1 so the gate is a no-op
+            // for them. --all-grid widens to every tier.
+            let ceiling: Int? = allGrid ? nil : 1
+            for row in ModelGrid.rows(backend: backend.rawValue, priorityCeiling: ceiling) {
+                let displayName = backend == .mlxAudio ? "\(row.family)/\(row.size)" : row.size
+                if let modelFilter,
+                    !modelFilter.contains(where: { $0.lowercased() == displayName })
+                {
+                    continue
                 }
+                if backend == .mlxAudio && !row.verified {
+                    notes.append(
+                        "skipped \(backend.rawValue) \(displayName): no verified HF repo in the grid yet")
+                    continue
+                }
+                candidates.append(
+                    BenchmarkCandidate(
+                        backend: backend, model: displayName, quantization: row.quantization))
             }
         }
         return Enumeration(candidates: candidates, notes: notes)

@@ -139,6 +139,9 @@ struct Benchmark: AsyncParsableCommand {
     @Option(help: "Context documents directory — adds a with-context pass and delta columns")
     var contextDir: String?
 
+    @Flag(help: "Widen the sweep to every grid tier (default: priority-1 rows only)")
+    var allGrid = false
+
     @Flag(help: "Emit machine-readable JSON instead of the table")
     var json = false
 
@@ -153,7 +156,8 @@ struct Benchmark: AsyncParsableCommand {
                     modelFilter: Benchmark.parseList(models),
                     profileName: profile,
                     asJSON: json,
-                    contextDir: contextDir
+                    contextDir: contextDir,
+                    allGrid: allGrid
                 )
             )
         }
