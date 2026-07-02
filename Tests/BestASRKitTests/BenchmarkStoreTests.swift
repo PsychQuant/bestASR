@@ -371,7 +371,7 @@ struct StoreResilienceTests {
     @Test func `Measurement carries the seeded pin and legacy rows decode nil`() throws {
         let (store, dir) = try freshStore()
         try store.append(measurement: MeasurementRow(
-            modelId: "whisperkit|parakeet|0.6b|default", corpusId: "c", machineId: "m",
+            modelId: "mlx-audio|parakeet|0.6b|default", corpusId: "c", machineId: "m",  // 真實可產生的 id（#14 時代歷史量測）
             measuredAt: Date(timeIntervalSince1970: 1_800_000_000), metricKind: .wer,
             errorRate: 0.1, rtf: 0.2, peakMemoryGB: 1, warmupSeconds: 1,
             appVersion: "0.4.0", macosVersion: "27.0",
@@ -391,5 +391,62 @@ struct StoreResilienceTests {
         #expect(rows.last?.hfRevision == nil)
         // and the JSON key is snake_case on disk
         #expect(try String(contentsOf: table, encoding: .utf8).contains("\"hf_revision\""))
+    }
+
+    @Test func `Non-UTF-8 corruption survives a rewrite byte-identical and load stays loud`() throws {
+        let (store, dir) = try freshStore()
+        try store.upsert(corpus: corpus("first"))
+        let table = dir.appendingPathComponent("corpora.jsonl")
+        let junk = Data([0xFF, 0xFE, 0x7B, 0x22, 0xFF])  // invalid UTF-8, not JSON
+        var bytes = try Data(contentsOf: table)
+        bytes.append(junk); bytes.append(UInt8(ascii: "\n"))
+        try bytes.write(to: table)
+
+        try store.upsert(corpus: corpus("second"))  // rewrite path
+
+        let rewritten = try Data(contentsOf: table)
+        #expect(rewritten.range(of: junk) != nil)  // byte-identical survival
+        let snapshot = try store.load()
+        #expect(snapshot.corpora.count == 2)
+        #expect(snapshot.warnings.contains { $0.contains("corpora.jsonl") })  // loud, not silently-empty
+    }
+
+    @Test func `Re-seeding with a new pin does not alter an appended measurement`() throws {
+        let (store, _) = try freshStore()
+        let base = ModelRow(
+            backend: "whisperkit", family: "whisper", size: "tiny", quantization: "default",
+            hfRepo: "openai/whisper-tiny", hfRevision: String(repeating: "a", count: 40),
+            estMemoryGB: 0.4, priority: 1)
+        try store.seed(models: [base])
+        try store.append(measurement: MeasurementRow(
+            modelId: base.modelId, corpusId: "c", machineId: "m",
+            measuredAt: Date(timeIntervalSince1970: 1_800_000_000), metricKind: .wer,
+            errorRate: 0.1, rtf: 0.2, peakMemoryGB: 1, warmupSeconds: 1,
+            appVersion: "0.4.0", macosVersion: "27.0",
+            hfRevision: base.hfRevision))
+        try store.seed(models: [ModelRow(
+            backend: "whisperkit", family: "whisper", size: "tiny", quantization: "default",
+            hfRepo: "openai/whisper-tiny", hfRevision: String(repeating: "b", count: 40),
+            estMemoryGB: 0.4, priority: 1)])  // pin bump
+
+        let rows = try store.load().measurements
+        #expect(rows.first?.hfRevision == String(repeating: "a", count: 40))  // measure-time fact intact
+    }
+
+    @Test func `Seeded-row lookup matches by backend size quantization and misses honestly`() {
+        let rows = [
+            ModelRow(backend: "whisperkit", family: "parakeet", size: "0.6b",
+                     quantization: "default", hfRepo: "x/y",
+                     hfRevision: String(repeating: "e", count: 40),
+                     estMemoryGB: 2, priority: 1),
+            ModelRow(backend: "whisperkit", family: "whisper", size: "tiny",
+                     quantization: "default", estMemoryGB: 0.4, priority: 1),
+        ]
+        let hit = CommandCore.seededRow(
+            in: rows, backend: "whisperkit", size: "0.6b", quantization: "default")
+        #expect(hit?.family == "parakeet")  // family 由 row 自帶，非 hardcode
+        #expect(hit?.hfRevision == String(repeating: "e", count: 40))
+        #expect(CommandCore.seededRow(
+            in: rows, backend: "whisper.cpp", size: "0.6b", quantization: "default") == nil)
     }
 }

@@ -68,6 +68,17 @@ public struct CommandCore: Sendable {
         return ContextBundle(loaded: loaded, rendered: PromptRenderer.render(loaded))
     }
 
+    /// Grid-row lookup for a measured candidate (#16): keyed by the facts the
+    /// benchmark record actually carries — backend, size, quantization — so the
+    /// row's own family (and pin) travel back without a hardcoded key.
+    static func seededRow(
+        in rows: [ModelRow], backend: String, size: String, quantization: String
+    ) -> ModelRow? {
+        rows.first {
+            $0.backend == backend && $0.size == size && $0.quantization == quantization
+        }
+    }
+
     static func contextReasonLine(_ bundle: ContextBundle) -> String {
         if bundle.rendered.injected.isEmpty {
             return "context: \(bundle.loaded.directory) — 0 values injected; "
@@ -331,18 +342,20 @@ public struct CommandCore: Sendable {
             duration: audio.duration ?? existing?.duration ?? 0,
             audioPath: audio.path, referencePath: referencePath)
         try store.upsert(corpus: corpus)
-        // Pin provenance (#16): resolve each model's hf_revision from the table
-        // AS SEEDED for this run — a measure-time fact that survives later
-        // catalog re-seeding (the models table is rewritten wholesale).
-        let seededModels = Dictionary(
-            try store.load().models.map { ($0.modelId, $0) },
-            uniquingKeysWith: { first, _ in first })
+        // Pin provenance (#16): resolve each measurement's grid row — and with
+        // it the hf_revision pin AND the true modelId (family included) — from
+        // the rows seeded for THIS run. ModelGrid.rows was seeded verbatim a few
+        // lines above, so the in-memory array IS the as-seeded table (no store
+        // re-read; #16 verify F12). Matching by (backend, size, quantization)
+        // instead of a hardcoded family="whisper" key keeps the measurement's
+        // PRIMARY KEY honest for non-whisper families (#16 verify DA).
         for measured in outcome.measured {
             let record = measured.record
-            let family = "whisper"
-            let size = record.model
-            let modelId = ModelRow.id(
-                backend: record.backend, family: family, size: size,
+            let seededRow = Self.seededRow(
+                in: ModelGrid.rows, backend: record.backend,
+                size: record.model, quantization: record.quantization)
+            let modelId = seededRow?.modelId ?? ModelRow.id(
+                backend: record.backend, family: "whisper", size: record.model,
                 quantization: record.quantization)
             try store.append(measurement: MeasurementRow(
                 modelId: modelId,
@@ -352,7 +365,7 @@ public struct CommandCore: Sendable {
                 peakMemoryGB: record.peakMemoryGB, warmupSeconds: measured.warmupSeconds,
                 appVersion: record.appVersion, macosVersion: record.macosVersion,
                 contextErrorRate: measured.contextErrorRate,
-                hfRevision: seededModels[modelId]?.hfRevision))
+                hfRevision: seededRow?.hfRevision))
         }
         }
 
