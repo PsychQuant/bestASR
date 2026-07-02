@@ -17,16 +17,14 @@ public enum ModelRegistry {
         "large-v3", "medium", "small", "base", "tiny",
     ]
 
-    /// Estimated unified-memory requirement (GB) per model — fp16-weight
-    /// upper bounds; quantized variants use less, so the gate is conservative.
-    private static let memoryEstimates: [String: Double] = [
-        "tiny": 1.0,
-        "base": 1.5,
-        "small": 2.5,
-        "medium": 5.0,
-        "large-v3-turbo": 6.0,
-        "large-v3": 10.0,
-    ]
+    /// Estimated unified-memory requirement (GB) per model — projected from
+    /// the model grid's whisperkit rows (fp16-weight upper bounds; quantized
+    /// variants use less, so the gate is conservative).
+    private static var memoryEstimates: [String: Double] {
+        Dictionary(uniqueKeysWithValues: ModelGrid.rows
+            .filter { $0.backend == ModelGrid.backendWhisperKit }
+            .map { ($0.size, $0.estMemoryGB) })
+    }
 
     /// Candidate models per profile (design brief §7.4, carried into the
     /// cold-start prior spec).
@@ -43,22 +41,15 @@ public enum ModelRegistry {
     /// medium/large-tier ship q5_0, and large-v3 has no q8_0. A wrong row
     /// here turns the engine's download guidance into a dead URL.
     public static func quantizations(for backend: BackendID, model: String) -> [String] {
-        switch backend {
-        case .whisperKit:
-            return ["default"]
-        case .whisperCpp:
-            switch model {
-            case "tiny", "base", "small": return ["q5_1", "q8_0"]
-            case "medium", "large-v3-turbo": return ["q5_0", "q8_0"]
-            case "large-v3": return ["q5_0"]
-            // Unknown models get NO variants rather than a guessed row —
-            // HF availability is irregular (3 patterns across 6 models), so a
-            // guess regenerates the dead-URL bug for the next model added.
-            // The all-models parameterized test turns red until a new model
-            // gets an explicit, probed row.
-            default: return []
+        // Projected from the model grid (the single catalog, #14): unknown
+        // models yield no rows — same drift guard as before, one source now.
+        ModelGrid.rows
+            .filter { row in
+                row.backend == backend.rawValue
+                    && (row.backend == ModelGrid.backendMLXAudio
+                        ? "\(row.family)/\(row.size)" == model : row.size == model)
             }
-        }
+            .map(\.quantization)
     }
 
     /// The quantization the cold-start prior assumes — the first (preferred)
@@ -71,18 +62,32 @@ public enum ModelRegistry {
     }
 
     public static func isSupportedModel(_ name: String) -> Bool {
-        supportedModels.contains(name)
+        supportedModels.contains(name) || gridDisplayNames.contains(name)
+    }
+
+    /// Every addressable model name across the grid: whisper sizes plus
+    /// mlx-audio family/size addresses (#14).
+    public static var gridDisplayNames: Set<String> {
+        Set(ModelGrid.rows.map { row in
+            row.backend == ModelGrid.backendMLXAudio ? "\(row.family)/\(row.size)" : row.size
+        })
     }
 
     /// Static memory estimate for cold-start feasibility (spec asr-engine:
     /// Estimate model requirements). Unknown model names are a caller bug.
     public static func requirements(for model: String) throws -> ModelRequirements {
-        guard let memoryGB = memoryEstimates[model] else {
-            throw BestASRError.usage(
-                "unknown model: '\(model)'; supported models are \(supportedModels.joined(separator: ", "))"
-            )
+        if let memoryGB = memoryEstimates[model] {
+            return ModelRequirements(model: model, memoryGB: memoryGB)
         }
-        return ModelRequirements(model: model, memoryGB: memoryGB)
+        // Grid-addressed models (mlx-audio family/size): the row's estimate.
+        if let row = ModelGrid.rows.first(where: {
+            $0.backend == ModelGrid.backendMLXAudio && "\($0.family)/\($0.size)" == model
+        }) {
+            return ModelRequirements(model: model, memoryGB: row.estMemoryGB)
+        }
+        throw BestASRError.usage(
+            "unknown model: '\(model)'; run list-models for the catalog"
+        )
     }
 
     /// Accuracy prior used only to order candidates within a profile list

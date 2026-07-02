@@ -3,6 +3,38 @@
 All notable changes to bestASR are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow SemVer.
 
+## [Unreleased]
+
+### Added
+
+- **mlx-audio third backend** (#14): MLX-native STT families via a persistent
+  JSON-lines Python worker per model (dedicated uv venv; model load lands in
+  the warm-up pass, timed pass measures pure inference). Models are addressed
+  as `family/size` (e.g. `parakeet/0.6b`).
+- **Model grid** (#14): full-family catalog (15 mlx-audio families + the
+  whisper backends) with priority tiers — the default benchmark sweep runs
+  priority-1 rows; `--all-grid` widens. Unverified HF repos are marked and
+  never turned into guessed URLs.
+- **BCNF benchmark store** (#14): `~/.bestasr/store/` holds four JSONL tables
+  (machines / models / corpora / measurements) with append-only measurements
+  and a latest-per-(model, corpus, machine) projection; the legacy
+  `benchmarks.json` migrates once and gains a `.bak` suffix.
+- **Verify-round hardening** (#14 6-AI findings): mlx-audio cold-start pairs
+  correctly (`--backend mlx-audio` picks from its own grid; bare
+  `--model family/size` infers the backend); explain honestly discloses that
+  mlx-audio cannot use the context prompt instead of implying injection;
+  benchmark no longer clobbers registered corpus name/language; routing
+  projection aggregates one record per candidate (legacy ids converge, order
+  deterministic); worker responses correlate by id and dead workers are
+  evicted; the venv probe is memoized out of the timed pass.
+- **Grid-aware model addressing** (#14): `family/size` names validate through
+  the router, resolve memory estimates from their grid rows, and only pair
+  with backends whose grid lists variants (a clean usage error instead of a
+  crash for incompatible pairs); the availability chain includes mlx-audio.
+  Note: the mlx whisper row points at `openai/whisper-large-v3-turbo` — the
+  mlx-community conversions ship no `preprocessor_config.json` and fail
+  mlx_audio's whisper loader (live-probed 2026-07-02).
+
 ## [0.2.1] — 2026-07-02
 
 ### Changed

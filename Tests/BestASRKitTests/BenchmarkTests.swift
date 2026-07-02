@@ -240,11 +240,11 @@ struct ContextDeltaBenchmarkTests {
         let srt = dir.appendingPathComponent("truth.srt").path
         try "1\n00:00:00,000 --> 00:00:02,000\nhello world\n".write(
             toFile: srt, atomically: true, encoding: .utf8)
-        let cache = BenchmarkCache(fileURL: dir.appendingPathComponent("benchmarks.json"))
+        let store = BenchmarkStore(directory: dir.appendingPathComponent("store"))
         let core = CommandCore(
             engines: [Self.biasedEngine()],
             detect: { Fixtures.m5Max },
-            cache: cache,
+            store: store,
             probe: FakeClock(step: 1).probe()
         )
 
@@ -257,10 +257,13 @@ struct ContextDeltaBenchmarkTests {
         #expect(report.contains("DELTA"))
         #expect(report.contains("-50.0"))  // 0.5 → 0.0 in percent
 
-        // Cache stays context-neutral: one baseline record (spec scenario).
-        let records = try cache.load()
-        #expect(records.count == 1)
-        #expect(records[0].errorRate == 0.5)
+        // Measurement rows carry the baseline error rate; the with-context
+        // pass lands in context_error_rate (BCNF row, spec benchmark-store) —
+        // the routing projection stays context-neutral.
+        let rows = try store.load().measurements
+        #expect(rows.count == 1)
+        #expect(rows[0].errorRate == 0.5)
+        #expect(rows[0].contextErrorRate == 0.0)
 
         // JSON mode carries the machine-readable fields.
         let json = try await core.benchmark(

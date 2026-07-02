@@ -21,11 +21,18 @@ public enum Router {
         // Validate overrides early (usage errors, not silent acceptance).
         if let modelOverride, !ModelRegistry.isSupportedModel(modelOverride) {
             throw BestASRError.usage(
-                "unknown model: '\(modelOverride)'; supported models are "
-                    + ModelRegistry.supportedModels.joined(separator: ", ")
+                "unknown model: '\(modelOverride)'; run list-models for the catalog "
+                    + "(whisper sizes or mlx-audio family/size)"
             )
         }
-        let overrideBackend: BackendID? = try backendOverride.map { name in
+        // A grid-addressed model (family/size) implies the mlx-audio backend
+        // when none was given — a bare `--model parakeet/0.6b` must not
+        // cold-start onto whisperkit (verify #14 HIGH-2).
+        var inferredBackendOverride = backendOverride
+        if inferredBackendOverride == nil, let modelOverride, modelOverride.contains("/") {
+            inferredBackendOverride = BackendID.mlxAudio.rawValue
+        }
+        let overrideBackend: BackendID? = try inferredBackendOverride.map { name in
             guard let id = BackendID(rawValue: name.lowercased()) else {
                 throw BestASRError.usage(
                     "unknown backend: '\(name)'; supported backends are "
@@ -35,8 +42,10 @@ public enum Router {
             return id
         }
 
-        // Availability, in preference order (spec: whisperkit first).
-        let availableOrdered: [BackendID] = [.whisperKit, .whisperCpp].filter {
+        // Availability, in preference order (spec: whisperkit first; mlx-audio
+        // joins last so auto-selection keeps the established order — explicit
+        // overrides and measured data are how mlx candidates win, #14).
+        let availableOrdered: [BackendID] = [.whisperKit, .whisperCpp, .mlxAudio].filter {
             availability[$0] == true
         }
         guard !availableOrdered.isEmpty else {
@@ -113,7 +122,7 @@ public enum Router {
             reasons += choice.reasons
         }
 
-        let model: String
+        var model: String
         if let modelOverride {
             reasons.append("model '\(modelOverride)' explicitly requested")
             let (fitted, downgradeWarnings, downgradeReasons) = ColdStartPrior.ensureFits(
@@ -129,15 +138,40 @@ public enum Router {
             warnings += choice.warnings
         }
 
+        // Locked mlx-audio without a model override: the whisper-name prior
+        // can't serve this backend — pick the best verified grid row that
+        // fits memory (priority asc, est memory desc) (verify #14 HIGH-2).
+        if backend == .mlxAudio, modelOverride == nil {
+            let fitting = ModelGrid.rows(backend: ModelGrid.backendMLXAudio, priorityCeiling: nil)
+                .filter { $0.verified && $0.estMemoryGB <= host.unifiedMemoryGB }
+                .sorted { ($0.priority, -$0.estMemoryGB) < ($1.priority, -$1.estMemoryGB) }
+            guard let row = fitting.first else {
+                throw BestASRError.usage(
+                    "no verified mlx-audio grid row fits this machine; pass "
+                        + "--model family/size explicitly or run list-models")
+            }
+            model = "\(row.family)/\(row.size)"
+            reasons.append("cold start on the mlx-audio grid: \(model) (priority \(row.priority))")
+        }
+
         reasons.append(
             "cold start — run 'bestasr benchmark <audio> --reference <truth.srt>' for "
                 + "measured, machine-specific recommendations"
         )
 
+        // A model address only pairs with backends whose grid lists variants
+        // for it (mlx-audio family/size names never pair with the whisper
+        // backends and vice versa, #14).
+        guard let quantization = ModelRegistry.quantizations(for: backend, model: model).first
+        else {
+            throw BestASRError.usage(
+                "model '\(model)' is not available on backend \(backend.rawValue); "
+                    + "run list-models for the catalog")
+        }
         return ASRRecommendation(
             backend: backend,
             model: model,
-            quantization: ModelRegistry.defaultQuantization(for: backend, model: model),
+            quantization: quantization,
             profile: profile,
             language: requestedLanguage,
             dataSource: .coldStartPrior,

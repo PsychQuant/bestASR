@@ -45,6 +45,11 @@ Backends:
   you the exact file name and download URL when one is missing). Quantization
   variants differ per model on HuggingFace — `bestasr list-models` shows the
   hosted set (e.g. tiny/base/small ship `q5_1`, not `q5_0`).
+- **mlx-audio** is optional and unlocks 15 MLX-native STT families (Parakeet,
+  Qwen3-ASR, Moonshine, Canary, MMS, Voxtral, …):
+  `uv venv ~/.bestasr/mlx-env && uv pip install --python ~/.bestasr/mlx-env/bin/python mlx-audio`.
+  Models are addressed as `family/size` (e.g. `--model parakeet/0.6b`); the
+  default benchmark sweep runs the priority-1 grid rows, `--all-grid` widens.
 
 ## Quick start
 
@@ -67,7 +72,11 @@ bestasr recommend clip2.wav --language zh
 bestasr transcribe clip2.wav --language zh --explain
 ```
 
-The ground truth is a standard `.srt` subtitle file. Accuracy is scored as
+Register your ground truth once (`bestasr corpus add talk.wav talk.srt
+--language zh`; `scripts/fetch-corpora.sh` fetches the English standard set)
+— results land in the BCNF store at `~/.bestasr/store/` (four JSONL tables;
+measurements are append-only, routing reads the latest per model × corpus ×
+machine). The ground truth is a standard `.srt` subtitle file. Accuracy is scored as
 **CER** for languages without word spacing (zh / ja / ko) and **WER**
 otherwise; speed as measured times-realtime (model download/load excluded —
 WhisperKit pipelines load once per model and are reused, so its timed pass
@@ -109,7 +118,9 @@ formats are loudly ignored with guidance. An empty folder changes nothing.
 | `bestasr recommend <audio>` | JSON recommendation only — measured when data exists, cold-start prior otherwise |
 | `bestasr transcribe <audio>` | Transcribe; `--format txt\|json\|srt\|vtt`, `--output`, `--context-dir`, `--explain` |
 | `bestasr list-backends` | Backend availability on this machine |
-| `bestasr list-models` | Model sizes and quantization variants |
+| `bestasr list-models` | The model grid: whisper sizes + the 15-family mlx-audio catalog with priority tiers |
+| `bestasr corpus add <audio> <ref.srt> --language <l>` | Register ground truth (zh/ja: bring your own material) |
+| `bestasr corpus list` | Registered corpora |
 
 Shared selection flags: `--profile fast|balanced|accurate`, `--backend`,
 `--model`, `--language`.
