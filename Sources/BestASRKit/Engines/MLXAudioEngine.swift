@@ -19,21 +19,21 @@ public struct MLXAudioEngine: Engine {
 
     let venv: URL
     /// Transport seam: tests inject a fake; production spawns mlx_worker.py.
-    let makeTransport: @Sendable (_ hfRepo: String) async throws -> any MLXWorkerTransport
+    let makeTransport: @Sendable (_ hfRepo: String, _ revision: String?) async throws -> any MLXWorkerTransport
 
     let workers = CreateOnceStore<any MLXWorkerTransport>()
 
     public init(venv: URL? = nil) {
         let resolvedVenv = venv ?? Self.defaultVenv
         self.venv = resolvedVenv
-        self.makeTransport = { hfRepo in
-            try await ProcessWorkerTransport(venv: resolvedVenv, hfRepo: hfRepo)
+        self.makeTransport = { hfRepo, revision in
+            try await ProcessWorkerTransport(venv: resolvedVenv, hfRepo: hfRepo, revision: revision)
         }
     }
 
     init(
         venv: URL? = nil,
-        makeTransport: @escaping @Sendable (String) async throws -> any MLXWorkerTransport
+        makeTransport: @escaping @Sendable (String, String?) async throws -> any MLXWorkerTransport
     ) {
         self.venv = venv ?? Self.defaultVenv
         self.makeTransport = makeTransport
@@ -130,10 +130,15 @@ public struct MLXAudioEngine: Engine {
         do {
             // Keep-current eviction (spec: Worker lifecycle follows the
             // keep-current cache): evicted workers get terminated below.
-            let evicted = await workers.retainOnlyReturningEvicted(repo)
+            // Cache key carries the pin (#15 verify M-1): a bumped revision
+            // must never reuse a worker loaded from the old snapshot. Empty
+            // pins are nil-equivalent at this boundary (fail-closed).
+            let revision = (row.hfRevision?.isEmpty == false) ? row.hfRevision : nil
+            let workerKey = revision.map { "\(repo)@\($0)" } ?? repo
+            let evicted = await workers.retainOnlyReturningEvicted(workerKey)
             for old in evicted { old.terminate() }
             let factory = makeTransport
-            worker = try await workers.value(for: repo) { try await factory(repo) }
+            worker = try await workers.value(for: workerKey) { try await factory(repo, revision) }
         } catch {
             throw TranscriptionError(
                 backend: id.rawValue,
@@ -211,7 +216,18 @@ final class ProcessWorkerTransport: MLXWorkerTransport, @unchecked Sendable {
     private let lock = NSLock()
     private var buffer = Data()
 
-    init(venv: URL, hfRepo: String) async throws {
+    /// Pure argument assembly — pin passthrough is unit-tested (#15).
+    static func workerArguments(
+        script: String, hfRepo: String, revision: String?
+    ) -> [String] {
+        var arguments = [script, "--model", hfRepo]
+        if let revision, !revision.isEmpty {
+            arguments += ["--revision", revision]
+        }
+        return arguments
+    }
+
+    init(venv: URL, hfRepo: String, revision: String?) async throws {
         guard let script = Bundle.module.url(forResource: "mlx_worker", withExtension: "py")
         else {
             throw TranscriptionError(
@@ -220,12 +236,19 @@ final class ProcessWorkerTransport: MLXWorkerTransport, @unchecked Sendable {
         }
         let process = Process()
         process.executableURL = venv.appendingPathComponent("bin/python")
-        process.arguments = [script.path, "--model", hfRepo]
+        process.arguments = Self.workerArguments(
+            script: script.path, hfRepo: hfRepo, revision: revision)
         let inPipe = Pipe()
         let outPipe = Pipe()
         process.standardInput = inPipe
         process.standardOutput = outPipe
-        process.standardError = Pipe()
+        // Drain stderr continuously: huggingface_hub progress bars can fill
+        // an unread pipe buffer and wedge the ready-wait (#15 verify).
+        let errPipe = Pipe()
+        errPipe.fileHandleForReading.readabilityHandler = { handle in
+            _ = handle.availableData  // discard — diagnostics, not protocol
+        }
+        process.standardError = errPipe
         try process.run()
         self.process = process
         self.stdin = inPipe.fileHandleForWriting

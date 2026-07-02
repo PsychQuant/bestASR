@@ -50,9 +50,11 @@ public enum ModelGrid {
         // whisper loader — live-probed 2026-07-02.
         ModelRow(backend: backendMLXAudio, family: "whisper", size: "large-v3-turbo",
                  quantization: "default", hfRepo: "openai/whisper-large-v3-turbo",
+                 hfRevision: "41f01f3fe87f28c78e2fbf8b568835947dd65ed9",
                  languages: ["multi"], estMemoryGB: 3.2, priority: 1, verified: true),
         ModelRow(backend: backendMLXAudio, family: "parakeet", size: "0.6b",
                  quantization: "default", hfRepo: "mlx-community/parakeet-tdt-0.6b-v3",
+                 hfRevision: "ed2b7e8c15f9aaa0b5772e2efb986255eaef7e15",
                  languages: ["multi"], estMemoryGB: 1.5, priority: 1, verified: true),
         ModelRow(backend: backendMLXAudio, family: "qwen3-asr", size: "small",
                  quantization: "4bit", hfRepo: nil,
