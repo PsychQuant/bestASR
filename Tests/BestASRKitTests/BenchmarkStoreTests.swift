@@ -227,3 +227,53 @@ struct CorpusRegistryTests {
         }
     }
 }
+
+
+// MARK: - #14 verify M-5/M-9 regression locks (projection aggregation)
+
+struct ProjectionAggregationTests {
+    func row(model: String, corpus: String, at t: TimeInterval, rate: Double) -> MeasurementRow {
+        MeasurementRow(
+            modelId: model, corpusId: corpus, machineId: "h",
+            measuredAt: Date(timeIntervalSince1970: t), metricKind: .wer,
+            errorRate: rate, rtf: 0.1, peakMemoryGB: 1, warmupSeconds: 1,
+            appVersion: "0.3.0", macosVersion: "27.0")
+    }
+
+    @Test func `One record per candidate across corpora — latest wins`() {
+        let corpora = [
+            CorpusRow(name: "jfk", language: "en", audioSHA256: String(repeating: "a", count: 64),
+                      referenceSHA256: "", duration: 11, audioPath: "", referencePath: ""),
+            CorpusRow(name: "osr", language: "en", audioSHA256: String(repeating: "b", count: 64),
+                      referenceSHA256: "", duration: 33, audioPath: "", referencePath: ""),
+        ]
+        let snapshot = BenchmarkStore.Snapshot(
+            machines: [MachineRow(chip: "Apple M5 Max", unifiedMemoryGB: 0)],
+            models: [],
+            corpora: corpora,
+            measurements: [
+                row(model: "whisperkit|whisper|tiny|default", corpus: corpora[0].corpusId, at: 1_000, rate: 0.0),
+                row(model: "whisperkit|whisper|tiny|default", corpus: corpora[1].corpusId, at: 2_000, rate: 0.2),
+            ],
+            warnings: [])
+        // machineId "h" won't join machines — chip empty is fine for this lock.
+        let records = snapshot.projectedRecords()
+        #expect(records.count == 1)  // one candidate, not one per corpus
+        #expect(records[0].errorRate == 0.2)  // newest measurement wins
+    }
+
+    @Test func `Legacy family-equals-size ids converge with fresh whisper ids`() {
+        let corpus = CorpusRow(name: "c", language: "en", audioSHA256: String(repeating: "c", count: 64),
+                               referenceSHA256: "", duration: 30, audioPath: "", referencePath: "")
+        let snapshot = BenchmarkStore.Snapshot(
+            machines: [], models: [], corpora: [corpus],
+            measurements: [
+                row(model: "whisperkit|base|base|default", corpus: corpus.corpusId, at: 1_000, rate: 0.9),
+                row(model: "whisperkit|whisper|base|default", corpus: corpus.corpusId, at: 2_000, rate: 0.1),
+            ],
+            warnings: [])
+        let records = snapshot.projectedRecords()
+        #expect(records.count == 1)  // legacy row superseded, not competing
+        #expect(records[0].errorRate == 0.1)
+    }
+}

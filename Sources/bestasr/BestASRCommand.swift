@@ -197,7 +197,7 @@ struct SelectionOptions: ParsableArguments {
     @Option(help: "Optimization profile: fast | balanced | accurate")
     var profile: String = RouterProfile.balanced.rawValue
 
-    @Option(help: "Force a backend: auto | whisperkit | whisper.cpp")
+    @Option(help: "Force a backend: auto | whisperkit | whisper.cpp | mlx-audio")
     var backend: String = "auto"
 
     @Option(help: "Force a model size: auto | \(ModelRegistry.supportedModels.joined(separator: " | "))")

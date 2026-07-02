@@ -19,6 +19,14 @@ All notable changes to bestASR are documented here. The format follows
   (machines / models / corpora / measurements) with append-only measurements
   and a latest-per-(model, corpus, machine) projection; the legacy
   `benchmarks.json` migrates once and gains a `.bak` suffix.
+- **Verify-round hardening** (#14 6-AI findings): mlx-audio cold-start pairs
+  correctly (`--backend mlx-audio` picks from its own grid; bare
+  `--model family/size` infers the backend); explain honestly discloses that
+  mlx-audio cannot use the context prompt instead of implying injection;
+  benchmark no longer clobbers registered corpus name/language; routing
+  projection aggregates one record per candidate (legacy ids converge, order
+  deterministic); worker responses correlate by id and dead workers are
+  evicted; the venv probe is memoized out of the timed pass.
 - **Grid-aware model addressing** (#14): `family/size` names validate through
   the router, resolve memory estimates from their grid rows, and only pair
   with backends whose grid lists variants (a clean usage error instead of a

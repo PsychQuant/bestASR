@@ -7,6 +7,7 @@ import Foundation
 /// human-readable, diffable, and consumed by the router. Records are keyed by
 /// (backend, model, quantization, language); a new measurement replaces the
 /// prior record for its key.
+@available(*, deprecated, message: "superseded by BenchmarkStore (#14); retained for the legacy file format and report key helper")
 public struct BenchmarkCache: Sendable {
     public let fileURL: URL
 

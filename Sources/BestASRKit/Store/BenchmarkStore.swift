@@ -120,6 +120,10 @@ public struct BenchmarkStore: Sendable {
         guard let data = try? Data(contentsOf: legacyURL),
             let records = try? decoder.decode([BenchmarkRecord].self, from: data)
         else {
+            // Loud, not silent: the old cache surfaced corruption as an error
+            // (verify #14 L-17) — keep the signal while still unblocking.
+            FileHandle.standardError.write(Data(
+                "warning: legacy benchmark cache at \(legacyURL.path) is corrupt — renamed to .bak without migration; re-run bestasr benchmark\n".utf8))
             try? FileManager.default.moveItem(
                 at: legacyURL, to: legacyURL.appendingPathExtension("bak"))
             return

@@ -21,6 +21,11 @@ actor CreateOnceStore<Value> {
     /// current model preserves the warm-up→timed reuse this store exists for
     /// while restoring the old one-model-at-a-time memory envelope. Dropped
     /// pipelines are released by ARC once their transcription finishes.
+    /// Evict one key (dead external resource, verify #14 L-13).
+    func remove(_ key: String) {
+        inFlight[key] = nil
+    }
+
     func retainOnly(_ key: String) {
         inFlight = inFlight.filter { $0.key == key }
     }

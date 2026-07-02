@@ -30,3 +30,13 @@ The benchmark SHALL persist each measured result as an append-only measurement r
 - **WHEN** the same model, corpus, and machine combination is benchmarked twice
 - **THEN** the measurements table holds both rows
 - **AND** the latest projection exposes only the newer measurement
+
+### Requirement: Measure the context-biasing delta
+
+When a context directory resolves, the benchmark SHALL run a second with-context pass per candidate and report the context error rate and its delta against the baseline. The routing value SHALL remain the baseline error rate: the measurement row stores the baseline as its error rate with the with-context rate carried alongside in a separate field, and ranking SHALL never consume the with-context rate.
+
+#### Scenario: Store rows stay routing-neutral
+
+- **WHEN** a benchmark runs with a context directory
+- **THEN** each measurement row's error rate is the baseline pass
+- **AND** the with-context rate is stored in its own field, unused by ranking

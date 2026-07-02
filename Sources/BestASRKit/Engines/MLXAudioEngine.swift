@@ -45,7 +45,29 @@ public struct MLXAudioEngine: Engine {
         Self.probeVenv(venv)
     }
 
+    /// Memoized per venv path (design D2): availability queries and every
+    /// transcribe would otherwise spawn a python subprocess — inside the
+    /// benchmark's TIMED pass for mlx candidates only (verify #14 M-6/L-11).
+    private static let probeCache = ProbeCache()
+
+    final class ProbeCache: @unchecked Sendable {
+        private let lock = NSLock()
+        private var results: [String: Bool] = [:]
+        func result(for key: String, compute: () -> Bool) -> Bool {
+            lock.lock()
+            defer { lock.unlock() }
+            if let cached = results[key] { return cached }
+            let value = compute()
+            results[key] = value
+            return value
+        }
+    }
+
     static func probeVenv(_ venv: URL) -> Bool {
+        probeCache.result(for: venv.path) { probeVenvUncached(venv) }
+    }
+
+    static func probeVenvUncached(_ venv: URL) -> Bool {
         let python = venv.appendingPathComponent("bin/python")
         guard FileManager.default.isExecutableFile(atPath: python.path) else { return false }
         let process = Process()
@@ -129,6 +151,10 @@ public struct MLXAudioEngine: Engine {
         do {
             response = try await worker.send(request)
         } catch {
+            // A worker that died after becoming ready must not stay cached —
+            // evict so the next call restarts it (verify #14 L-13).
+            await workers.remove(repo)
+            worker.terminate()
             throw TranscriptionError(
                 backend: id.rawValue,
                 message: "mlx worker request failed: \(error.localizedDescription)",
@@ -138,8 +164,15 @@ public struct MLXAudioEngine: Engine {
         if let workerError = response.error {
             throw TranscriptionError(backend: id.rawValue, message: workerError)
         }
-        let duration = try? AudioProber.probe(path: audioPath, requestedLanguage: nil).duration
-        return MLXWorkerProtocol.rawTranscription(from: response, duration: duration ?? nil)
+        // Duration is only needed for the whole-text fallback; segments carry
+        // their own bounds — keeps the probe out of the timed pass (M-6).
+        let duration: Double?
+        if let segments = response.segments, let last = segments.last {
+            duration = last.end
+        } else {
+            duration = (try? AudioProber.probe(path: audioPath, requestedLanguage: nil))?.duration ?? nil
+        }
+        return MLXWorkerProtocol.rawTranscription(from: response, duration: duration)
     }
 
     /// This backend cannot bias decoding with a context prompt in v1.
@@ -213,11 +246,24 @@ final class ProcessWorkerTransport: MLXWorkerTransport, @unchecked Sendable {
         defer { lock.unlock() }
         let payload = try MLXWorkerProtocol.encode(request) + "\n"
         try stdin.write(contentsOf: Data(payload.utf8))
-        guard let line = readLineLocked() else {
-            throw TranscriptionError(
-                backend: BackendID.mlxAudio.rawValue, message: "mlx worker closed its pipe")
+        // Correlate on id and tolerate stray stdout lines (ML libraries print;
+        // verify #14 M-7): skip undecodable/mismatched lines up to a cap.
+        var skipped = 0
+        while skipped < 64 {
+            guard let line = readLineLocked() else {
+                throw TranscriptionError(
+                    backend: BackendID.mlxAudio.rawValue, message: "mlx worker closed its pipe")
+            }
+            if let response = try? MLXWorkerProtocol.decodeResponse(line),
+                response.id == request.id
+            {
+                return response
+            }
+            skipped += 1
         }
-        return try MLXWorkerProtocol.decodeResponse(line)
+        throw TranscriptionError(
+            backend: BackendID.mlxAudio.rawValue,
+            message: "mlx worker produced no matching response for request \(request.id)")
     }
 
     func terminate() {

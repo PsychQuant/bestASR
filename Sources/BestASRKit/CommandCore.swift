@@ -218,11 +218,16 @@ public struct CommandCore: Sendable {
         }
 
         let context = try loadContext(flag: selection.contextDir)
+        // mlx-audio cannot bias decoding with a prompt (spec mlx-audio-engine:
+        // prompt honesty) — don't send one, and disclose below instead of
+        // implying injection (verify #14 HIGH-1).
+        let promptSupported = rec.backend != .mlxAudio
         let transcript = try await engine.transcribe(
             audioPath: audio.path,
             options: TranscribeOptions(
                 model: rec.model, quantization: rec.quantization,
-                language: audio.language, prompt: context?.rendered.prompt)
+                language: audio.language,
+                prompt: promptSupported ? context?.rendered.prompt : nil)
         )
 
         let destination = outputPath ?? Self.derivedOutputPath(audioPath: audioPath, format: format)
@@ -235,7 +240,12 @@ public struct CommandCore: Sendable {
         explanation += rec.reason.map { "  - \($0)" }
         explanation += rec.warnings.map { "  ! \($0)" }
         if let context {
-            explanation += Self.contextExplanation(context)
+            if promptSupported {
+                explanation += Self.contextExplanation(context)
+            } else {
+                explanation.append("Context: \(context.loaded.directory)")
+                explanation.append("  ! \(MLXAudioEngine.promptUnsupportedNote)")
+            }
         }
         return TranscribeOutcome(
             outputPath: destination,
@@ -317,12 +327,18 @@ public struct CommandCore: Sendable {
         try store.seed(models: ModelGrid.rows)
         let machine = MachineRow(chip: host.chip, unifiedMemoryGB: host.unifiedMemoryGB)
         try store.upsert(machine: machine)
+        // Registered corpus metadata is authoritative — benchmark only fills
+        // rows for corpora it created and never clobbers name/language set via
+        // corpus add (verify #14 M-3/M-4).
+        let audioHash = try fileSHA256(URL(fileURLWithPath: audio.path))
+        let existing = try store.load().corpora.first { $0.audioSHA256 == audioHash }
         let corpus = CorpusRow(
-            name: URL(fileURLWithPath: audio.path).lastPathComponent,
-            language: resolvedLanguage ?? "auto",
-            audioSHA256: try fileSHA256(URL(fileURLWithPath: audio.path)),
+            name: existing?.name
+                ?? URL(fileURLWithPath: audio.path).deletingPathExtension().lastPathComponent,
+            language: existing?.language ?? resolvedLanguage ?? "auto",
+            audioSHA256: audioHash,
             referenceSHA256: try fileSHA256(URL(fileURLWithPath: referencePath)),
-            duration: audio.duration ?? 0,
+            duration: audio.duration ?? existing?.duration ?? 0,
             audioPath: audio.path, referencePath: referencePath)
         try store.upsert(corpus: corpus)
         for measured in outcome.measured {
