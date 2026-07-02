@@ -8,7 +8,7 @@ TBD - created by archiving change 'swift-benchmark-driven-asr'. Update Purpose a
 
 ### Requirement: Enumerate candidate configurations
 
-The benchmark SHALL enumerate candidate configurations as the cross product of available backends, their supported models, and their supported quantization variants on this machine, skipping backends whose availability probe reports false. The caller SHALL be able to narrow candidates with explicit backend and model filters.
+The benchmark SHALL enumerate candidate configurations as every available backend paired with each of its supported models and, per (backend, model) pair, the quantization variants the registry lists for that pair (variant availability differs per model) on this machine, skipping backends whose availability probe reports false. The caller SHALL be able to narrow candidates with explicit backend and model filters.
 
 #### Scenario: Only available backends produce candidates
 

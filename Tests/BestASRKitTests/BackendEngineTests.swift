@@ -23,8 +23,8 @@ struct WhisperCppEngineTests {
 
     @Test func `Model file names follow the ggml distribution convention`() {
         #expect(
-            WhisperCppEngine.modelFileName(model: "small", quantization: "q5_0")
-                == "ggml-small-q5_0.bin"
+            WhisperCppEngine.modelFileName(model: "small", quantization: "q5_1")
+                == "ggml-small-q5_1.bin"
         )
     }
 
@@ -129,5 +129,20 @@ struct DecodeOptionsTests {
         // disabled prefill cache) — the factory must treat both as no-prompt.
         #expect(WhisperKitEngine.makeDecodeOptions(language: "en", promptTokens: nil).promptTokens == nil)
         #expect(WhisperKitEngine.makeDecodeOptions(language: "en", promptTokens: []).promptTokens == nil)
+    }
+}
+
+struct GuidanceFileNameTests {
+    @Test func `Every registry quantization row maps to the HF file naming scheme`() {
+        // The engine download guidance is modelFileName(...) appended to the
+        // HF resolve URL; registry-sourced rows mean the guidance can only
+        // name files the probed table says are hosted (#5).
+        for model in ModelRegistry.supportedModels {
+            for quant in ModelRegistry.quantizations(for: .whisperCpp, model: model) {
+                #expect(
+                    WhisperCppEngine.modelFileName(model: model, quantization: quant)
+                        == "ggml-\(model)-\(quant).bin")
+            }
+        }
     }
 }

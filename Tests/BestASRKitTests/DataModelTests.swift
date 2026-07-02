@@ -94,9 +94,30 @@ struct ModelRegistryTests {
     }
 
     @Test(arguments: BackendID.allCases)
-    func `Each backend offers at least one quantization and a default`(backend: BackendID) {
-        let variants = ModelRegistry.quantizations[backend] ?? []
-        #expect(!variants.isEmpty)
-        #expect(variants.contains(ModelRegistry.defaultQuantization(for: backend)))
+    func `Each backend offers at least one quantization and a default for every model`(backend: BackendID) {
+        for model in ModelRegistry.supportedModels {
+            let variants = ModelRegistry.quantizations(for: backend, model: model)
+            #expect(!variants.isEmpty, "no variants for \(backend) \(model)")
+            #expect(variants.contains(ModelRegistry.defaultQuantization(for: backend, model: model)))
+        }
+    }
+
+    @Test func `whisper.cpp quantization table matches the HF distribution`() {
+        // Locked to the actual ggerganov/whisper.cpp HF file list (probed
+        // 2026-07-02, #5): q5_0 does NOT exist for tiny/base/small (they ship
+        // q5_1), and large-v3 ships q5_0 only — a wrong row regenerates the
+        // 404-guidance bug this table exists to prevent.
+        for model in ["tiny", "base", "small"] {
+            #expect(ModelRegistry.quantizations(for: .whisperCpp, model: model) == ["q5_1", "q8_0"])
+        }
+        for model in ["medium", "large-v3-turbo"] {
+            #expect(ModelRegistry.quantizations(for: .whisperCpp, model: model) == ["q5_0", "q8_0"])
+        }
+        #expect(ModelRegistry.quantizations(for: .whisperCpp, model: "large-v3") == ["q5_0"])
+        // Default = first entry, so cold-start never proposes a 404 file.
+        #expect(ModelRegistry.defaultQuantization(for: .whisperCpp, model: "tiny") == "q5_1")
+        #expect(ModelRegistry.defaultQuantization(for: .whisperCpp, model: "medium") == "q5_0")
+        // Unknown models get no guessed row (drift guard - see registry comment).
+        #expect(ModelRegistry.quantizations(for: .whisperCpp, model: "large-v4").isEmpty)
     }
 }

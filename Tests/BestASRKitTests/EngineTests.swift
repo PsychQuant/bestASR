@@ -3,7 +3,7 @@ import Testing
 @testable import BestASRKit
 
 struct EngineTests {
-    let options = TranscribeOptions(model: "small", quantization: "q5_0", language: "en")
+    let options = TranscribeOptions(model: "small", quantization: "q5_1", language: "en")
 
     @Test func `Transcription normalizes segment order, ids, text, and duration`() async throws {
         // Raw segments arrive out of order; normalization must sort by start
@@ -30,7 +30,7 @@ struct EngineTests {
         let engine = MockEngine.fixed(.whisperCpp, language: nil)
         let transcript = try await engine.transcribe(
             audioPath: "clip.wav",
-            options: TranscribeOptions(model: "tiny", quantization: "q5_0", language: "zh")
+            options: TranscribeOptions(model: "tiny", quantization: "q5_1", language: "zh")
         )
         #expect(transcript.language == "zh")
     }

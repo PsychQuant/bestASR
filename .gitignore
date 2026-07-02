@@ -14,3 +14,6 @@ dist/
 # Swift
 .build/
 .swiftpm/
+
+# IDD workflow telemetry — appended every verify run, machine-local
+.claude/.idd/routing-stats.jsonl

@@ -124,9 +124,8 @@ public struct BenchmarkRunner {
                 modelFilter.map { filter in filter.contains(where: { $0.lowercased() == model }) }
                     ?? true
             }
-            let quantizations = ModelRegistry.quantizations[backend] ?? []
             for model in models {
-                for quantization in quantizations {
+                for quantization in ModelRegistry.quantizations(for: backend, model: model) {
                     candidates.append(
                         BenchmarkCandidate(
                             backend: backend, model: model, quantization: quantization))
