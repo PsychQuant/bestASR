@@ -180,29 +180,3 @@ struct RouterOverrideTests {
 }
 
 
-// MARK: - #14 verify HIGH-2 regression locks (cold-start × mlx-audio pairing)
-
-struct MLXColdStartRoutingTests {
-    let allAvailable: [BackendID: Bool] = [
-        .whisperKit: true, .whisperCpp: true, .mlxAudio: true,
-    ]
-
-    @Test func `Locked mlx backend cold-starts onto its own grid, not a whisper size`() throws {
-        let rec = try Router.recommend(
-            host: Fixtures.m5Max, profile: .balanced, requestedLanguage: "ja",
-            backendOverride: "mlx-audio", modelOverride: nil,
-            records: [], availability: allAvailable)
-        #expect(rec.backend == .mlxAudio)
-        #expect(rec.model.contains("/"))  // family/size address
-        #expect(rec.dataSource == .coldStartPrior)
-    }
-
-    @Test func `Bare family-size model override infers the mlx backend`() throws {
-        let rec = try Router.recommend(
-            host: Fixtures.m5Max, profile: .balanced, requestedLanguage: "ja",
-            backendOverride: nil, modelOverride: "parakeet/0.6b",
-            records: [], availability: allAvailable)
-        #expect(rec.backend == .mlxAudio)
-        #expect(rec.model == "parakeet/0.6b")
-    }
-}

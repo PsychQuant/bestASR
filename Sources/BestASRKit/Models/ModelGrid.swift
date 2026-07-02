@@ -1,10 +1,13 @@
 import Foundation
 
-/// The full-family model catalog (#14; spec model-grid, design D5). Code-owned:
-/// seeded into the store's models table wholesale. Priority 1 = first-run set,
-/// 2 = representative per family, 3 = deferred/large. `verified` marks rows
-/// whose HF repo id was checked against the hub (probed 2026-07-02) — guidance
-/// for unverified rows must point at hub search, never a guessed URL.
+/// The model catalog (#14; spec model-grid). Code-owned: seeded into the
+/// store's models table wholesale. The mlx-audio rows are a REFERENCE
+/// CATALOG (#20): the backend is not bundled, the rows are retained for
+/// lookup (families, verified HF repos with pinned revisions) and potential
+/// future reinstatement — they never enumerate as benchmark candidates.
+/// Priority on reference rows is the historical first-run/representative/
+/// deferred selection. `verified` marks rows whose HF repo id was checked
+/// against the hub (probed 2026-07-02).
 public enum ModelGrid {
     public static let backendWhisperKit = "whisperkit"
     public static let backendWhisperCpp = "whisper.cpp"
@@ -42,7 +45,8 @@ public enum ModelGrid {
         return rows
     }()
 
-    /// All 15 mlx-audio STT families (spec: Full-family catalog).
+    /// All 15 mlx-audio STT families — reference catalog (spec: Full-family
+    /// catalog; #20: backend not bundled).
     static let mlxAudioRows: [ModelRow] = [
         // ── priority 1: first-run set (design D5)
         // openai original (ships the processor config); the mlx-community

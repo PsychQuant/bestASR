@@ -35,7 +35,7 @@ public struct CommandCore: Sendable {
 
     /// The production wiring: real engines, real detection, real store.
     public static func live() -> CommandCore {
-        CommandCore(engines: [WhisperKitEngine(), WhisperCppEngine(), MLXAudioEngine()])
+        CommandCore(engines: [WhisperKitEngine(), WhisperCppEngine()])
     }
 
     /// Store-projected records for the router (design D7).
@@ -218,16 +218,11 @@ public struct CommandCore: Sendable {
         }
 
         let context = try loadContext(flag: selection.contextDir)
-        // mlx-audio cannot bias decoding with a prompt (spec mlx-audio-engine:
-        // prompt honesty) — don't send one, and disclose below instead of
-        // implying injection (verify #14 HIGH-1).
-        let promptSupported = rec.backend != .mlxAudio
         let transcript = try await engine.transcribe(
             audioPath: audio.path,
             options: TranscribeOptions(
                 model: rec.model, quantization: rec.quantization,
-                language: audio.language,
-                prompt: promptSupported ? context?.rendered.prompt : nil)
+                language: audio.language, prompt: context?.rendered.prompt)
         )
 
         let destination = outputPath ?? Self.derivedOutputPath(audioPath: audioPath, format: format)
@@ -240,12 +235,7 @@ public struct CommandCore: Sendable {
         explanation += rec.reason.map { "  - \($0)" }
         explanation += rec.warnings.map { "  ! \($0)" }
         if let context {
-            if promptSupported {
-                explanation += Self.contextExplanation(context)
-            } else {
-                explanation.append("Context: \(context.loaded.directory)")
-                explanation.append("  ! \(MLXAudioEngine.promptUnsupportedNote)")
-            }
+            explanation += Self.contextExplanation(context)
         }
         return TranscribeOutcome(
             outputPath: destination,
@@ -343,10 +333,8 @@ public struct CommandCore: Sendable {
         try store.upsert(corpus: corpus)
         for measured in outcome.measured {
             let record = measured.record
-            let family = record.backend == ModelGrid.backendMLXAudio
-                ? String(record.model.split(separator: "/").first ?? "") : "whisper"
-            let size = record.backend == ModelGrid.backendMLXAudio
-                ? String(record.model.split(separator: "/").last ?? "") : record.model
+            let family = "whisper"
+            let size = record.model
             try store.append(measurement: MeasurementRow(
                 modelId: ModelRow.id(
                     backend: record.backend, family: family, size: size,
@@ -387,7 +375,7 @@ public struct CommandCore: Sendable {
     public func listModels() -> String {
         var lines: [String] = []
         for (size, _) in ModelGrid.whisperSizes {
-            let quants = BackendID.allCases.filter { $0 != .mlxAudio }.map { backend in
+            let quants = BackendID.allCases.map { backend in
                 let variants = ModelGrid.rows.filter {
                     $0.backend == backend.rawValue && $0.size == size
                 }.map(\.quantization)
@@ -397,7 +385,7 @@ public struct CommandCore: Sendable {
                 "\(size.padding(toLength: 16, withPad: " ", startingAt: 0)) (\(quants.joined(separator: " · ")))")
         }
         lines.append("")
-        lines.append("mlx-audio grid (priority 1 = default sweep; * = verified repo):")
+        lines.append("mlx-audio reference catalog (backend not bundled; * = verified repo+pin):")
         for row in ModelGrid.rows(backend: ModelGrid.backendMLXAudio, priorityCeiling: nil)
             .sorted(by: { ($0.priority, $0.family) < ($1.priority, $1.family) })
         {

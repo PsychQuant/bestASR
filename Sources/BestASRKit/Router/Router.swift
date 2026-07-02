@@ -25,14 +25,7 @@ public enum Router {
                     + "(whisper sizes or mlx-audio family/size)"
             )
         }
-        // A grid-addressed model (family/size) implies the mlx-audio backend
-        // when none was given — a bare `--model parakeet/0.6b` must not
-        // cold-start onto whisperkit (verify #14 HIGH-2).
-        var inferredBackendOverride = backendOverride
-        if inferredBackendOverride == nil, let modelOverride, modelOverride.contains("/") {
-            inferredBackendOverride = BackendID.mlxAudio.rawValue
-        }
-        let overrideBackend: BackendID? = try inferredBackendOverride.map { name in
+        let overrideBackend: BackendID? = try backendOverride.map { name in
             guard let id = BackendID(rawValue: name.lowercased()) else {
                 throw BestASRError.usage(
                     "unknown backend: '\(name)'; supported backends are "
@@ -42,10 +35,8 @@ public enum Router {
             return id
         }
 
-        // Availability, in preference order (spec: whisperkit first; mlx-audio
-        // joins last so auto-selection keeps the established order — explicit
-        // overrides and measured data are how mlx candidates win, #14).
-        let availableOrdered: [BackendID] = [.whisperKit, .whisperCpp, .mlxAudio].filter {
+        // Availability, in preference order (spec: whisperkit first).
+        let availableOrdered: [BackendID] = [.whisperKit, .whisperCpp].filter {
             availability[$0] == true
         }
         guard !availableOrdered.isEmpty else {
@@ -136,22 +127,6 @@ public enum Router {
             model = choice.model
             reasons += choice.reasons
             warnings += choice.warnings
-        }
-
-        // Locked mlx-audio without a model override: the whisper-name prior
-        // can't serve this backend — pick the best verified grid row that
-        // fits memory (priority asc, est memory desc) (verify #14 HIGH-2).
-        if backend == .mlxAudio, modelOverride == nil {
-            let fitting = ModelGrid.rows(backend: ModelGrid.backendMLXAudio, priorityCeiling: nil)
-                .filter { $0.verified && $0.estMemoryGB <= host.unifiedMemoryGB }
-                .sorted { ($0.priority, -$0.estMemoryGB) < ($1.priority, -$1.estMemoryGB) }
-            guard let row = fitting.first else {
-                throw BestASRError.usage(
-                    "no verified mlx-audio grid row fits this machine; pass "
-                        + "--model family/size explicitly or run list-models")
-            }
-            model = "\(row.family)/\(row.size)"
-            reasons.append("cold start on the mlx-audio grid: \(model) (priority \(row.priority))")
         }
 
         reasons.append(

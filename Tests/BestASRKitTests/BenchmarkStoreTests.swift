@@ -277,3 +277,34 @@ struct ProjectionAggregationTests {
         #expect(records[0].errorRate == 0.1)
     }
 }
+
+// MARK: - #20 reference-catalog locks (spec model-grid / benchmark)
+
+struct ReferenceCatalogTests {
+    @Test func `Stored mlx measurements are silently filtered from routing`() throws {
+        // D2 (#20): records whose backend string has no engine drop out of
+        // the usable set without crashing — recommend falls back cleanly.
+        let record = BenchmarkRecord(
+            backend: "mlx-audio", model: "parakeet/0.6b", quantization: "default",
+            language: "en", metricKind: .wer, errorRate: 0.0, rtf: 0.0065,
+            peakMemoryGB: 0, audioDuration: 11, measuredAt: .init(timeIntervalSince1970: 1_800_000_000),
+            chip: Fixtures.m5Max.chip, macosVersion: "27.0", appVersion: "0.3.1")
+        let rec = try Router.recommend(
+            host: Fixtures.m5Max, profile: .fast, requestedLanguage: "en",
+            backendOverride: nil, modelOverride: nil,
+            records: [record],
+            availability: [.whisperKit: true, .whisperCpp: true])
+        #expect(rec.backend != BackendID(rawValue: "mlx-audio"))  // never routes there
+        #expect(rec.dataSource == .coldStartPrior)  // the only record was filtered
+    }
+
+    @Test func `Benchmark enumeration yields no reference-catalog candidates`() async throws {
+        // Spec scenario: Reference rows never enumerate.
+        let runner = BenchmarkRunner(
+            engines: [MockEngine.fixed(.whisperKit), MockEngine.fixed(.whisperCpp)],
+            host: Fixtures.m5Max)
+        let enumeration = try await runner.enumerateCandidates()
+        #expect(!enumeration.candidates.isEmpty)
+        #expect(enumeration.candidates.allSatisfy { $0.backend.rawValue != "mlx-audio" })
+    }
+}

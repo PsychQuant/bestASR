@@ -95,16 +95,15 @@ struct ModelRegistryTests {
 
     @Test(arguments: BackendID.allCases)
     func `Each backend offers at least one quantization and a default for every cataloged model`(backend: BackendID) {
-        // Grid-scoped (#14): each backend is checked against ITS OWN catalog
-        // rows — whisper sizes for the whisper backends, family/size rows for
-        // mlx-audio — instead of forcing every backend through whisper names.
+        // Grid-scoped (#14): each runnable backend is checked against its own
+        // catalog rows (mlx-audio rows are a reference catalog with no
+        // backend, #20 — not part of this parameterization).
         let rows = ModelGrid.rows(backend: backend.rawValue, priorityCeiling: nil)
         #expect(!rows.isEmpty, "no grid rows for \(backend)")
         for row in rows {
-            let address = backend == .mlxAudio ? "\(row.family)/\(row.size)" : row.size
-            let variants = ModelRegistry.quantizations(for: backend, model: address)
+            let variants = ModelRegistry.quantizations(for: backend, model: row.size)
             #expect(variants.contains(row.quantization), "\(row.modelId) not in registry projection")
-            #expect(variants.first == ModelRegistry.defaultQuantization(for: backend, model: address))
+            #expect(variants.first == ModelRegistry.defaultQuantization(for: backend, model: row.size))
         }
     }
 
