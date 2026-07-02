@@ -28,7 +28,10 @@ let package = Package(
         ),
         .testTarget(
             name: "BestASRKitTests",
-            dependencies: ["BestASRKit"],
+            dependencies: [
+                "BestASRKit",
+                .product(name: "WhisperKit", package: "WhisperKit"),
+            ],
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
     ]
