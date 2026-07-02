@@ -101,3 +101,106 @@ struct SpeakerRenderingTests {
         #expect(TranscriptWriter.render(t, format: .txt) == "hello there hi back")
     }
 }
+
+
+// #25 verify fixes: the diarize path through CommandCore via the injected seam —
+// labels applied end-to-end, empty yield fails loudly (D4 soft-failure), and
+// diarize:false never touches the acoustic layer.
+struct DiarizePathTests {
+    private func core(
+        in dir: URL,
+        diarizer: @escaping @Sendable (String) async throws -> [SpeakerTurn]
+    ) -> CommandCore {
+        CommandCore(
+            engines: [MockEngine.fixed(.whisperKit)],
+            detect: { Fixtures.m5Max },
+            store: BenchmarkStore(directory: dir.appendingPathComponent("store")),
+            probe: .live(),  // transcribe 路徑不量測——live probe 無害
+            diarizer: diarizer)
+    }
+
+    private func selection() -> SelectionRequest {
+        SelectionRequest(
+            profileName: "balanced", backendOverride: nil, modelOverride: nil,
+            requestedLanguage: "en", contextDir: nil)
+    }
+
+    @Test func `Diarize labels flow through to the written SRT`() async throws {
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let audio = try makeWavFile(in: dir)
+        let core = core(in: dir) { _ in [SpeakerTurn(speaker: "x", start: 0, end: 2.5)] }
+
+        let outcome = try await core.transcribe(
+            audioPath: audio, selection: selection(), formatName: "srt",
+            outputPath: dir.appendingPathComponent("out.srt").path, diarize: true)
+        let srt = try String(contentsOfFile: outcome.outputPath, encoding: .utf8)
+        #expect(srt.contains("[SPEAKER_1] hello world"))
+    }
+
+    @Test func `An all-unlabeled diarize run fails loudly instead of emitting clean output`() async throws {
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let audio = try makeWavFile(in: dir)
+        let core = core(in: dir) { _ in [] }  // engine "succeeds" with zero turns
+
+        await #expect(throws: BestASRError.self) {
+            _ = try await core.transcribe(
+                audioPath: audio, selection: selection(), formatName: "srt",
+                outputPath: dir.appendingPathComponent("out.srt").path, diarize: true)
+        }
+    }
+
+    @Test func `Without the flag the acoustic layer is never invoked`() async throws {
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let audio = try makeWavFile(in: dir)
+        let core = core(in: dir) { _ in
+            Issue.record("diarizer must not run without --diarize")
+            return []
+        }
+
+        let outcome = try await core.transcribe(
+            audioPath: audio, selection: selection(), formatName: "srt",
+            outputPath: dir.appendingPathComponent("out.srt").path, diarize: false)
+        let srt = try String(contentsOfFile: outcome.outputPath, encoding: .utf8)
+        #expect(!srt.contains("SPEAKER"))
+    }
+}
+
+// #25 verify fix F3/F8: byte-pin the remaining two no-speaker formats so the
+// "every format byte-identical" claim is fully unit-pinned.
+struct NoSpeakerBytePinTests {
+    private var transcript: Transcript {
+        Transcript(
+            text: "hello world", language: "en", duration: 2.5,
+            backend: "whisperkit", model: "tiny",
+            segments: [TranscriptSegment(id: 0, start: 0, end: 2.5, text: "hello world")])
+    }
+
+    @Test func `VTT without speakers is byte-identical to legacy`() {
+        #expect(TranscriptWriter.render(transcript, format: .vtt)
+            == "WEBVTT\n\n00:00:00.000 --> 00:00:02.500\nhello world\n")
+    }
+
+    @Test func `JSON without speakers is byte-identical to legacy`() {
+        let json = TranscriptWriter.render(transcript, format: .json)
+        #expect(json == """
+        {
+          "backend" : "whisperkit",
+          "duration" : 2.5,
+          "language" : "en",
+          "model" : "tiny",
+          "segments" : [
+            {
+              "end" : 2.5,
+              "id" : 0,
+              "start" : 0,
+              "text" : "hello world"
+            }
+          ],
+          "text" : "hello world"
+        }
+        """)
+    }
+}

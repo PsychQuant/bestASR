@@ -24,3 +24,13 @@
 ## 5. 收尾
 
 - [x] 5.1 CHANGELOG（assert-after-replace）；`spectra validate` 綠
+
+## 6. Verify fixes（wf_3eff5bd3-a14）
+
+- [x] 6.1 cli MODIFIED delta 以現行 spec 原文為底重寫（首版憑記憶發明了「stdout」——現行 spec 本就正確描述 derived-file；MODIFIED delta 必須抄現行原文再改）
+- [x] 6.2 D4 soft-failure：全 nil 指派 fail-loud（guard + spec scenario + seam 測試）
+- [x] 6.3 CommandCore 注入縫 `diarizer:`（預設 = 真引擎）——diarize 路徑膠水可測：標籤流通/全空丟錯/flag off 永不觸酸學層（spy）
+- [x] 6.4 VTT/JSON no-speaker byte-pin（「四格式 byte-identical」宣稱補齊為真）
+- [x] 6.5 epsilon tie（1e-9——Double 精確 == 會被 ULP 打穿「取早」保證）
+- [x] 6.6 D5/spec scenario 撤回「3-speaker」前提殘留（design 與**永久 spec** 都改為實際驗證的 2-speaker fixture）；D3 誠實化（SDK 端 revision 管理未經稽核、core-target 連結成本明載）
+- [x] 6.7 `scripts/validate-diarization.sh` 可重現驗證（pinned fixture 含 1s 靜音 join——cue 粒度需要邊界斷句，靜音使其確定化；live 三斷言全過：9.30s 切換/jfk 陰性/off 潔淨）

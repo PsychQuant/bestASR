@@ -19,17 +19,22 @@ public struct CommandCore: Sendable {
     public let engines: [any Engine]
     let detect: @Sendable () throws -> SystemInfo
     let store: BenchmarkStore
+    let diarizer: @Sendable (String) async throws -> [SpeakerTurn]
     let probe: MeasurementProbe
 
     public init(
         engines: [any Engine],
         detect: @escaping @Sendable () throws -> SystemInfo = { try SystemDetector.detect() },
         store: BenchmarkStore = BenchmarkStore(),
-        probe: MeasurementProbe = .live()
+        probe: MeasurementProbe = .live(),
+        diarizer: @escaping @Sendable (String) async throws -> [SpeakerTurn] = {
+            try await DiarizationEngine().diarize(audioPath: $0)
+        }
     ) {
         self.engines = engines
         self.detect = detect
         self.store = store
+        self.diarizer = diarizer
         self.probe = probe
     }
 
@@ -243,8 +248,17 @@ public struct CommandCore: Sendable {
         // capability must not silently disappear from the output).
         var finalTranscript = transcript
         if diarize {
-            let turns = try await DiarizationEngine().diarize(audioPath: audio.path)
+            let turns = try await diarizer(audio.path)
             let labels = SpeakerAssigner.assign(segments: transcript.segments, turns: turns)
+            // D4 fail-loud covers the SOFT failure too: an engine that
+            // "succeeds" with zero usable turns would emit output
+            // indistinguishable from --diarize never being passed.
+            guard transcript.segments.isEmpty || labels.contains(where: { $0 != nil }) else {
+                throw BestASRError.runtime(
+                    "diarization yielded no speaker for any segment — refusing to emit "
+                        + "unlabeled output for an explicit --diarize (check the audio, or "
+                        + "run without --diarize)")
+            }
             finalTranscript = Transcript(
                 text: transcript.text, language: transcript.language,
                 duration: transcript.duration, backend: transcript.backend,
