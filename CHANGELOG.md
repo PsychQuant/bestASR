@@ -5,6 +5,8 @@ All notable changes to bestASR are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-07-02
+
 ### Removed
 
 - **mlx-audio backend** (#20): the third backend (engine, JSON-lines worker,
