@@ -30,10 +30,14 @@ All notable changes to bestASR are documented here. The format follows
   (whisper.cpp canonical `jfk.wav`, OSR Harvard List 1): jfk WhisperKit
   tiny/base 9.1%/13.6% → **0.0%/0.0%**; OSR 30.0%→17.5%, 26.2%→12.5%.
 
-### Known issues
-
-- WhisperKit rebuilds its pipeline on every call, so its X-REAL figures
-  reflect per-invocation latency rather than sustained decode speed (#7).
+- **WhisperKit pipelines load once per model and are reused** (#7): a
+  process-lifetime create-once cache (with keep-current eviction, so a full
+  benchmark sweep keeps the old one-model-at-a-time memory envelope) backs
+  the engine; the timed benchmark pass now measures pure decode speed as the
+  benchmark spec requires. Measured on OSR Harvard (M5 Max): WhisperKit tiny
+  X-REAL 6.8x → 114.2x, base 6.6x → 76.5x, WER unchanged. peak-GB is
+  sampled before warm-up so it keeps the model footprint for in-process
+  backends (subprocess backends under-report; the report footnote says so).
 
 ## [0.2.0] — 2026-07-02
 
