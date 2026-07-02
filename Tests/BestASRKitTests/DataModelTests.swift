@@ -101,9 +101,10 @@ struct ModelRegistryTests {
         let rows = ModelGrid.rows(backend: backend.rawValue, priorityCeiling: nil)
         #expect(!rows.isEmpty, "no grid rows for \(backend)")
         for row in rows {
-            let variants = ModelRegistry.quantizations(for: backend, model: row.size)
+            let address = backend == .mlxAudio ? "\(row.family)/\(row.size)" : row.size
+            let variants = ModelRegistry.quantizations(for: backend, model: address)
             #expect(variants.contains(row.quantization), "\(row.modelId) not in registry projection")
-            #expect(variants.first == ModelRegistry.defaultQuantization(for: backend, model: row.size))
+            #expect(variants.first == ModelRegistry.defaultQuantization(for: backend, model: address))
         }
     }
 

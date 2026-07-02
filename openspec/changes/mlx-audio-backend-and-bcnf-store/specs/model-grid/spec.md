@@ -22,7 +22,7 @@ Grid rows SHALL carry priority 1 (first-run set), 2 (representative), or 3 (defe
 
 | model_id | priority |
 |---|---|
-| `mlx-audio\|whisper\|large-v3-turbo\|4bit` | 1 |
+| `mlx-audio\|whisper\|large-v3-turbo\|default` | 1 |
 | `mlx-audio\|parakeet\|0.6b\|default` | 1 |
 | `mlx-audio\|qwen3-asr\|small\|4bit` | 1 |
 | `mlx-audio\|moonshine\|base\|default` | 1 |

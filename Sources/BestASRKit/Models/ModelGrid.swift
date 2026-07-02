@@ -45,9 +45,12 @@ public enum ModelGrid {
     /// All 15 mlx-audio STT families (spec: Full-family catalog).
     static let mlxAudioRows: [ModelRow] = [
         // ── priority 1: first-run set (design D5)
+        // openai original (ships the processor config); the mlx-community
+        // conversions lack preprocessor_config.json and fail mlx_audio's
+        // whisper loader — live-probed 2026-07-02.
         ModelRow(backend: backendMLXAudio, family: "whisper", size: "large-v3-turbo",
-                 quantization: "4bit", hfRepo: "mlx-community/whisper-large-v3-turbo-4bit",
-                 languages: ["multi"], estMemoryGB: 1.2, priority: 1, verified: true),
+                 quantization: "default", hfRepo: "openai/whisper-large-v3-turbo",
+                 languages: ["multi"], estMemoryGB: 3.2, priority: 1, verified: true),
         ModelRow(backend: backendMLXAudio, family: "parakeet", size: "0.6b",
                  quantization: "default", hfRepo: "mlx-community/parakeet-tdt-0.6b-v3",
                  languages: ["multi"], estMemoryGB: 1.5, priority: 1, verified: true),

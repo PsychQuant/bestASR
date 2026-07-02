@@ -29,6 +29,6 @@
 
 ## Phase 6 — 真實煙測 + 文件
 
-- [ ] 6.1 (D9, D10; req: Persistent JSON-lines worker per model — 真實驗收) venv 建置 + priority-1 最小模型（moonshine base 或 parakeet 0.6b）真實端到端：`bestasr transcribe`（en）+ `bestasr benchmark --backends mlx-audio`（先行集掃描、量測入 store）；實測輸出貼 issue #14
-- [ ] 6.2 (D8, D9; req: corpus add and list subcommands — zh 驗收) zh 語料註冊煙測（使用者素材或既有 zh 樣本 corpus add）+ zh benchmark 一輪（能跑則跑，無素材則記錄 blocked-on-material）
-- [ ] 6.3 README（第三 backend + corpus 工作流 + grid/priority 說明）、CHANGELOG Unreleased；`swift test` 全綠終驗
+- [x] 6.1 (D9, D10; req: Persistent JSON-lines worker per model — 真實驗收) venv 建置 + priority-1 最小模型（moonshine base 或 parakeet 0.6b）真實端到端：`bestasr transcribe`（en）+ `bestasr benchmark --backends mlx-audio`（先行集掃描、量測入 store）；實測輸出貼 issue #14
+- [x] 6.2 (D8, D9; req: corpus add and list subcommands — zh 驗收) zh 語料註冊煙測（使用者素材或既有 zh 樣本 corpus add）+ zh benchmark 一輪（能跑則跑，無素材則記錄 blocked-on-material）
+- [x] 6.3 README（第三 backend + corpus 工作流 + grid/priority 說明）、CHANGELOG Unreleased；`swift test` 全綠終驗

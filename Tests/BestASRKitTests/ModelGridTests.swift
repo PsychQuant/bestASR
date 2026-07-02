@@ -15,7 +15,7 @@ struct ModelGridTests {
         let p1 = ModelGrid.rows(backend: ModelGrid.backendMLXAudio, priorityCeiling: 1)
             .map(\.modelId)
         #expect(Set(p1) == Set([
-            "mlx-audio|whisper|large-v3-turbo|4bit",
+            "mlx-audio|whisper|large-v3-turbo|default",
             "mlx-audio|parakeet|0.6b|default",
             "mlx-audio|qwen3-asr|small|4bit",
             "mlx-audio|moonshine|base|default",

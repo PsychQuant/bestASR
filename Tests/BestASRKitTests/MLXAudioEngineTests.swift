@@ -142,7 +142,7 @@ struct MLXAudioEngineTests {
         do {
             _ = try await engine.transcribe(
                 audioPath: "x.wav",
-                options: TranscribeOptions(model: "whisper/large-v3-turbo", quantization: "4bit"))
+                options: TranscribeOptions(model: "whisper/large-v3-turbo", quantization: "default"))
             Issue.record("expected worker error")
         } catch let error as TranscriptionError {
             #expect(error.message == "OOM")
@@ -161,7 +161,7 @@ struct MLXAudioEngineTests {
             options: TranscribeOptions(model: "parakeet/0.6b", quantization: "default"))
         _ = try? await engine.transcribe(
             audioPath: "b.wav",
-            options: TranscribeOptions(model: "whisper/large-v3-turbo", quantization: "4bit"))
+            options: TranscribeOptions(model: "whisper/large-v3-turbo", quantization: "default"))
         #expect(spyA.terminated == true)
         #expect(spyB.terminated == false)
     }

@@ -35,8 +35,10 @@ public enum Router {
             return id
         }
 
-        // Availability, in preference order (spec: whisperkit first).
-        let availableOrdered: [BackendID] = [.whisperKit, .whisperCpp].filter {
+        // Availability, in preference order (spec: whisperkit first; mlx-audio
+        // joins last so auto-selection keeps the established order — explicit
+        // overrides and measured data are how mlx candidates win, #14).
+        let availableOrdered: [BackendID] = [.whisperKit, .whisperCpp, .mlxAudio].filter {
             availability[$0] == true
         }
         guard !availableOrdered.isEmpty else {
@@ -134,10 +136,19 @@ public enum Router {
                 + "measured, machine-specific recommendations"
         )
 
+        // A model address only pairs with backends whose grid lists variants
+        // for it (mlx-audio family/size names never pair with the whisper
+        // backends and vice versa, #14).
+        guard let quantization = ModelRegistry.quantizations(for: backend, model: model).first
+        else {
+            throw BestASRError.usage(
+                "model '\(model)' is not available on backend \(backend.rawValue); "
+                    + "run list-models for the catalog")
+        }
         return ASRRecommendation(
             backend: backend,
             model: model,
-            quantization: ModelRegistry.defaultQuantization(for: backend, model: model),
+            quantization: quantization,
             profile: profile,
             language: requestedLanguage,
             dataSource: .coldStartPrior,
