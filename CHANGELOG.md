@@ -19,6 +19,13 @@ All notable changes to bestASR are documented here. The format follows
   (machines / models / corpora / measurements) with append-only measurements
   and a latest-per-(model, corpus, machine) projection; the legacy
   `benchmarks.json` migrates once and gains a `.bak` suffix.
+- **Grid-aware model addressing** (#14): `family/size` names validate through
+  the router, resolve memory estimates from their grid rows, and only pair
+  with backends whose grid lists variants (a clean usage error instead of a
+  crash for incompatible pairs); the availability chain includes mlx-audio.
+  Note: the mlx whisper row points at `openai/whisper-large-v3-turbo` — the
+  mlx-community conversions ship no `preprocessor_config.json` and fail
+  mlx_audio's whisper loader (live-probed 2026-07-02).
 
 ## [0.2.1] — 2026-07-02
 
