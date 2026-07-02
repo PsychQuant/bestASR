@@ -3,6 +3,19 @@
 All notable changes to bestASR are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow SemVer.
 
+## [Unreleased]
+
+### Removed
+
+- **mlx-audio backend** (#20): the third backend (engine, JSON-lines worker,
+  venv probe, router pairing) is removed by owner decision — its integration
+  cost (Python venv, worker lifecycle, fast-moving upstream API; see the
+  #14/#15 verify rounds) exceeded the need. The 15-family model catalog
+  stays in the grid as a **reference** (families, verified HF repos, pinned
+  revisions, historical priority tiers) shown by `list-models`; stored
+  measurements remain (append-only) and are silently filtered from routing.
+  Reinstatement is a git revert away.
+
 ## [0.3.1] — 2026-07-02
 
 ### Security

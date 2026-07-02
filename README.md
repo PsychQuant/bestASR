@@ -45,11 +45,12 @@ Backends:
   you the exact file name and download URL when one is missing). Quantization
   variants differ per model on HuggingFace — `bestasr list-models` shows the
   hosted set (e.g. tiny/base/small ship `q5_1`, not `q5_0`).
-- **mlx-audio** is optional and unlocks 15 MLX-native STT families (Parakeet,
-  Qwen3-ASR, Moonshine, Canary, MMS, Voxtral, …):
-  `uv venv ~/.bestasr/mlx-env && uv pip install --python ~/.bestasr/mlx-env/bin/python mlx-audio`.
-  Models are addressed as `family/size` (e.g. `--model parakeet/0.6b`); the
-  default benchmark sweep runs the priority-1 grid rows, `--all-grid` widens.
+- The model grid additionally carries a **reference catalog** of 15
+  MLX-native STT families (Parakeet, Qwen3-ASR, Moonshine, Canary, MMS,
+  Voxtral, …) with verified HuggingFace repos and pinned revisions — visible
+  in `bestasr list-models` for lookup. No engine is bundled for them (the
+  mlx-audio backend was evaluated and removed (#20); git history has the
+  full implementation if it's ever wanted back).
 
 ## Quick start
 

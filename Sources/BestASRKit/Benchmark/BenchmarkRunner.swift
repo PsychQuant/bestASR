@@ -99,11 +99,11 @@ public struct BenchmarkRunner {
                 )
             }
         }
-        // Valid model addresses come from the grid: whisper backends by size,
-        // mlx-audio by family/size (spec model-grid).
-        let gridNames = Set(ModelGrid.rows.map { row in
-            row.backend == ModelGrid.backendMLXAudio ? "\(row.family)/\(row.size)" : row.size
-        })
+        // Valid model addresses come from the runnable backends' grid rows
+        // (the mlx-audio reference catalog never enumerates, spec model-grid).
+        let gridNames = Set(ModelGrid.rows
+            .filter { $0.backend != ModelGrid.backendMLXAudio }
+            .map(\.size))
         if let modelFilter {
             for name in modelFilter where !gridNames.contains(name.lowercased()) {
                 throw BestASRError.usage(
@@ -125,25 +125,19 @@ public struct BenchmarkRunner {
                 notes.append("skipped \(backend.rawValue): backend unavailable on this machine")
                 continue
             }
-            // Priority gates the default mlx-audio sweep (spec benchmark);
-            // existing backends' rows are all priority 1 so the gate is a no-op
-            // for them. --all-grid widens to every tier.
+            // Runnable backends' rows are all priority 1; the mlx-audio
+            // reference catalog never reaches here (engines drive the loop,
+            // spec benchmark: Reference rows never enumerate).
             let ceiling: Int? = allGrid ? nil : 1
             for row in ModelGrid.rows(backend: backend.rawValue, priorityCeiling: ceiling) {
-                let displayName = backend == .mlxAudio ? "\(row.family)/\(row.size)" : row.size
                 if let modelFilter,
-                    !modelFilter.contains(where: { $0.lowercased() == displayName })
+                    !modelFilter.contains(where: { $0.lowercased() == row.size })
                 {
-                    continue
-                }
-                if backend == .mlxAudio && !row.verified {
-                    notes.append(
-                        "skipped \(backend.rawValue) \(displayName): no verified HF repo in the grid yet")
                     continue
                 }
                 candidates.append(
                     BenchmarkCandidate(
-                        backend: backend, model: displayName, quantization: row.quantization))
+                        backend: backend, model: row.size, quantization: row.quantization))
             }
         }
         return Enumeration(candidates: candidates, notes: notes)

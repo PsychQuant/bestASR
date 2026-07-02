@@ -10,8 +10,8 @@ struct ModelGridTests {
         #expect(ModelGrid.rows.count >= 30)
     }
 
-    @Test func `First-run set matches the spec example`() {
-        // Spec Example: the four priority-1 mlx-audio model ids.
+    @Test func `Historical first-run tier is retained on the reference catalog`() {
+        // #20: priority is historical metadata on reference rows.
         let p1 = ModelGrid.rows(backend: ModelGrid.backendMLXAudio, priorityCeiling: 1)
             .map(\.modelId)
         #expect(Set(p1) == Set([
@@ -20,6 +20,15 @@ struct ModelGridTests {
             "mlx-audio|qwen3-asr|small|4bit",
             "mlx-audio|moonshine|base|default",
         ]))
+    }
+
+    @Test func `Verified reference rows keep their revision pins`() {
+        // #15 pins survive the backend removal — reference value (#20).
+        for row in ModelGrid.rows(backend: ModelGrid.backendMLXAudio, priorityCeiling: nil)
+        where row.verified {
+            #expect(row.hfRevision?.range(
+                of: "^[0-9a-f]{40}$", options: .regularExpression) != nil)
+        }
     }
 
     @Test func `Priority ceiling gates the default sweep and nil widens to all`() {

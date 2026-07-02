@@ -44,11 +44,7 @@ public enum ModelRegistry {
         // Projected from the model grid (the single catalog, #14): unknown
         // models yield no rows — same drift guard as before, one source now.
         ModelGrid.rows
-            .filter { row in
-                row.backend == backend.rawValue
-                    && (row.backend == ModelGrid.backendMLXAudio
-                        ? "\(row.family)/\(row.size)" == model : row.size == model)
-            }
+            .filter { $0.backend == backend.rawValue && $0.size == model }
             .map(\.quantization)
     }
 
@@ -62,15 +58,7 @@ public enum ModelRegistry {
     }
 
     public static func isSupportedModel(_ name: String) -> Bool {
-        supportedModels.contains(name) || gridDisplayNames.contains(name)
-    }
-
-    /// Every addressable model name across the grid: whisper sizes plus
-    /// mlx-audio family/size addresses (#14).
-    public static var gridDisplayNames: Set<String> {
-        Set(ModelGrid.rows.map { row in
-            row.backend == ModelGrid.backendMLXAudio ? "\(row.family)/\(row.size)" : row.size
-        })
+        supportedModels.contains(name)
     }
 
     /// Static memory estimate for cold-start feasibility (spec asr-engine:
@@ -78,12 +66,6 @@ public enum ModelRegistry {
     public static func requirements(for model: String) throws -> ModelRequirements {
         if let memoryGB = memoryEstimates[model] {
             return ModelRequirements(model: model, memoryGB: memoryGB)
-        }
-        // Grid-addressed models (mlx-audio family/size): the row's estimate.
-        if let row = ModelGrid.rows.first(where: {
-            $0.backend == ModelGrid.backendMLXAudio && "\($0.family)/\($0.size)" == model
-        }) {
-            return ModelRequirements(model: model, memoryGB: row.estMemoryGB)
         }
         throw BestASRError.usage(
             "unknown model: '\(model)'; run list-models for the catalog"
