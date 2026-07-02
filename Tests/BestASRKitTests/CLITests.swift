@@ -245,7 +245,8 @@ struct ListCommandTests {
         let output = core.listModels()
         #expect(output.contains("tiny"))
         #expect(output.contains("large-v3"))
-        #expect(output.contains("q5_0"))
+        #expect(output.contains("q5_1"))  // tiny/base/small row (HF-accurate, #5)
+        #expect(output.contains("q5_0"))  // medium/large-tier row
     }
 }
 

@@ -137,7 +137,7 @@ public enum Router {
         return ASRRecommendation(
             backend: backend,
             model: model,
-            quantization: ModelRegistry.defaultQuantization(for: backend),
+            quantization: ModelRegistry.defaultQuantization(for: backend, model: model),
             profile: profile,
             language: requestedLanguage,
             dataSource: .coldStartPrior,

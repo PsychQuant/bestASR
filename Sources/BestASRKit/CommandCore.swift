@@ -335,8 +335,8 @@ public struct CommandCore: Sendable {
 
     public func listModels() -> String {
         ModelRegistry.supportedModels.map { model in
-            let quants = BackendID.allCases.compactMap { backend -> String? in
-                guard let variants = ModelRegistry.quantizations[backend] else { return nil }
+            let quants = BackendID.allCases.map { backend in
+                let variants = ModelRegistry.quantizations(for: backend, model: model)
                 return "\(backend.rawValue): \(variants.joined(separator: "/"))"
             }
             return "\(model.padding(toLength: 16, withPad: " ", startingAt: 0)) (\(quants.joined(separator: " · ")))"
