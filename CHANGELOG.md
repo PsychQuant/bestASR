@@ -5,6 +5,8 @@ All notable changes to bestASR are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-07-03
+
 ### Added
 
 - **zh/ja standard corpora (#18)** — `scripts/fetch-corpora.sh` builds Mandarin and
