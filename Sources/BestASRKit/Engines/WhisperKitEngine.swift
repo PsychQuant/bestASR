@@ -4,7 +4,7 @@ import WhisperKit
 /// The slice of WhisperKit the engine consumes — a seam (#9) so tests can
 /// spy on the DecodingOptions actually reaching the pipeline without loading
 /// a real CoreML model.
-public protocol TranscribingPipeline {
+protocol TranscribingPipeline {
     var tokenizer: (any WhisperTokenizer)? { get }
     func transcribe(
         audioPath: String, decodeOptions: DecodingOptions?
@@ -16,7 +16,7 @@ extension WhisperKit: TranscribingPipeline {
     // `callback` parameter, and defaulted parameters cannot satisfy a
     // protocol requirement. The return-type annotation picks the
     // [TranscriptionResult] overload (a TranscriptionResult? sibling exists).
-    public func transcribe(
+    func transcribe(
         audioPath: String, decodeOptions: DecodingOptions?
     ) async throws -> [TranscriptionResult] {
         try await transcribe(audioPath: audioPath, decodeOptions: decodeOptions, callback: nil)
@@ -31,11 +31,17 @@ extension WhisperKit: TranscribingPipeline {
 public struct WhisperKitEngine: Engine {
     public let id: BackendID = .whisperKit
 
-    public init(
-        pipelineFactory: @escaping @Sendable (String) async throws -> any TranscribingPipeline = {
-            model in
+    public init() {
+        self.init(pipelineFactory: { model in
             try await WhisperKit(WhisperKitConfig(model: model, download: true))
-        }
+        })
+    }
+
+    /// Internal seam (#9): tests inject a spy; the public surface stays free
+    /// of WhisperKit types (Sendable posture of the seam remains a module-
+    /// internal concern under the repo's Swift 5 language-mode convention).
+    init(
+        pipelineFactory: @escaping @Sendable (String) async throws -> any TranscribingPipeline
     ) {
         self.pipelineFactory = pipelineFactory
     }
@@ -89,7 +95,8 @@ public struct WhisperKitEngine: Engine {
     /// from RTF" and under-reporting WhisperKit X-REAL by an order of
     /// magnitude. The warm-up pass now populates this store; later calls for
     /// the same model reuse the loaded pipeline. Trade-off: cached models
-    /// stay resident for the process lifetime — acceptable for a CLI whose
+    /// stay resident for the engine's lifetime (in the CLI, one engine per
+    /// process, so engine lifetime = process lifetime) — acceptable for a CLI whose
     /// benchmark loads them anyway.
     /// Instance-scoped (not static) so injected test pipelines never leak
     /// across engines; the CLI builds one engine per process, so warm-up→timed

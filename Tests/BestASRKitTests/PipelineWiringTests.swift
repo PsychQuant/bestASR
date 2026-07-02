@@ -55,4 +55,36 @@ struct PipelineWiringTests {
         #expect(sent.detectLanguage == true)
         #expect(sent.promptTokens == nil)  // no prompt, nothing leaks in
     }
+
+    /// DA mutation finding: defeating the cache left all tests green — this
+    /// locks the #7 reuse guarantee at the wiring level (factory runs once
+    /// per key per engine; distinct keys and distinct engines stay isolated).
+    @Test func `Same engine reuses the cached pipeline across calls`() async throws {
+        let counter = CreateOnceStoreTests.Counter()
+        let engine = WhisperKitEngine(pipelineFactory: { _ in
+            _ = await counter.bump()
+            return SpyPipeline()
+        })
+        let options = TranscribeOptions(model: "reuse-spy", quantization: "default", language: "en")
+        _ = try await engine.transcribe(audioPath: "a.wav", options: options)
+        _ = try await engine.transcribe(audioPath: "b.wav", options: options)
+        #expect(await counter.count == 1)  // warm-up→timed reuse (#7) at the wiring level
+    }
+
+    @Test func `Distinct engines and distinct keys do not share pipelines`() async throws {
+        let counter = CreateOnceStoreTests.Counter()
+        let factory: @Sendable (String) async throws -> any TranscribingPipeline = { _ in
+            _ = await counter.bump()
+            return SpyPipeline()
+        }
+        let engineA = WhisperKitEngine(pipelineFactory: factory)
+        let engineB = WhisperKitEngine(pipelineFactory: factory)
+        let options = TranscribeOptions(model: "iso-spy", quantization: "default", language: "en")
+        _ = try await engineA.transcribe(audioPath: "a.wav", options: options)
+        _ = try await engineB.transcribe(audioPath: "a.wav", options: options)  // separate store
+        _ = try await engineA.transcribe(
+            audioPath: "a.wav",
+            options: TranscribeOptions(model: "iso-spy-2", quantization: "default", language: "en"))
+        #expect(await counter.count == 3)  // A:key1 + B:key1 + A:key2
+    }
 }
