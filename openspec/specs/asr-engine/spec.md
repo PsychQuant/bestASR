@@ -61,7 +61,7 @@ code:
 ---
 ### Requirement: Availability detection is graceful
 
-`is_available()` SHALL determine whether the underlying package and runtime are usable by probing via lazy import, and SHALL return false rather than raising when the package or runtime is absent.
+`is_available()` SHALL determine whether the underlying package and runtime are usable by probing via lazy import or an equivalent runtime probe, and SHALL return false rather than raising when the package or runtime is absent. For the mlx-audio backend the probe SHALL verify that the dedicated virtual environment's python can import `mlx_audio`.
 
 #### Scenario: Uninstalled backend reports unavailable
 
@@ -69,56 +69,46 @@ code:
 - **THEN** it returns false
 - **AND** no ImportError propagates to the caller
 
+#### Scenario: mlx-audio venv probe
+
+- **GIVEN** the dedicated venv is absent or cannot import `mlx_audio`
+- **WHEN** availability is queried for the mlx-audio backend
+- **THEN** it returns false without raising
+
 
 <!-- @trace
-source: bestasr-mvp
-updated: 2026-07-01
+source: mlx-audio-backend-and-bcnf-store
+updated: 2026-07-02
 code:
-  - bestasr/engines/mlx_whisper_engine.py
-  - bestasr/output/srt.py
-  - bestasr/__init__.py
-  - bestasr/detect/language.py
-  - bestasr/detect/system.py
-  - bestasr/output/json_writer.py
-  - bestasr/router/profiles.py
-  - bestasr/utils/ffmpeg.py
-  - bestasr/output/txt.py
-  - bestasr/engines/faster_whisper_engine.py
-  - bestasr/models/requirements.py
-  - examples/diagnose.sh
-  - pyproject.toml
+  - Sources/bestasr/BestASRCommand.swift
+  - Package.swift
+  - Sources/BestASRKit/Corpora/CorpusRegistry.swift
+  - scripts/fetch-corpora.sh
+  - Sources/BestASRKit/Store/StoreTables.swift
+  - Sources/BestASRKit/Models/ModelRegistry.swift
+  - Sources/BestASRKit/Engines/mlx_worker.py
+  - Sources/BestASRKit/Router/Router.swift
+  - plugins/bestasr/.claude-plugin/plugin.json
+  - Sources/BestASRKit/Engines/MLXAudioEngine.swift
+  - Tests/BestASRKitTests/RouterTests.swift
+  - .claude-plugin/marketplace.json
+  - Sources/BestASRKit/Store/StoreProjection.swift
+  - Tests/BestASRKitTests/ModelGridTests.swift
+  - Tests/BestASRKitTests/BenchmarkTests.swift
+  - Sources/BestASRKit/Models/DataModels.swift
+  - Sources/BestASRKit/Models/ModelGrid.swift
+  - Sources/BestASRKit/Store/BenchmarkStore.swift
   - README.md
-  - bestasr/detect/__init__.py
-  - bestasr/output/_timecode.py
-  - tests/conftest.py
-  - bestasr/cli.py
-  - bestasr/engines/__init__.py
-  - bestasr/models/__init__.py
-  - bestasr/output/__init__.py
-  - bestasr/router/recommendation.py
-  - bestasr/engines/base.py
-  - bestasr/detect/acceleration.py
-  - bestasr/models/registry.py
-  - bestasr/router/rules.py
-  - bestasr/engines/whisper_cpp_engine.py
-  - bestasr/output/vtt.py
-  - examples/recommend.sh
-  - bestasr/router/__init__.py
-  - bestasr/router/scorer.py
-  - bestasr/detect/audio.py
-  - bestasr/utils/__init__.py
-  - examples/basic_transcribe.sh
-  - bestasr/detect/hardware.py
-tests:
-  - tests/test_output_formats.py
-  - tests/test_router.py
-  - tests/test_audio_detection.py
-  - tests/test_fixtures.py
-  - tests/test_readme_examples.py
-  - tests/test_dataclasses.py
-  - tests/test_engines.py
-  - tests/test_hardware_detection.py
-  - tests/test_cli.py
+  - Tests/BestASRKitTests/DataModelTests.swift
+  - CHANGELOG.md
+  - Sources/BestASRKit/Benchmark/BenchmarkCache.swift
+  - Sources/BestASRKit/Engines/MLXWorkerProtocol.swift
+  - Tests/BestASRKitTests/BenchmarkStoreTests.swift
+  - Tests/BestASRKitTests/CLITests.swift
+  - Sources/BestASRKit/Benchmark/BenchmarkRunner.swift
+  - Tests/BestASRKitTests/MLXAudioEngineTests.swift
+  - Sources/BestASRKit/Engines/CreateOnceStore.swift
+  - Sources/BestASRKit/CommandCore.swift
 -->
 
 ---
