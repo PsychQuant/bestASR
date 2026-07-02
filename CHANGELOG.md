@@ -13,6 +13,14 @@ All notable changes to bestASR are documented here. The format follows
   deprecation shims - the package has no tagged releases or external
   consumers yet.
 
+### Added
+
+- **Pipeline seam for wiring-level tests** (#9): `TranscribingPipeline`
+  protocol + injectable pipeline factory on `WhisperKitEngine`, so tests can
+  spy on the `DecodingOptions` the engine actually sends (locking the #6
+  `skipSpecialTokens` fix at the production path, not just the factory
+  function). The pipeline cache is now engine-instance-scoped.
+
 ### Fixed
 
 - **whisper.cpp quantization table is now per-model and HF-accurate** (#5):
