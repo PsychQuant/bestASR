@@ -218,7 +218,8 @@ public struct CommandCore: Sendable {
         audioPath: String,
         selection: SelectionRequest,
         formatName: String,
-        outputPath: String?
+        outputPath: String?,
+        diarize: Bool = false
     ) async throws -> TranscribeOutcome {
         let format = try TranscriptWriter.format(named: formatName)
         let audio = try AudioProber.probe(
@@ -236,8 +237,23 @@ public struct CommandCore: Sendable {
                 language: audio.language, prompt: context?.rendered.prompt)
         )
 
+        // Cue-level diarization (#25, spec diarization): acoustic turns from the
+        // FluidAudio pipeline, assigned to segments by max time overlap. Runs
+        // after transcription — fail-loud per design D4 (an explicitly requested
+        // capability must not silently disappear from the output).
+        var finalTranscript = transcript
+        if diarize {
+            let turns = try await DiarizationEngine().diarize(audioPath: audio.path)
+            let labels = SpeakerAssigner.assign(segments: transcript.segments, turns: turns)
+            finalTranscript = Transcript(
+                text: transcript.text, language: transcript.language,
+                duration: transcript.duration, backend: transcript.backend,
+                model: transcript.model,
+                segments: zip(transcript.segments, labels).map { $0.withSpeaker($1) })
+        }
+
         let destination = outputPath ?? Self.derivedOutputPath(audioPath: audioPath, format: format)
-        try TranscriptWriter.write(transcript, to: destination, format: format)
+        try TranscriptWriter.write(finalTranscript, to: destination, format: format)
 
         var explanation = [
             "Selected \(rec.backend.rawValue) \(rec.model) (\(rec.quantization)) "

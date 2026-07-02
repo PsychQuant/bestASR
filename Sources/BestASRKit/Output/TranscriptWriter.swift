@@ -5,7 +5,7 @@ import Foundation
 public enum TranscriptWriter {
     public static func render(_ transcript: Transcript, format: OutputFormat) -> String {
         switch format {
-        case .txt: transcript.text
+        case .txt: renderTXT(transcript)
         case .json: renderJSON(transcript)
         case .srt: renderSRT(transcript)
         case .vtt: renderVTT(transcript)
@@ -41,6 +41,7 @@ public enum TranscriptWriter {
             let end: Double
             let text: String
             let confidence: Double?
+            let speaker: String?
         }
         struct TranscriptJSON: Codable {
             let text: String
@@ -59,7 +60,7 @@ public enum TranscriptWriter {
             segments: transcript.segments.map {
                 SegmentJSON(
                     id: $0.id, start: $0.start, end: $0.end, text: $0.text,
-                    confidence: $0.confidence)
+                    confidence: $0.confidence, speaker: $0.speaker)
             }
         )
         let encoder = JSONEncoder()
@@ -85,7 +86,7 @@ public enum TranscriptWriter {
         transcript.segments.enumerated().map { index, seg in
             let start = timestamp(seg.start, millisSeparator: ",")
             let end = timestamp(seg.end, millisSeparator: ",")
-            return "\(index + 1)\n\(start) --> \(end)\n\(seg.text)\n"
+            return "\(index + 1)\n\(start) --> \(end)\n\(cueText(seg))\n"
         }
         .joined(separator: "\n")
     }
@@ -94,9 +95,33 @@ public enum TranscriptWriter {
         let cues = transcript.segments.map { seg in
             let start = timestamp(seg.start, millisSeparator: ".")
             let end = timestamp(seg.end, millisSeparator: ".")
-            return "\(start) --> \(end)\n\(seg.text)\n"
+            return "\(start) --> \(end)\n\(cueText(seg))\n"
         }
         .joined(separator: "\n")
         return "WEBVTT\n\n\(cues)"
+    }
+
+    // MARK: - speaker rendering (#25, spec diarization)
+
+    /// Cue text with the diarization prefix when a speaker is known. Without
+    /// one this is exactly `seg.text` — the no-diarization output stays
+    /// byte-identical to the pre-#25 writer (spec: diarization off is
+    /// byte-identical).
+    private static func cueText(_ seg: TranscriptSegment) -> String {
+        guard let speaker = seg.speaker else { return seg.text }
+        return "[\(speaker)] \(seg.text)"
+    }
+
+    /// txt: legacy behavior is the flat transcript text. When any segment
+    /// carries a speaker, switch to one line per segment with `SPEAKER_N: `
+    /// prefixes so the labels are visible in the plainest format too.
+    private static func renderTXT(_ transcript: Transcript) -> String {
+        guard transcript.segments.contains(where: { $0.speaker != nil }) else {
+            return transcript.text
+        }
+        return transcript.segments.map { seg in
+            seg.speaker.map { "\($0): \(seg.text)" } ?? seg.text
+        }
+        .joined(separator: "\n")
     }
 }
