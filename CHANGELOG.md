@@ -5,23 +5,32 @@ All notable changes to bestASR are documented here. The format follows
 
 ## [Unreleased]
 
-### Changed
-
-- **Store rewrites preserve unparseable lines (#16)** — `upsert(corpus:)` and wholesale
-  model seeding previously kept only the rows they could parse, silently deleting a
-  malformed line that load had merely warned about. `rewrite()` now appends undecodable
-  lines back verbatim, so they keep surfacing the load warning instead of vanishing —
-  the "corrupt rows degrade loudly, not fatally" contract now covers the rewrite path.
-
 ### Added
 
+- **zh/ja standard corpora (#18)** — `scripts/fetch-corpora.sh` builds Mandarin and
+  Japanese benchmark corpora from FLEURS (google/fleurs, CC-BY-4.0, ungated): three
+  distinct dev-split utterances per language, converted from float32 to 16 kHz mono
+  int16 and concatenated (~30s zh / ~38s ja) with verbatim SRT references embedded and
+  a CC-BY attribution NOTICE emitted beside the artifacts. Supply chain pinned end to
+  end per the #15 discipline (dataset revision, raw tar digest verified before any
+  parser touches the bytes, converted artifact verified before it reaches its final
+  path); per-corpus isolation means one failed download can no longer block the
+  others. With these registered, `recommend --language zh|ja` answers from measured
+  data instead of cold-start.
 - **Pin provenance on measurements (#16)** — each appended measurement records
   `hf_revision` resolved from the models table *as seeded for that run* (the catalog is
   rewritten wholesale on every seed, so a pin bump used to silently re-associate
   historical numbers with the new snapshot — #15 verify's find). Audit-only optional
   column: legacy rows decode `nil`; projection and routing untouched.
 
-## [Unreleased]
+### Changed
+
+- **Store rewrites preserve unparseable lines (#16)** — `upsert(corpus:)` and wholesale
+  model seeding previously kept only the rows they could parse, silently deleting a
+  malformed line that load had merely warned about. `rewrite()` now appends undecodable
+  lines back verbatim (byte-level, so non-UTF-8 corruption survives too), so they keep
+  surfacing the load warning instead of vanishing — the "corrupt rows degrade loudly,
+  not fatally" contract now covers the rewrite path.
 
 ## [0.4.0] - 2026-07-02
 
