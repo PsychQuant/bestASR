@@ -13,7 +13,8 @@ struct PipelineWiringTests {
     final class SpyPipeline: TranscribingPipeline, @unchecked Sendable {
         private let lock = NSLock()
         private var captured: [DecodingOptions] = []
-        var tokenizer: (any WhisperTokenizer)? { nil }
+        let tokenizer: (any WhisperTokenizer)?
+        init(tokenizer: (any WhisperTokenizer)? = nil) { self.tokenizer = tokenizer }
 
         func transcribe(
             audioPath: String, decodeOptions: DecodingOptions?
@@ -45,7 +46,9 @@ struct PipelineWiringTests {
     }
 
     @Test func `Auto language flows to the pipeline as detection`() async throws {
-        let spy = SpyPipeline()
+        let spy = SpyPipeline(tokenizer: FakeTokenizer())  // tokenizer PRESENT (#12) —
+        // nil-tokenizer made this canary vacuous; with one wired in, nil now proves
+        // the gate is the absent prompt, not the absent tokenizer.
         let engine = WhisperKitEngine(pipelineFactory: { _ in spy })
         _ = try await engine.transcribe(
             audioPath: "unused.wav",
@@ -86,5 +89,76 @@ struct PipelineWiringTests {
             audioPath: "a.wav",
             options: TranscribeOptions(model: "iso-spy-2", quantization: "default", language: "en"))
         #expect(await counter.count == 3)  // A:key1 + B:key1 + A:key2
+    }
+
+    /// #12: deterministic fake — UTF-8 bytes as token ids, so assertions can
+    /// state the exact expected encoding (leading space included) without a
+    /// real vocabulary. Everything else is inert stubbing.
+    struct FakeTokenizer: WhisperTokenizer {
+        // NON-identity mapping (1000 + byte): a production path that hardcoded
+        // UTF-8 bytes without calling the injected tokenizer cannot match this
+        // (#12 verify F2 — identity fakes can't prove flow-through).
+        func encode(text: String) -> [Int] { text.utf8.map { 1000 + Int($0) } }
+        // The seam must only ever call encode — anything else dying loudly IS
+        // the assertion (#12 verify F4).
+        func decode(tokens: [Int]) -> String { fatalError("seam must not decode") }
+        func convertTokenToId(_ token: String) -> Int? { fatalError("seam must not convertTokenToId") }
+        func convertIdToToken(_ id: Int) -> String? { fatalError("seam must not convertIdToToken") }
+        var specialTokens: SpecialTokens {
+            SpecialTokens(
+                endToken: 0, englishToken: 0, noSpeechToken: 0, noTimestampsToken: 0,
+                specialTokenBegin: 0, startOfPreviousToken: 0, startOfTranscriptToken: 0,
+                timeTokenBegin: 0, transcribeToken: 0, translateToken: 0, whitespaceToken: 0)
+        }
+        var allLanguageTokens: Set<Int> { [] }
+        func splitToWordTokens(tokenIds: [Int]) -> (words: [String], wordTokens: [[Int]]) {
+            fatalError("seam must not splitToWordTokens")
+        }
+    }
+
+    /// #12: the prompt-encode branch (encode → clamp → makeDecodeOptions) had no
+    /// seam coverage — #9's spy injected tokenizer: nil, so deleting the branch
+    /// kept every test green (DA-proven). This locks the actual wiring: the
+    /// pipeline receives EXACTLY the encoding of " " + prompt (leading space
+    /// preserved — Whisper conditioning convention).
+    @Test func `Prompt encodes through the tokenizer and reaches the pipeline`() async throws {
+        let spy = SpyPipeline(tokenizer: FakeTokenizer())
+        let engine = WhisperKitEngine(pipelineFactory: { _ in spy })
+        _ = try await engine.transcribe(
+            audioPath: "unused.wav",
+            options: TranscribeOptions(
+                model: "wiring-spy-prompt", quantization: "default", language: "en",
+                prompt: "Kalman filter, Kokoro")
+        )
+        let sent = try #require(spy.lastOptions)
+        let expected = FakeTokenizer().encode(text: " Kalman filter, Kokoro")
+        #expect(sent.promptTokens == expected)          // exact wiring, not just non-nil
+        #expect(expected.first == 1032)                 // " " survived — leading space in-band (1000 + 0x20)
+        #expect(sent.usePrefillPrompt == true)          // the switch that makes WhisperKit CONSUME
+                                                        // promptTokens — DA mutation showed deleting it
+                                                        // stayed green before this line (#12 verify F3)
+    }
+
+    /// #12: the 224-token clamp must act on the ENCODED prompt at the seam —
+    /// keeping the suffix (nearest context wins under Whisper's left-context
+    /// window), not the prefix.
+    @Test func `Overlong prompt is clamped to the trailing 224 tokens at the seam`() async throws {
+        let spy = SpyPipeline(tokenizer: FakeTokenizer())
+        let engine = WhisperKitEngine(pipelineFactory: { _ in spy })
+        // 150 a's + 150 b's: every 224-window is now DISTINCT, so a
+        // prefix-keeping clamp cannot masquerade as suffix-keeping
+        // (#12 verify F1 — homogeneous data made the direction vacuous).
+        let longPrompt = String(repeating: "a", count: 150) + String(repeating: "b", count: 150)
+        _ = try await engine.transcribe(
+            audioPath: "unused.wav",
+            options: TranscribeOptions(
+                model: "wiring-spy-clamp", quantization: "default", language: "en",
+                prompt: longPrompt)
+        )
+        let sent = try #require(spy.lastOptions)
+        let full = FakeTokenizer().encode(text: " " + longPrompt)  // 301 tokens
+        #expect(sent.promptTokens?.count == 224)
+        #expect(sent.promptTokens == Array(full.suffix(224)))
+        #expect(sent.promptTokens != Array(full.prefix(224)))  // direction really is decidable now
     }
 }
