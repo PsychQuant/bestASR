@@ -17,3 +17,7 @@ dist/
 
 # IDD workflow telemetry — appended every verify run, machine-local
 .claude/.idd/routing-stats.jsonl
+
+# #26 speaker enrollment voice prints — sensitive biometric data, local-only.
+# Never commit voice samples even if a context dir lives inside the repo.
+**/voices/

@@ -260,10 +260,22 @@ public struct CommandCore: Sendable {
             // prompt context (a dir with ONLY voices/ is "empty" to loadContext
             // but still enrolls). voices absent → pure #25 diarization.
             var enrolled: [(name: String, embedding: [Float])] = []
+            var enrollWarnings: [String] = []
+            // Resolved independently of the prompt context (a dir with ONLY
+            // voices/ is "empty" to loadContext but still enrolls); a directory
+            // read error surfaces as no voices rather than aborting.
             let voices = (try? ContextLoader.load(flag: selection.contextDir))?.voices ?? []
             for voice in voices {
-                if let embedding = try await enroller(voice.path) {
-                    enrolled.append((name: voice.label, embedding: embedding))
+                // Per-voice warn-continue (#26 verify): one unreadable/corrupt
+                // enrollment sample must not abort the whole transcription.
+                do {
+                    if let embedding = try await enroller(voice.path) {
+                        enrolled.append((name: voice.label, embedding: embedding))
+                    } else {
+                        enrollWarnings.append("voice '\(voice.label)' yielded no usable embedding (too short/silent)")
+                    }
+                } catch {
+                    enrollWarnings.append("voice '\(voice.label)' failed to enroll: \(error.localizedDescription)")
                 }
             }
             let output = try await diarizer(audio.path)
@@ -281,8 +293,10 @@ public struct CommandCore: Sendable {
             let labels = SpeakerAssigner.assign(
                 segments: transcript.segments, turns: namedTurns, knownNames: knownNames)
             if !voices.isEmpty {
+                // "enrolled" counts embeddings actually obtained, not files found.
                 identificationNote =
-                    "voices: \(voices.count) enrolled, \(knownNames.count) matched"
+                    "voices: \(enrolled.count)/\(voices.count) enrolled, \(knownNames.count) matched"
+                    + enrollWarnings.map { "\n  ! \($0)" }.joined()
             }
             // D4 fail-loud covers the SOFT failure too: an engine that
             // "succeeds" with zero usable turns would emit output

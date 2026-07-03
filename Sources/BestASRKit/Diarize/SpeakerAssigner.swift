@@ -30,6 +30,14 @@ public enum SpeakerAssigner {
     /// do NOT consume ordinal numbers — strangers are numbered as if the known
     /// speakers were not present, so their numbering is stable regardless of
     /// which voices happen to be enrolled.
+    /// Enrollment filenames become labels; strip control chars, newlines, and
+    /// the `]` that would break the `[label]` cue prefix (#26 verify security).
+    static func sanitizeLabel(_ raw: String) -> String {
+        String(raw.unicodeScalars.filter {
+            $0 != "]" && $0 != "\n" && $0 != "\r" && !($0.value < 0x20)
+        })
+    }
+
     public static func assign(
         segments: [TranscriptSegment], turns: [SpeakerTurn],
         knownNames: Set<String> = []
@@ -54,7 +62,7 @@ public enum SpeakerAssigner {
                 }
             }
             guard let winner = best?.turn else { return nil }
-            if knownNames.contains(winner.speaker) { return winner.speaker }
+            if knownNames.contains(winner.speaker) { return sanitizeLabel(winner.speaker) }
             if ordinalByRawId[winner.speaker] == nil {
                 ordinalByRawId[winner.speaker] = next
                 next += 1

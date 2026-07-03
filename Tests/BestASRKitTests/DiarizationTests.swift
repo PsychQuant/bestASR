@@ -234,6 +234,14 @@ struct KnownSpeakerAssignerTests {
             == ["SPEAKER_1", "Alice", "SPEAKER_2"])
     }
 
+    @Test func `A hostile enrollment filename cannot break the cue prefix`() {
+        let segments = [seg(0, 0, 5)]
+        let turns = [SpeakerTurn(speaker: "ev]il\nname", start: 0, end: 5)]
+        // The label reaches [label] SRT prefixes verbatim — strip ] / newline / control.
+        #expect(SpeakerAssigner.assign(
+            segments: segments, turns: turns, knownNames: ["ev]il\nname"]) == ["evilname"])
+    }
+
     @Test func `No known names is identical to plain diarization`() {
         let segments = [seg(0, 0, 5), seg(1, 5, 10)]
         let turns = [
@@ -297,7 +305,7 @@ struct IdentificationPathTests {
         let srt = try String(contentsOfFile: outcome.outputPath, encoding: .utf8)
         #expect(srt.contains("[Alice] one"))
         #expect(srt.contains("[SPEAKER_1] two"))
-        #expect(outcome.explanation.contains("voices: 1 enrolled, 1 matched"))
+        #expect(outcome.explanation.contains("voices: 1/1 enrolled, 1 matched"))
     }
 
     @Test func `No voices folder is pure diarization`() async throws {

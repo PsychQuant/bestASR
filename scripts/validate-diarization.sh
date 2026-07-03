@@ -107,7 +107,10 @@ if [ ! -f "$ENROLL_HALF" ]; then
   # rebuild from the pinned female pcm16 the fixture step extracted
   FEMALE_PCM=$(find "$WORK" /tmp -name "5510872108388823452.pcm16.wav" 2>/dev/null | head -1)
   if [ -z "$FEMALE_PCM" ]; then
-    echo "⚠ identification check skipped — female pcm16 source not found (run after the fixture step in one session)"
+    echo "✗ identification check cannot run — female pcm16 source not found." >&2
+    echo "  The enrollment half-cut needs the female recording extracted by the fixture step." >&2
+    echo "  Run scripts/fetch-corpora.sh + this script in one session, or provide \$WORK/enroll_female.wav." >&2
+    exit 1
   else
     /usr/bin/python3 - "$FEMALE_PCM" "$ENROLL_HALF" <<'PY'
 import sys, wave, contextlib

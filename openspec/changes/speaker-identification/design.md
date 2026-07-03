@@ -1,6 +1,6 @@
 ## Context
 
-FluidAudio：`Speaker(id:name:currentEmbedding:)`、`speakerManager.initializeKnownSpeakers(_:mode:)`、`performCompleteDiarization` 對已知者回其 id（distance < speakerThreshold 0.65）、`result.speakerDatabase: [String:[Float]]`。#25 已有：`DiarizationEngine`、`SpeakerAssigner`、CommandCore `diarizer:` 注入縫、pinned 2-speaker fixture。Context 模組已解析三層 context dir。
+FluidAudio：`performCompleteDiarization` 回 `TimedSpeakerSegment{speakerId, embedding, start, end}`（每 turn 帶 embedding）；`SpeakerUtilities.cosineDistance` public。**實測（apply 中發現）**：`speakerManager.initializeKnownSpeakers` 預載路徑在 DiarizerManager pipeline **不進 clustering 決策**（主 run 對預載者仍 `distance=inf`）——故 identification 不走 SDK 預載，改自控 post-hoc 比對。#25 已有：`DiarizationEngine`、`SpeakerAssigner`、CommandCore `diarizer:` 注入縫、pinned 2-speaker fixture。Context 模組已解析三層 context dir。
 
 ## Goals / Non-Goals
 
@@ -10,7 +10,7 @@ Goals：註冊名直出標籤、未知者不退化、隱私鐵律成文、可重
 
 ### D1 — Enrollment 資料流（SDK 原生路徑）
 
-`SpeakerEnroller.embedding(for: audioPath)`：對註冊音檔跑 diarizer → `speakerDatabase` 取**總時長最長**的 speaker embedding（短雜訊不奪主導）。`DiarizationEngine.diarize(audioPath:knownSpeakers:[(name, embedding)])`：轉 `Speaker` 預載（`.reset` mode——每次執行獨立、不累積跨執行狀態）→ turns 的 `speaker` 欄直接是名或 raw id。
+`SpeakerEnroller.embedding(for:)`：跑 diarizer → 取總時長最長 speaker 的 segment embedding（短雜訊不奪主導）。`DiarizationEngine.diarize` 回 `DiarizationOutput{turns, embeddings:[rawId:[Float]]}`。`SpeakerIdentifier.resolve(embeddings:enrolled:threshold:0.65)` **純函式**：每 rawId 對每個 enrolled embedding 算 cosine distance、取 < threshold 的最近者 → `[rawId:name]` 映射；CommandCore 用映射 rename turns 後才 assign。**不賭 SDK 預載行為、可完全單元測試**。
 
 ### D2 — 標籤語意（Assigner 擴充）
 
@@ -27,6 +27,10 @@ identification 啟用條件 = `--diarize` ∧ resolved context dir 存在 `voice
 ### D5 — 驗證（半剖法，零新下載）
 
 FLEURS speaker 匿名 → 用「同錄音剖半」保證同人：enrollment = FEMALE 錄音前半（≈5.1s）；fixture（#25 pinned，male+1s gap+female）→ 期望 female cue 標 `[TestVoice]`、male 維持 `[SPEAKER_1]`。斷言入 validate-diarization.sh（digest pin enrollment 半剖檔）。
+
+### D6 — 多對一映射（verify logic 校準）
+
+`SpeakerIdentifier.resolve` 允許多個 diarization raw id 映射到同一 enrolled name（皆 < threshold 且該名最近）。這是**刻意的正確行為**：diarizer 常把同一人切成數個聲學 cluster（不同段落、換氣），把它們併回同一註冊名正是 identification 的價值。副作用（兩個**真的不同**的人都最接近同一 enrolled voice 且皆 < 0.65）在 enrollment 品質正常時罕見；真發生時使用者可提供更區辨的 enrollment 樣本。不加「一名一 id」硬限制——那會把「合併同人多 cluster」這個主要用途也擋掉。
 
 ## Implementation Contract
 
