@@ -6,9 +6,11 @@ import Foundation
 ///
 /// Both axes are min-max normalized within the candidate set (a degenerate
 /// axis where all values are equal scores 1 for everyone), then combined with
-/// the profile's renormalized accuracy/speed weights. Locked to the spec SBE
-/// tables: under `accurate` the low-CER candidate wins; under `fast` the same
-/// measurements flip to the high-throughput candidate.
+/// the profile's renormalized accuracy/speed weights, then sorted by an
+/// explicit total order (score, then faster, then lexicographic) so equal
+/// scores — the normal state under `max` — resolve deterministically. Locked
+/// to the spec SBE tables: under `high` the low-CER candidate wins; under
+/// `low` the same measurements flip to the high-throughput candidate.
 public enum Ranking {
     public struct Scored: Sendable {
         public let record: BenchmarkRecord
@@ -36,7 +38,18 @@ public enum Ranking {
                 record.timesRealtime, low: speedRange.0, high: speedRange.1, invert: false)
             return (record, profile.accuracyWeight * accuracy + profile.speedWeight * speed)
         }
-        .sorted { $0.1 > $1.1 }
+        // Deterministic total order (#29): equal weighted scores — the normal
+        // state under `max`, whose speed weight is zero — tie-break to the
+        // faster candidate, then lexicographically. A bare score sort is not
+        // stable in Swift, so equal-score order would be irreproducible.
+        .sorted { a, b in
+            if a.1 != b.1 { return a.1 > b.1 }
+            if a.0.timesRealtime != b.0.timesRealtime {
+                return a.0.timesRealtime > b.0.timesRealtime
+            }
+            return (a.0.backend, a.0.model, a.0.quantization)
+                < (b.0.backend, b.0.model, b.0.quantization)
+        }
 
         return scored.enumerated().map { index, pair in
             Scored(record: pair.0, score: pair.1, rank: index + 1)

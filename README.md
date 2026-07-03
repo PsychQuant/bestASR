@@ -55,9 +55,46 @@ Backends:
 ## Quick start
 
 ```bash
-bestasr diagnose                 # what is this machine, and what would it recommend?
-bestasr transcribe input.mp3     # transcribe with the best known setup
+bestasr diagnose                            # what is this machine, and what would it recommend?
+bestasr transcribe input.mp3                # best known setup, chosen for you
+bestasr transcribe input.mp3 --profile max  # most accurate, time is no object
 ```
+
+With no flags, bestASR decides for you — that's the point. The default
+profile is `auto`: it reads your hardware (chip, unified memory, Neural
+Engine), your measured benchmark store, **and the machine's current
+condition** — under thermal pressure or Low Power Mode, `auto` downshifts to
+a faster tier rather than grinding a hot machine through a huge model, and
+`--explain` tells you it did.
+
+### Effort profiles
+
+`--profile` is an ordinal effort ladder (modeled on Claude Code's effort
+levels): pick how hard the router should chase accuracy, and it maps that to
+concrete models using your machine's measured numbers.
+
+| Profile | Accuracy : speed weighting | What it means |
+|---------|---------------------------|---------------|
+| `auto` *(default)* | — | `medium` normally; `low` when the machine reports pressure (thermal serious/critical, or Low Power Mode). Never applied on top of an explicit choice. |
+| `low` | 0.267 : 0.733 | Fastest acceptable — drafts, long batch queues |
+| `medium` | 0.5 : 0.5 | The balanced default |
+| `high` | 0.8 : 0.2 | Accuracy-leaning, still speed-aware |
+| `xhigh` | 0.9 : 0.1 | Near-max accuracy |
+| `max` | 1.0 : 0 | **Most accurate regardless of time.** A pure argmax over measured error rate; equal-accuracy ties break to the faster candidate |
+
+"Most accurate" means *measured on your machine* whenever benchmark data
+exists — not a hardcoded model name. Without measurements the top tiers fall
+back to the same biggest-that-fits cold-start prior (ordinals can only
+differ once there is data to weigh — run the benchmark).
+
+Because `auto` reads live machine state, `recommend` / `transcribe` with no
+`--profile` can resolve differently on a throttled machine (it says so in
+`--explain`). If you need a byte-stable result for automation, pass an
+explicit ordinal — an explicit choice is never touched by machine state.
+
+Migrating from ≤0.7.x: `fast` → `low`, `balanced` → `medium`, `accurate` →
+`high` (or `max` when you truly don't care about time). The old names now
+fail with exactly that hint.
 
 ### The benchmark workflow (where "best" gets real)
 
@@ -110,6 +147,71 @@ bestasr benchmark clip.wav --reference clip.srt --context-dir ./bestasr-context
 axis), and `phrases`; plain `.txt`/`.md` term lists work too. Unsupported
 formats are loudly ignored with guidance. An empty folder changes nothing.
 
+### Speaker diarization (who spoke when)
+
+```bash
+bestasr transcribe meeting.m4a --format srt --diarize
+```
+
+```
+1
+00:00:00,000 --> 00:00:09,300
+[SPEAKER_1] 先講一下上週的進度……
+
+2
+00:00:10,300 --> 00:00:18,000
+[SPEAKER_2] 我這邊模型已經跑完了。
+```
+
+Each cue is labeled with the acoustic speaker that overlaps it most.
+Speakers are numbered in order of first appearance; CoreML diarization
+models download on first use. Works with every output format (`srt` / `vtt`
+/ `txt` / `json`).
+
+### Speaker identification (who is SPEAKER_1, actually)
+
+Drop a short voice sample per person into a `voices/` folder inside your
+context directory — the filename becomes the label:
+
+```
+bestasr-context/
+  context.json
+  voices/
+    Alice.wav      # a few seconds of Alice speaking, alone
+    Bob.m4a
+```
+
+```bash
+bestasr transcribe meeting.m4a --format srt --diarize
+# → [Alice] …, [Bob] …, and any un-enrolled voice stays [SPEAKER_1]
+```
+
+Identification is a post-hoc embedding match against each recording's
+diarized speakers (cosine distance, 0.65 threshold): enrolled voices are
+labeled by name, strangers keep their ordinals, and a corrupt sample is
+skipped with a warning instead of failing the transcription.
+
+**Voice prints are sensitive biometric data — bestASR ships no code that
+transmits them.** Concretely: `voices/` is in the repo's `.gitignore`, the
+context-ingest skill's rules exclude it, and the only reader is the local
+`--diarize` run. (These are the enforced mechanisms; bestASR cannot govern
+what other tools on your machine do with the files.)
+
+### See why (--explain)
+
+Every selection is explainable — including what `auto` decided:
+
+```
+Selected whisperkit large-v3-turbo [measured] because:
+  - auto profile resolved to medium (no machine pressure)
+  - measured on this machine: CER 5.0%, 12.0x realtime
+  - whisperkit preferred on Apple Silicon (CoreML path)
+```
+
+Under load the first line becomes
+`auto profile downshifted to low (thermal state: serious)` — no silent
+behavior changes.
+
 ### Commands
 
 | Command | What it does |
@@ -117,24 +219,25 @@ formats are loudly ignored with guidance. An empty folder changes nothing.
 | `bestasr diagnose` | Hardware profile (chip / unified memory / ANE / macOS) + recommendation |
 | `bestasr benchmark <audio> --reference <gt.srt>` | Measure candidates, print ranked table, persist results (`--json` for machines) |
 | `bestasr recommend <audio>` | JSON recommendation only — measured when data exists, cold-start prior otherwise |
-| `bestasr transcribe <audio>` | Transcribe; `--format txt\|json\|srt\|vtt`, `--output`, `--context-dir`, `--explain` |
+| `bestasr transcribe <audio>` | Transcribe; `--format txt\|json\|srt\|vtt`, `--output`, `--context-dir`, `--diarize`, `--explain` |
 | `bestasr list-backends` | Backend availability on this machine |
 | `bestasr list-models` | The model grid: whisper sizes + the 15-family mlx-audio catalog with priority tiers |
 | `bestasr corpus add <audio> <ref.srt> --language <l>` | Register ground truth (zh/ja: bring your own material) |
 | `bestasr corpus list` | Registered corpora |
 
-Shared selection flags: `--profile fast|balanced|accurate`, `--backend`,
-`--model`, `--language`.
+Shared selection flags: `--profile auto|low|medium|high|xhigh|max`,
+`--backend auto|whisperkit|whisper.cpp`, `--model`, `--language`.
 
 ## How it works
 
 ```
-CLI → Detect (chip/memory/ANE, AVFoundation audio probing)
+CLI → Detect (chip/memory/ANE, AVFoundation audio probing,
+              dynamic machine state: thermal + Low Power Mode)
     → Route  (tier 1: rank measured benchmark records for this chip;
               tier 2: cold-start prior + memory downgrade — and it tells you
               to benchmark)
     → Engine (WhisperKit · whisper.cpp, one normalized interface)
-    → Output (txt / json / srt / vtt)
+    → Output (txt / json / srt / vtt, optional speaker labels)
 ```
 
 Every recommendation carries a `reason` list. Cold-start recommendations say
@@ -143,7 +246,7 @@ so honestly and point you at `bestasr benchmark`.
 ## Development
 
 ```bash
-swift test          # 95+ tests, no real models needed (engines are mocked)
+swift test          # 200+ tests, no real models needed (engines are mocked)
 swift build         # debug build
 ```
 

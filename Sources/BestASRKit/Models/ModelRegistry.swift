@@ -29,9 +29,13 @@ public enum ModelRegistry {
     /// Candidate models per profile (design brief §7.4, carried into the
     /// cold-start prior spec).
     public static let profileModels: [RouterProfile: [String]] = [
-        .fast: ["tiny", "base", "small"],
-        .balanced: ["small", "medium"],
-        .accurate: ["medium", "large-v3-turbo", "large-v3"],
+        .low: ["tiny", "base", "small"],
+        .medium: ["small", "medium"],
+        // The top three tiers share one list: without measured data the
+        // ordinals can only differ in measured weighting (design D5, #29).
+        .high: ["medium", "large-v3-turbo", "large-v3"],
+        .xhigh: ["medium", "large-v3-turbo", "large-v3"],
+        .max: ["medium", "large-v3-turbo", "large-v3"],
     ]
 
     /// Quantization variants offered per (backend, model). WhisperKit models

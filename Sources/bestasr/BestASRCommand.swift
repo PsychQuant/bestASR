@@ -138,8 +138,8 @@ struct Benchmark: AsyncParsableCommand {
     @Option(help: "Comma-separated model filter (e.g. tiny,large-v3-turbo)")
     var models: String?
 
-    @Option(help: "Optimization profile: fast | balanced | accurate")
-    var profile: String = RouterProfile.balanced.rawValue
+    @Option(help: "Report-ranking profile: low | medium | high | xhigh | max")
+    var profile: String = RouterProfile.medium.rawValue
 
     @Option(help: "Context documents directory — adds a with-context pass and delta columns")
     var contextDir: String?
@@ -198,8 +198,11 @@ struct ListModels: AsyncParsableCommand {
 
 /// Shared selection flags for `recommend` and `transcribe`.
 struct SelectionOptions: ParsableArguments {
-    @Option(help: "Optimization profile: fast | balanced | accurate")
-    var profile: String = RouterProfile.balanced.rawValue
+    @Option(
+        help:
+            "Effort profile: auto | low | medium | high | xhigh | max — auto adapts to machine pressure; max = most accurate regardless of time"
+    )
+    var profile: String = "auto"
 
     @Option(help: "Force a backend: auto | whisperkit | whisper.cpp")
     var backend: String = "auto"

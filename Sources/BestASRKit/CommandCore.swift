@@ -21,6 +21,7 @@ public struct CommandCore: Sendable {
     let store: BenchmarkStore
     let diarizer: @Sendable (String) async throws -> DiarizationOutput
     let enroller: @Sendable (String) async throws -> [Float]?
+    let dynamicHost: @Sendable () -> DynamicHostState
     let probe: MeasurementProbe
 
     public init(
@@ -33,13 +34,15 @@ public struct CommandCore: Sendable {
         },
         enroller: @escaping @Sendable (String) async throws -> [Float]? = {
             try await SpeakerEnroller().embedding(for: $0)
-        }
+        },
+        dynamicHost: @escaping @Sendable () -> DynamicHostState = { .probe() }
     ) {
         self.engines = engines
         self.detect = detect
         self.store = store
         self.diarizer = diarizer
         self.enroller = enroller
+        self.dynamicHost = dynamicHost
         self.probe = probe
     }
 
@@ -130,11 +133,15 @@ public struct CommandCore: Sendable {
             "Recommendation:",
         ]
         do {
+            // Resolve the same way transcribe/recommend do, so diagnose's
+            // "what would it recommend?" tells the truth under machine pressure
+            // (#29 verify #1/#9/#10/#14 — one source of truth for the default).
+            let resolved = try Self.resolveProfile(named: "auto", dynamicState: dynamicHost())
             let rec = try Router.recommend(
-                host: host, profile: .balanced, requestedLanguage: nil,
+                host: host, profile: resolved.profile, requestedLanguage: nil,
                 backendOverride: nil, modelOverride: nil,
                 records: try loadRecords(), availability: await availability()
-            )
+            ).prepending(reasons: resolved.reasons)
             lines += [
                 "  Backend:      \(rec.backend.rawValue)",
                 "  Model:        \(rec.model)",
@@ -171,24 +178,61 @@ public struct CommandCore: Sendable {
         }
     }
 
+    /// Parse an explicit ordinal profile. Legacy names fail with their
+    /// ordinal replacement (spec cli: legacy profile values fail with a
+    /// migration hint, #29 — the user ruled out an alias layer).
+    static func parseProfile(_ name: String) throws -> RouterProfile {
+        let lowered = name.lowercased()
+        if let profile = RouterProfile(rawValue: lowered) { return profile }
+        let migrations = [
+            "fast": "low", "balanced": "medium",
+            "accurate": "high (or max for accuracy at any cost)",
+        ]
+        if let replacement = migrations[lowered] {
+            throw BestASRError.usage(
+                "profile '\(lowered)' was renamed — use '\(replacement)'; profiles are now "
+                    + RouterProfile.allCases.map(\.rawValue).joined(separator: ", "))
+        }
+        // Note: `auto` is NOT listed here — it is intercepted by resolveProfile
+        // before this function, and benchmark (the other caller) does not accept
+        // it. Advertising auto here contradicted `benchmark --profile auto` (#29
+        // verify #2/#3).
+        throw BestASRError.usage(
+            "unknown profile: '\(name)'; supported profiles are "
+                + RouterProfile.allCases.map(\.rawValue).joined(separator: ", "))
+    }
+
+    /// Resolve the CLI profile string. `auto` (the transcribe/recommend
+    /// default) adapts to dynamic machine conditions — medium normally, low
+    /// under thermal/power pressure — and says so in the explain reasons.
+    /// An explicit ordinal is never altered by machine state (spec cli, #29).
+    static func resolveProfile(
+        named name: String, dynamicState: DynamicHostState
+    ) throws -> (profile: RouterProfile, reasons: [String]) {
+        guard name.lowercased() == "auto" else {
+            return (try parseProfile(name), [])
+        }
+        if let cause = dynamicState.pressureCause {
+            return (.low, ["auto profile downshifted to low (\(cause))"])
+        }
+        return (.medium, ["auto profile resolved to medium (no machine pressure)"])
+    }
+
     func resolveRecommendation(
         selection: SelectionRequest, language: String?
     ) async throws -> ASRRecommendation {
-        guard let profile = RouterProfile(rawValue: selection.profileName.lowercased()) else {
-            throw BestASRError.usage(
-                "unknown profile: '\(selection.profileName)'; supported profiles are "
-                    + RouterProfile.allCases.map(\.rawValue).joined(separator: ", ")
-            )
-        }
-        return try Router.recommend(
+        let resolved = try Self.resolveProfile(
+            named: selection.profileName, dynamicState: dynamicHost())
+        let rec = try Router.recommend(
             host: try detect(),
-            profile: profile,
+            profile: resolved.profile,
             requestedLanguage: language,
             backendOverride: selection.backendOverride,
             modelOverride: selection.modelOverride,
             records: try loadRecords(),
             availability: await availability()
         )
+        return rec.prepending(reasons: resolved.reasons)
     }
 
     public func recommendJSON(audioPath: String, selection: SelectionRequest) async throws -> String {
@@ -366,12 +410,7 @@ public struct CommandCore: Sendable {
         contextDir: String? = nil,
         allGrid: Bool = false
     ) async throws -> String {
-        guard let profile = RouterProfile(rawValue: profileName.lowercased()) else {
-            throw BestASRError.usage(
-                "unknown profile: '\(profileName)'; supported profiles are "
-                    + RouterProfile.allCases.map(\.rawValue).joined(separator: ", ")
-            )
-        }
+        let profile = try Self.parseProfile(profileName)
 
         // Reference problems are usage errors raised BEFORE any transcription.
         let cues = try SRTParser.parse(fileAt: referencePath)

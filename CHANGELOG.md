@@ -5,6 +5,37 @@ All notable changes to bestASR are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- **`--profile` becomes an ordinal effort ladder — `low` / `medium` / `high` /
+  `xhigh` / `max` — with a machine-aware `auto` default** (#29). Modeled on
+  Claude Code's effort levels per the owner's ruling ("更能直覺感受").
+  `max` (weight 1.0) is a pure accuracy argmax — most accurate regardless of
+  time — with equal-accuracy ties breaking to the faster candidate; that
+  explicit tie-break also fixes a latent nondeterminism (the ranking sort was
+  bare score-descending and Swift's sort is not stable). low/medium/high keep
+  the old fast/balanced/accurate weight anchors, so measured behavior carries
+  over under new names. **Migration**: `fast`→`low`, `balanced`→`medium`,
+  `accurate`→`high` (or `max`); legacy names fail with exactly that hint (no
+  alias layer, by ruling).
+- **`auto` profile default reads dynamic machine state**: thermal pressure
+  (serious/critical) or Low Power Mode downshifts the auto default to `low`,
+  disclosed in `--explain` reasons; an explicit ordinal is never altered.
+  New seam-injectable `DynamicHostState` probe degrades to no-pressure on
+  failure — detection can never block a transcription.
+- **README rewritten for 0.7.x reality**: effort-profile contract table,
+  speaker diarization and voice-enrollment identification sections (both
+  previously undocumented), explain walkthrough, updated command reference.
+- **`diagnose` now resolves the profile the same way `transcribe`/`recommend`
+  do** (#29 verify): it was pinned to `medium` and ignored the injected
+  dynamic-state seam, so on a throttled machine it would report a different
+  recommendation than the real runs. All three commands now share one
+  source of truth for the default. Also: the shared profile parser no longer
+  advertises `auto` in its error (which made `benchmark --profile auto`
+  self-contradictory), and the benchmark capability spec gains the
+  accurate→high delta the first-round dual-track sweep missed.
+
+
 ## [0.7.0] - 2026-07-03
 
 ### Added

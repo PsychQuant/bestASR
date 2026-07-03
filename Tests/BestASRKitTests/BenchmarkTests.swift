@@ -131,7 +131,7 @@ struct BenchmarkMeasurementTests {
 }
 
 struct RankingTests {
-    @Test func `Accuracy-first ranking under the accurate profile matches the spec table`() {
+    @Test func `Accuracy-first ranking under the high profile matches the spec table`() {
         // Spec SBE: wk large-v3-turbo (CER .05, 12x) #1; wcpp large-v3 q5 (.06, 6x) #2;
         // wcpp small q5 (.15, 20x) #3.
         let records = [
@@ -142,13 +142,13 @@ struct RankingTests {
             Fixtures.record(backend: .whisperCpp, model: "large-v3", quantization: "q5_0",
                             errorRate: 0.06, timesRealtime: 6),
         ]
-        let ranked = Ranking.rank(records, profile: .accurate)
+        let ranked = Ranking.rank(records, profile: .high)
         #expect(ranked.map(\.record.model) == ["large-v3-turbo", "large-v3", "small"])
         #expect(ranked.map(\.rank) == [1, 2, 3])
     }
 
     @Test func `Degenerate single-candidate set still ranks`() {
-        let ranked = Ranking.rank([Fixtures.record()], profile: .balanced)
+        let ranked = Ranking.rank([Fixtures.record()], profile: .medium)
         #expect(ranked.count == 1)
         #expect(ranked[0].rank == 1)
     }
@@ -250,7 +250,7 @@ struct ContextDeltaBenchmarkTests {
 
         let report = try await core.benchmark(
             audioPath: audioPath, referencePath: srt, language: "en",
-            backendFilter: nil, modelFilter: ["tiny"], profileName: "balanced",
+            backendFilter: nil, modelFilter: ["tiny"], profileName: "medium",
             asJSON: false, contextDir: ctxDir.path
         )
         #expect(report.contains("WER(CTX)%"))
@@ -268,7 +268,7 @@ struct ContextDeltaBenchmarkTests {
         // JSON mode carries the machine-readable fields.
         let json = try await core.benchmark(
             audioPath: audioPath, referencePath: srt, language: "en",
-            backendFilter: nil, modelFilter: ["tiny"], profileName: "balanced",
+            backendFilter: nil, modelFilter: ["tiny"], profileName: "medium",
             asJSON: true, contextDir: ctxDir.path
         )
         let doc = try #require(
@@ -287,7 +287,7 @@ struct ContextDeltaBenchmarkTests {
             referenceText: "hello world", metricKind: .wer, language: "en"
         )
         #expect(outcome.measured.first?.contextErrorRate == nil)
-        let report = BenchmarkReport.table(outcome: outcome, profile: .balanced)
+        let report = BenchmarkReport.table(outcome: outcome, profile: .medium)
         #expect(!report.contains("(CTX)%"))
         #expect(!report.contains("DELTA"))
     }

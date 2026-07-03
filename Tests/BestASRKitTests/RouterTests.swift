@@ -7,8 +7,8 @@ private let bothAvailable: [BackendID: Bool] = [.whisperKit: true, .whisperCpp: 
 struct RouterMeasuredTests {
     /// Spec SBE: same measurements, profile flips the winner.
     @Test(arguments: [
-        (RouterProfile.accurate, "large-v3-turbo"),
-        (RouterProfile.fast, "small"),
+        (RouterProfile.high, "large-v3-turbo"),
+        (RouterProfile.low, "small"),
     ])
     func `Profile flips the winner on the same measurements`(
         profile: RouterProfile, expectedModel: String
@@ -31,7 +31,7 @@ struct RouterMeasuredTests {
 
     @Test func `Measured recommendation cites its numbers in the reasons`() throws {
         let rec = try Router.recommend(
-            host: Fixtures.m5Max, profile: .accurate, requestedLanguage: "zh",
+            host: Fixtures.m5Max, profile: .high, requestedLanguage: "zh",
             backendOverride: nil, modelOverride: nil,
             records: [Fixtures.record(errorRate: 0.05, timesRealtime: 12)],
             availability: bothAvailable
@@ -43,7 +43,7 @@ struct RouterMeasuredTests {
     @Test func `Stale-machine records are ignored and routing cold-starts`() throws {
         let staleRecords = [Fixtures.record(chip: "Apple M1")]  // host is M5 Max
         let rec = try Router.recommend(
-            host: Fixtures.m5Max, profile: .balanced, requestedLanguage: "zh",
+            host: Fixtures.m5Max, profile: .medium, requestedLanguage: "zh",
             backendOverride: nil, modelOverride: nil,
             records: staleRecords, availability: bothAvailable
         )
@@ -52,7 +52,7 @@ struct RouterMeasuredTests {
 
     @Test func `Language-mismatched records are not used`() throws {
         let rec = try Router.recommend(
-            host: Fixtures.m5Max, profile: .balanced, requestedLanguage: "en",
+            host: Fixtures.m5Max, profile: .medium, requestedLanguage: "en",
             backendOverride: nil, modelOverride: nil,
             records: [Fixtures.record(language: "zh")],
             availability: bothAvailable
@@ -62,7 +62,7 @@ struct RouterMeasuredTests {
 
     @Test func `Unavailable-backend records are not used`() throws {
         let rec = try Router.recommend(
-            host: Fixtures.m5Max, profile: .balanced, requestedLanguage: "zh",
+            host: Fixtures.m5Max, profile: .medium, requestedLanguage: "zh",
             backendOverride: nil, modelOverride: nil,
             records: [Fixtures.record(backend: .whisperCpp, quantization: "q5_0")],
             availability: [.whisperKit: true, .whisperCpp: false]
@@ -75,12 +75,12 @@ struct RouterMeasuredTests {
 struct RouterColdStartTests {
     @Test func `Cold start recommends whisperkit from the prior and suggests benchmarking`() throws {
         let rec = try Router.recommend(
-            host: Fixtures.m5Max, profile: .balanced, requestedLanguage: nil,
+            host: Fixtures.m5Max, profile: .medium, requestedLanguage: nil,
             backendOverride: nil, modelOverride: nil,
             records: [], availability: bothAvailable
         )
         #expect(rec.backend == .whisperKit)
-        #expect(ModelRegistry.profileModels[.balanced]!.contains(rec.model))
+        #expect(ModelRegistry.profileModels[.medium]!.contains(rec.model))
         #expect(rec.dataSource == .coldStartPrior)
         #expect(rec.measured == nil)
         #expect(rec.reason.contains { $0.contains("bestasr benchmark") })
@@ -100,9 +100,9 @@ struct RouterColdStartTests {
         #expect(warnings.count == warningCount)
     }
 
-    @Test func `Accurate profile on a small machine picks a model that fits`() throws {
+    @Test func `High profile on a small machine picks a model that fits`() throws {
         let rec = try Router.recommend(
-            host: Fixtures.smallMac, profile: .accurate, requestedLanguage: nil,
+            host: Fixtures.smallMac, profile: .high, requestedLanguage: nil,
             backendOverride: nil, modelOverride: nil,
             records: [], availability: bothAvailable
         )
@@ -112,7 +112,7 @@ struct RouterColdStartTests {
 
     @Test func `Explicit model override is downgraded only when it cannot fit`() throws {
         let rec = try Router.recommend(
-            host: Fixtures.smallMac, profile: .accurate, requestedLanguage: nil,
+            host: Fixtures.smallMac, profile: .high, requestedLanguage: nil,
             backendOverride: nil, modelOverride: "large-v3",
             records: [], availability: bothAvailable
         )
@@ -124,7 +124,7 @@ struct RouterColdStartTests {
 struct RouterOverrideTests {
     @Test func `Requested backend unavailable falls back with a warning`() throws {
         let rec = try Router.recommend(
-            host: Fixtures.m5Max, profile: .balanced, requestedLanguage: nil,
+            host: Fixtures.m5Max, profile: .medium, requestedLanguage: nil,
             backendOverride: "whisper.cpp", modelOverride: nil,
             records: [], availability: [.whisperKit: true, .whisperCpp: false]
         )
@@ -134,7 +134,7 @@ struct RouterOverrideTests {
 
     @Test func `Available requested backend is honored`() throws {
         let rec = try Router.recommend(
-            host: Fixtures.m5Max, profile: .balanced, requestedLanguage: nil,
+            host: Fixtures.m5Max, profile: .medium, requestedLanguage: nil,
             backendOverride: "whisper.cpp", modelOverride: nil,
             records: [], availability: bothAvailable
         )
@@ -145,14 +145,14 @@ struct RouterOverrideTests {
     @Test func `Unknown backend or model names are usage errors`() {
         #expect(throws: BestASRError.self) {
             _ = try Router.recommend(
-                host: Fixtures.m5Max, profile: .balanced, requestedLanguage: nil,
+                host: Fixtures.m5Max, profile: .medium, requestedLanguage: nil,
                 backendOverride: "faster-whisper", modelOverride: nil,
                 records: [], availability: bothAvailable
             )
         }
         #expect(throws: BestASRError.self) {
             _ = try Router.recommend(
-                host: Fixtures.m5Max, profile: .balanced, requestedLanguage: nil,
+                host: Fixtures.m5Max, profile: .medium, requestedLanguage: nil,
                 backendOverride: nil, modelOverride: "gigantic-v9",
                 records: [], availability: bothAvailable
             )
@@ -162,7 +162,7 @@ struct RouterOverrideTests {
     @Test func `No backend available raises a clear error naming both and install guidance`() {
         do {
             _ = try Router.recommend(
-                host: Fixtures.m5Max, profile: .balanced, requestedLanguage: nil,
+                host: Fixtures.m5Max, profile: .medium, requestedLanguage: nil,
                 backendOverride: nil, modelOverride: nil,
                 records: [], availability: [.whisperKit: false, .whisperCpp: false]
             )

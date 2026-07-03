@@ -60,9 +60,9 @@ struct DataModelTests {
         #expect(abs(profile.accuracyWeight + profile.speedWeight - 1.0) < 1e-9)
     }
 
-    @Test func `Accurate profile weighs accuracy above speed and fast does the opposite`() {
-        #expect(RouterProfile.accurate.accuracyWeight > RouterProfile.accurate.speedWeight)
-        #expect(RouterProfile.fast.speedWeight > RouterProfile.fast.accuracyWeight)
+    @Test func `High profile weighs accuracy above speed and low does the opposite`() {
+        #expect(RouterProfile.high.accuracyWeight > RouterProfile.high.speedWeight)
+        #expect(RouterProfile.low.speedWeight > RouterProfile.low.accuracyWeight)
     }
 }
 
@@ -81,9 +81,12 @@ struct ModelRegistryTests {
     }
 
     @Test func `Profile candidate lists match the cold-start prior spec`() {
-        #expect(ModelRegistry.profileModels[.fast] == ["tiny", "base", "small"])
-        #expect(ModelRegistry.profileModels[.balanced] == ["small", "medium"])
-        #expect(ModelRegistry.profileModels[.accurate] == ["medium", "large-v3-turbo", "large-v3"])
+        #expect(ModelRegistry.profileModels[.low] == ["tiny", "base", "small"])
+        #expect(ModelRegistry.profileModels[.medium] == ["small", "medium"])
+        #expect(ModelRegistry.profileModels[.high] == ["medium", "large-v3-turbo", "large-v3"])
+        // Top three tiers deliberately share one cold-start list (design D5, #29).
+        #expect(ModelRegistry.profileModels[.xhigh] == ModelRegistry.profileModels[.high])
+        #expect(ModelRegistry.profileModels[.max] == ModelRegistry.profileModels[.high])
     }
 
     @Test func `Downgrade chain steps large models toward tiny`() {
