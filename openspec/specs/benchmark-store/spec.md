@@ -58,49 +58,19 @@ code:
 ---
 ### Requirement: Append-only measurements with latest projection
 
-Measurement rows SHALL be append-only; routing and reporting SHALL consume the projection that keeps, per (model, corpus, machine), the row with the greatest measured_at.
+Measurement rows SHALL be append-only; routing and reporting SHALL consume the projection that keeps, per (model, corpus, machine), the row with the greatest measured_at. Each appended measurement SHALL record the Hugging Face revision pin (`hf_revision`) of its model as seeded in the store at measure time when one exists — pin provenance is a measure-time fact that survives later catalog re-seeding — and rows predating this field SHALL decode with a nil revision.
 
 #### Scenario: re-benchmark supersedes without deleting
 
-- **GIVEN** two measurements for the same key triple
-- **WHEN** the latest projection is read
-- **THEN** only the newer row is used and the older row remains in the file
+- **GIVEN** two measurements for the same (model, corpus, machine) with different measured_at
+- **WHEN** routing consumes the projection
+- **THEN** only the newer row is considered, and both rows remain in the table
 
+#### Scenario: measurement records the pin it was measured at
 
-<!-- @trace
-source: mlx-audio-backend-and-bcnf-store
-updated: 2026-07-02
-code:
-  - Sources/bestasr/BestASRCommand.swift
-  - Package.swift
-  - Sources/BestASRKit/Corpora/CorpusRegistry.swift
-  - scripts/fetch-corpora.sh
-  - Sources/BestASRKit/Store/StoreTables.swift
-  - Sources/BestASRKit/Models/ModelRegistry.swift
-  - Sources/BestASRKit/Engines/mlx_worker.py
-  - Sources/BestASRKit/Router/Router.swift
-  - plugins/bestasr/.claude-plugin/plugin.json
-  - Sources/BestASRKit/Engines/MLXAudioEngine.swift
-  - Tests/BestASRKitTests/RouterTests.swift
-  - .claude-plugin/marketplace.json
-  - Sources/BestASRKit/Store/StoreProjection.swift
-  - Tests/BestASRKitTests/ModelGridTests.swift
-  - Tests/BestASRKitTests/BenchmarkTests.swift
-  - Sources/BestASRKit/Models/DataModels.swift
-  - Sources/BestASRKit/Models/ModelGrid.swift
-  - Sources/BestASRKit/Store/BenchmarkStore.swift
-  - README.md
-  - Tests/BestASRKitTests/DataModelTests.swift
-  - CHANGELOG.md
-  - Sources/BestASRKit/Benchmark/BenchmarkCache.swift
-  - Sources/BestASRKit/Engines/MLXWorkerProtocol.swift
-  - Tests/BestASRKitTests/BenchmarkStoreTests.swift
-  - Tests/BestASRKitTests/CLITests.swift
-  - Sources/BestASRKit/Benchmark/BenchmarkRunner.swift
-  - Tests/BestASRKitTests/MLXAudioEngineTests.swift
-  - Sources/BestASRKit/Engines/CreateOnceStore.swift
-  - Sources/BestASRKit/CommandCore.swift
--->
+- **GIVEN** a seeded model row carrying an hf_revision pin
+- **WHEN** a benchmark appends a measurement for that model
+- **THEN** the measurement row records that revision, and re-seeding the catalog with a new pin later does not alter it
 
 ---
 ### Requirement: One-time legacy migration
@@ -152,7 +122,7 @@ code:
 ---
 ### Requirement: Corrupt rows degrade loudly, not fatally
 
-A malformed JSONL line SHALL be skipped with a warning naming the table and line number; loading SHALL continue with the remaining rows.
+A malformed JSONL line SHALL be skipped with a warning naming the table and line number; loading SHALL continue with the remaining rows. Table rewrites (corpus upsert, model seeding) SHALL preserve unparseable lines verbatim in the rewritten file rather than dropping them — user data is never deleted because the store failed to parse it, and the preserved lines keep surfacing the load warning on every subsequent load.
 
 #### Scenario: one bad line
 
@@ -160,37 +130,8 @@ A malformed JSONL line SHALL be skipped with a warning naming the table and line
 - **WHEN** the store loads
 - **THEN** valid rows load, and a warning identifies measurements.jsonl and the offending line number
 
-<!-- @trace
-source: mlx-audio-backend-and-bcnf-store
-updated: 2026-07-02
-code:
-  - Sources/bestasr/BestASRCommand.swift
-  - Package.swift
-  - Sources/BestASRKit/Corpora/CorpusRegistry.swift
-  - scripts/fetch-corpora.sh
-  - Sources/BestASRKit/Store/StoreTables.swift
-  - Sources/BestASRKit/Models/ModelRegistry.swift
-  - Sources/BestASRKit/Engines/mlx_worker.py
-  - Sources/BestASRKit/Router/Router.swift
-  - plugins/bestasr/.claude-plugin/plugin.json
-  - Sources/BestASRKit/Engines/MLXAudioEngine.swift
-  - Tests/BestASRKitTests/RouterTests.swift
-  - .claude-plugin/marketplace.json
-  - Sources/BestASRKit/Store/StoreProjection.swift
-  - Tests/BestASRKitTests/ModelGridTests.swift
-  - Tests/BestASRKitTests/BenchmarkTests.swift
-  - Sources/BestASRKit/Models/DataModels.swift
-  - Sources/BestASRKit/Models/ModelGrid.swift
-  - Sources/BestASRKit/Store/BenchmarkStore.swift
-  - README.md
-  - Tests/BestASRKitTests/DataModelTests.swift
-  - CHANGELOG.md
-  - Sources/BestASRKit/Benchmark/BenchmarkCache.swift
-  - Sources/BestASRKit/Engines/MLXWorkerProtocol.swift
-  - Tests/BestASRKitTests/BenchmarkStoreTests.swift
-  - Tests/BestASRKitTests/CLITests.swift
-  - Sources/BestASRKit/Benchmark/BenchmarkRunner.swift
-  - Tests/BestASRKitTests/MLXAudioEngineTests.swift
-  - Sources/BestASRKit/Engines/CreateOnceStore.swift
-  - Sources/BestASRKit/CommandCore.swift
--->
+#### Scenario: rewrite preserves the bad line
+
+- **GIVEN** a corpora table containing one unparseable line among valid rows
+- **WHEN** a corpus upsert rewrites the table
+- **THEN** the rewritten file still contains the unparseable line byte-identical, and the next load warns about it again

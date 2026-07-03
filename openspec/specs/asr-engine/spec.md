@@ -61,7 +61,7 @@ code:
 ---
 ### Requirement: Availability detection is graceful
 
-`is_available()` SHALL determine whether the underlying package and runtime are usable by probing via lazy import or an equivalent runtime probe, and SHALL return false rather than raising when the package or runtime is absent. For the mlx-audio backend the probe SHALL verify that the dedicated virtual environment's python can import `mlx_audio`.
+`is_available()` SHALL determine whether the underlying package and runtime are usable by probing via lazy import or an equivalent runtime probe, and SHALL return false rather than raising when the package or runtime is absent.
 
 #### Scenario: Uninstalled backend reports unavailable
 
@@ -69,46 +69,52 @@ code:
 - **THEN** it returns false
 - **AND** no ImportError propagates to the caller
 
-#### Scenario: mlx-audio venv probe
-
-- **GIVEN** the dedicated venv is absent or cannot import `mlx_audio`
-- **WHEN** availability is queried for the mlx-audio backend
-- **THEN** it returns false without raising
-
 
 <!-- @trace
-source: mlx-audio-backend-and-bcnf-store
-updated: 2026-07-02
+source: remove-mlx-audio-backend
+updated: 2026-07-04
 code:
-  - Sources/bestasr/BestASRCommand.swift
-  - Package.swift
-  - Sources/BestASRKit/Corpora/CorpusRegistry.swift
-  - scripts/fetch-corpora.sh
-  - Sources/BestASRKit/Store/StoreTables.swift
-  - Sources/BestASRKit/Models/ModelRegistry.swift
+  - Tests/BestASRKitTests/DiarizationTests.swift
   - Sources/BestASRKit/Engines/mlx_worker.py
-  - Sources/BestASRKit/Router/Router.swift
+  - Sources/BestASRKit/Diarize/SpeakerIdentifier.swift
   - plugins/bestasr/.claude-plugin/plugin.json
-  - Sources/BestASRKit/Engines/MLXAudioEngine.swift
   - Tests/BestASRKitTests/RouterTests.swift
-  - .claude-plugin/marketplace.json
-  - Sources/BestASRKit/Store/StoreProjection.swift
-  - Tests/BestASRKitTests/ModelGridTests.swift
-  - Tests/BestASRKitTests/BenchmarkTests.swift
-  - Sources/BestASRKit/Models/DataModels.swift
-  - Sources/BestASRKit/Models/ModelGrid.swift
-  - Sources/BestASRKit/Store/BenchmarkStore.swift
-  - README.md
-  - Tests/BestASRKitTests/DataModelTests.swift
+  - Package.swift
+  - docs/design-brief.md
+  - plugins/bestasr/skills/context-ingest/SKILL.md
+  - Sources/BestASRKit/Engines/MLXAudioEngine.swift
   - CHANGELOG.md
-  - Sources/BestASRKit/Benchmark/BenchmarkCache.swift
-  - Sources/BestASRKit/Engines/MLXWorkerProtocol.swift
-  - Tests/BestASRKitTests/BenchmarkStoreTests.swift
-  - Tests/BestASRKitTests/CLITests.swift
-  - Sources/BestASRKit/Benchmark/BenchmarkRunner.swift
-  - Tests/BestASRKitTests/MLXAudioEngineTests.swift
-  - Sources/BestASRKit/Engines/CreateOnceStore.swift
+  - README.md
   - Sources/BestASRKit/CommandCore.swift
+  - Sources/BestASRKit/Diarize/SpeakerAssigner.swift
+  - Tests/BestASRKitTests/DataModelTests.swift
+  - Package.resolved
+  - Sources/BestASRKit/Diarize/SpeakerEnroller.swift
+  - Tests/BestASRKitTests/ModelGridTests.swift
+  - Tests/BestASRKitTests/PipelineWiringTests.swift
+  - Sources/BestASRKit/Context/ContextLoader.swift
+  - Sources/BestASRKit/Engines/MLXWorkerProtocol.swift
+  - scripts/validate-diarization.sh
+  - Sources/BestASRKit/Store/StoreTables.swift
+  - Sources/BestASRKit/Detect/DynamicHostState.swift
+  - Sources/BestASRKit/Models/ModelRegistry.swift
+  - Sources/BestASRKit/Models/ModelGrid.swift
+  - Sources/BestASRKit/Router/Ranking.swift
+  - Sources/BestASRKit/Benchmark/BenchmarkRunner.swift
+  - Sources/BestASRKit/Store/BenchmarkStore.swift
+  - scripts/fetch-corpora.sh
+  - Tests/BestASRKitTests/MLXAudioEngineTests.swift
+  - Tests/BestASRKitTests/EffortProfileTests.swift
+  - CLAUDE.md
+  - Tests/BestASRKitTests/CLITests.swift
+  - Sources/BestASRKit/Diarize/DiarizationEngine.swift
+  - Sources/bestasr/BestASRCommand.swift
+  - Sources/BestASRKit/Router/Router.swift
+  - .claude-plugin/marketplace.json
+  - Sources/BestASRKit/Models/DataModels.swift
+  - Sources/BestASRKit/Output/TranscriptWriter.swift
+  - Tests/BestASRKitTests/BenchmarkTests.swift
+  - Tests/BestASRKitTests/BenchmarkStoreTests.swift
 -->
 
 ---
