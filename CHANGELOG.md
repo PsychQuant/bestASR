@@ -5,6 +5,8 @@ All notable changes to bestASR are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-07-03
+
 ### Added
 
 - **Speaker identification by enrolled voice (#26)** — with `--diarize`, an enrollment
