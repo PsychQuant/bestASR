@@ -21,18 +21,21 @@ public struct SpeakerEnroller: Sendable {
                 .resampleAudioFile(URL(fileURLWithPath: audioPath))
             let result = try diarizer.performCompleteDiarization(samples)
 
-            // Dominant speaker's embedding: the id with the most speaking time
-            // (a brief cough must not out-vote the enrolled voice), taken from
-            // its segment embedding.
+            // Dominant speaker = most total speaking time (a brief cough must not
+            // out-vote the enrolled voice); its embedding = that speaker's LONGEST
+            // single segment (the cleanest, most representative sample rather than
+            // an arbitrary first fragment — #26 verify F32/F10).
             var durationById: [String: Double] = [:]
-            var embeddingById: [String: [Float]] = [:]
+            var bestSegById: [String: (duration: Float, embedding: [Float])] = [:]
             for seg in result.segments {
-                durationById[seg.speakerId, default: 0] +=
-                    Double(seg.endTimeSeconds - seg.startTimeSeconds)
-                if embeddingById[seg.speakerId] == nil { embeddingById[seg.speakerId] = seg.embedding }
+                let dur = seg.endTimeSeconds - seg.startTimeSeconds
+                durationById[seg.speakerId, default: 0] += Double(dur)
+                if bestSegById[seg.speakerId] == nil || dur > bestSegById[seg.speakerId]!.duration {
+                    bestSegById[seg.speakerId] = (dur, seg.embedding)
+                }
             }
             guard let dominant = durationById.max(by: { $0.value < $1.value })?.key else { return nil }
-            return embeddingById[dominant]
+            return bestSegById[dominant]?.embedding
         } catch {
             throw TranscriptionError(
                 backend: "diarization",

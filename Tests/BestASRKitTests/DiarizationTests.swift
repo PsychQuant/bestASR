@@ -305,7 +305,30 @@ struct IdentificationPathTests {
         let srt = try String(contentsOfFile: outcome.outputPath, encoding: .utf8)
         #expect(srt.contains("[Alice] one"))
         #expect(srt.contains("[SPEAKER_1] two"))
-        #expect(outcome.explanation.contains("voices: 1/1 enrolled, 1 matched"))
+        #expect(outcome.explanation.contains("voices: 1/1 enrolled, 1 name(s) matched across 1 diarized speaker(s)"))
+    }
+
+    @Test func `Two raw speakers collapsing onto one name is disclosed, not hidden`() async throws {
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let audio = try makeWavFile(in: dir)
+        let voicesDir = dir.appendingPathComponent("ctx/voices")
+        try FileManager.default.createDirectory(at: voicesDir, withIntermediateDirectories: true)
+        FileManager.default.createFile(atPath: voicesDir.appendingPathComponent("Alice.wav").path, contents: Data([0]))
+        // enroller returns [1,0,0]; BOTH raw ids sit within threshold of Alice.
+        let core = core(in: dir, diarizer: { _ in
+            DiarizationOutput(
+                turns: [
+                    SpeakerTurn(speaker: "raw-A", start: 0, end: 2),
+                    SpeakerTurn(speaker: "raw-B", start: 2, end: 4),
+                ],
+                embeddings: ["raw-A": [1, 0, 0], "raw-B": [0.98, 0.2, 0]])  // both ≈ Alice
+        }, enroller: { _ in [1, 0, 0] })
+        let outcome = try await core.transcribe(
+            audioPath: audio, selection: selection(dir.appendingPathComponent("ctx").path),
+            formatName: "srt", outputPath: dir.appendingPathComponent("o.srt").path, diarize: true)
+        // 1 name matched, but across 2 diarized speakers — the collapse is visible.
+        #expect(outcome.explanation.contains("1 name(s) matched across 2 diarized speaker(s)"))
     }
 
     @Test func `No voices folder is pure diarization`() async throws {

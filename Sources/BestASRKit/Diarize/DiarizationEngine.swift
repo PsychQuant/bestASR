@@ -40,13 +40,18 @@ public struct DiarizationEngine: Sendable {
                     start: Double($0.startTimeSeconds),
                     end: Double($0.endTimeSeconds))
             }
-            // Per-speaker embeddings for post-hoc identification (#26): built
-            // from segments so it works regardless of whether the SDK exposes a
-            // speakerDatabase (it does on some pipelines, not others).
-            var embeddingById: [String: [Float]] = [:]
-            for seg in result.segments where embeddingById[seg.speakerId] == nil {
-                embeddingById[seg.speakerId] = seg.embedding
+            // Per-speaker embeddings for post-hoc identification (#26): each id's
+            // LONGEST segment embedding (most representative — the first fragment
+            // is noisy; #26 verify F32). Works regardless of whether the SDK
+            // exposes a speakerDatabase.
+            var bestSegById: [String: (duration: Float, embedding: [Float])] = [:]
+            for seg in result.segments {
+                let dur = seg.endTimeSeconds - seg.startTimeSeconds
+                if bestSegById[seg.speakerId] == nil || dur > bestSegById[seg.speakerId]!.duration {
+                    bestSegById[seg.speakerId] = (dur, seg.embedding)
+                }
             }
+            let embeddingById = bestSegById.mapValues(\.embedding)
             return DiarizationOutput(turns: turns, embeddings: embeddingById)
         } catch {
             throw TranscriptionError(

@@ -266,6 +266,12 @@ public struct CommandCore: Sendable {
             // read error surfaces as no voices rather than aborting.
             let voices = (try? ContextLoader.load(flag: selection.contextDir))?.voices ?? []
             for voice in voices {
+                // An enrollment named like an ordinal (SPEAKER_3.wav) would
+                // collide with a stranger's auto-label — warn, still enroll (#26 verify).
+                if voice.label.range(of: #"^SPEAKER_\d+$"#, options: .regularExpression) != nil {
+                    enrollWarnings.append(
+                        "voice '\(voice.label)' looks like an auto-ordinal — rename to avoid confusion with unenrolled speakers")
+                }
                 // Per-voice warn-continue (#26 verify): one unreadable/corrupt
                 // enrollment sample must not abort the whole transcription.
                 do {
@@ -293,9 +299,15 @@ public struct CommandCore: Sendable {
             let labels = SpeakerAssigner.assign(
                 segments: transcript.segments, turns: namedTurns, knownNames: knownNames)
             if !voices.isEmpty {
-                // "enrolled" counts embeddings actually obtained, not files found.
+                // "enrolled" counts embeddings actually obtained, not files found;
+                // "matched" counts distinct enrolled names hit. When more raw
+                // speakers than names matched, several acoustic clusters collapsed
+                // onto one name — usually one over-segmented person (design D6),
+                // but surfaced (not hidden by the Set dedup) so a genuine
+                // two-people-one-name misattribution is visible (#26 verify).
                 identificationNote =
-                    "voices: \(enrolled.count)/\(voices.count) enrolled, \(knownNames.count) matched"
+                    "voices: \(enrolled.count)/\(voices.count) enrolled, "
+                    + "\(knownNames.count) name(s) matched across \(idToName.count) diarized speaker(s)"
                     + enrollWarnings.map { "\n  ! \($0)" }.joined()
             }
             // D4 fail-loud covers the SOFT failure too: an engine that

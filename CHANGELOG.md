@@ -29,7 +29,12 @@ All notable changes to bestASR are documented here. The format follows
   warning rather than aborting the transcription; enrollment filenames are sanitized
   before reaching cue prefixes; the explain line reports `N/M enrolled` (embeddings
   obtained / files found); and `**/voices/` is git-ignored so voice prints never
-  reach a remote.
+  reach a remote. Enrollment embeddings use each speaker's LONGEST segment (not an
+  arbitrary first fragment) for a more representative match; the explain line discloses
+  when several diarized speakers collapse onto one name (`N name(s) matched across M
+  diarized speaker(s)`) so a genuine two-people-one-name misattribution is visible; and
+  the validation script asserts precision (an un-enrolled speaker is never labeled with
+  an enrolled name) and cleans its biometric temp copy on any exit.
 
 ## [0.6.0] - 2026-07-03
 

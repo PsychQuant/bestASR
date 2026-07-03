@@ -124,13 +124,26 @@ PY
 fi
 if [ -f "$ENROLL_HALF" ]; then
   echo "$ENROLL_SHA  $ENROLL_HALF" | shasum -a 256 -c - >/dev/null     || { echo "✗ enrollment half digest mismatch"; exit 1; }
-  IDCTX=$(mktemp -d); mkdir -p "$IDCTX/voices"
+  IDCTX=$(mktemp -d)
+  # Clean the biometric copy on ANY exit incl. transcribe failure (#26 verify F14).
+  trap 'rm -rf "$IDCTX"' RETURN
+  mkdir -p "$IDCTX/voices"
   cp "$ENROLL_HALF" "$IDCTX/voices/TestVoice.wav"
   "$BIN" transcribe "$FIXTURE" --model large-v3-turbo --language ja     --context-dir "$IDCTX" --format srt --output "$WORK/id.srt" --diarize >/dev/null
-  grep -q "\[TestVoice\]" "$WORK/id.srt"     || { echo "✗ enrolled voice not identified"; cat "$WORK/id.srt"; rm -rf "$IDCTX"; exit 1; }
-  grep -q "\[SPEAKER_1\]" "$WORK/id.srt"     || { echo "✗ stranger lost its ordinal"; rm -rf "$IDCTX"; exit 1; }
-  rm -rf "$IDCTX"
-  echo "✓ enrolled voice identified by name, stranger stays SPEAKER_1"
+  grep -q "\[TestVoice\]" "$WORK/id.srt"     || { echo "✗ enrolled voice not identified (recall)"; cat "$WORK/id.srt"; return 1; }
+  grep -q "\[SPEAKER_1\]" "$WORK/id.srt"     || { echo "✗ stranger lost its ordinal (precision failure)"; cat "$WORK/id.srt"; return 1; }
+  # PRECISION: the un-enrolled male's cue must NOT carry TestVoice (#26 verify F8).
+  grep -A1 "00:00:00,000" "$WORK/id.srt" | tail -1 | grep -q "TestVoice" \
+    && { echo "✗ un-enrolled male misattributed to TestVoice (false positive)"; return 1; }
+  echo "✓ enrolled voice identified (recall), un-enrolled stranger stays SPEAKER_1 (precision)"
 fi
+
+# ── 6: no-voices path == pure diarization (#26 verify F14 coverage) ──
+EMPTYCTX=$(mktemp -d); trap 'rm -rf "$EMPTYCTX"' EXIT
+"$BIN" transcribe "$FIXTURE" --model large-v3-turbo --language ja \
+  --context-dir "$EMPTYCTX" --format srt --output "$WORK/novoices.srt" --diarize >/dev/null
+diff -q "$WORK/twospk.srt" "$WORK/novoices.srt" >/dev/null \
+  || { echo "✗ diarize with an empty context dir diverged from the no-context baseline"; exit 1; }
+echo "✓ empty-voices context is identical to pure diarization"
 
 echo "✓ diarization validation passed"
