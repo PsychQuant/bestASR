@@ -262,18 +262,25 @@ public struct ASRRecommendation: Sendable, Equatable {
 // MARK: - Router profiles
 
 public enum RouterProfile: String, Codable, CaseIterable, Sendable {
-    case fast
-    case balanced
-    case accurate
+    case low
+    case medium
+    case high
+    case xhigh
+    case max
 
-    /// Weights over the two measured axes, renormalized from the design-brief
-    /// four-axis table (speed/accuracy only — memory_fit and stability do not
-    /// apply to candidates that already ran on this machine).
+    /// Weights over the two measured axes. low/medium/high carry the old
+    /// fast/balanced/accurate anchors (renormalized from the design-brief
+    /// four-axis table — memory_fit and stability do not apply to candidates
+    /// that already ran on this machine); xhigh is the midpoint step toward
+    /// max, and max = 1.0 is a pure accuracy argmax ("best regardless of
+    /// time", #29) whose equal-accuracy ties break to the faster candidate.
     public var accuracyWeight: Double {
         switch self {
-        case .fast: 0.267
-        case .balanced: 0.5
-        case .accurate: 0.8
+        case .low: 0.267
+        case .medium: 0.5
+        case .high: 0.8
+        case .xhigh: 0.9
+        case .max: 1.0
         }
     }
 

@@ -290,7 +290,7 @@ struct ReferenceCatalogTests {
             peakMemoryGB: 0, audioDuration: 11, measuredAt: .init(timeIntervalSince1970: 1_800_000_000),
             chip: Fixtures.m5Max.chip, macosVersion: "27.0", appVersion: "0.3.1")
         let rec = try Router.recommend(
-            host: Fixtures.m5Max, profile: .fast, requestedLanguage: "en",
+            host: Fixtures.m5Max, profile: .low, requestedLanguage: "en",
             backendOverride: nil, modelOverride: nil,
             records: [record],
             availability: [.whisperKit: true, .whisperCpp: true])

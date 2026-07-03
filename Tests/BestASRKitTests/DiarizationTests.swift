@@ -121,7 +121,7 @@ struct DiarizePathTests {
 
     private func selection() -> SelectionRequest {
         SelectionRequest(
-            profileName: "balanced", backendOverride: nil, modelOverride: nil,
+            profileName: "medium", backendOverride: nil, modelOverride: nil,
             requestedLanguage: "en", contextDir: nil)
     }
 
@@ -275,7 +275,7 @@ struct IdentificationPathTests {
 
     private func selection(_ ctx: String?) -> SelectionRequest {
         SelectionRequest(
-            profileName: "balanced", backendOverride: nil, modelOverride: nil,
+            profileName: "medium", backendOverride: nil, modelOverride: nil,
             requestedLanguage: "en", contextDir: ctx)
     }
 

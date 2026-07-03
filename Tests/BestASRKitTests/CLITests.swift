@@ -25,7 +25,7 @@ private enum FakeClockProbe {
 }
 
 private let auto = SelectionRequest(
-    profileName: "balanced", backendOverride: nil, modelOverride: nil, requestedLanguage: "auto")
+    profileName: "medium", backendOverride: nil, modelOverride: nil, requestedLanguage: "auto")
 
 struct DiagnoseCommandTests {
     @Test func `diagnose prints environment and recommendation without needing audio`() async throws {
@@ -84,7 +84,7 @@ struct RecommendCommandTests {
         )
 
         let selection = SelectionRequest(
-            profileName: "accurate", backendOverride: nil, modelOverride: nil,
+            profileName: "high", backendOverride: nil, modelOverride: nil,
             requestedLanguage: "zh")
         let output = try await core.recommendJSON(audioPath: audio, selection: selection)
         let json = try #require(
@@ -156,7 +156,7 @@ struct BenchmarkCommandTests {
 
         let report = try await core.benchmark(
             audioPath: audio, referencePath: srt, language: "en",
-            backendFilter: nil, modelFilter: ["tiny"], profileName: "balanced", asJSON: false
+            backendFilter: nil, modelFilter: ["tiny"], profileName: "medium", asJSON: false
         )
         #expect(report.contains("RANK"))
         #expect(report.contains("whisperkit"))
@@ -177,7 +177,7 @@ struct BenchmarkCommandTests {
 
         let report = try await core.benchmark(
             audioPath: audio, referencePath: srt, language: "en",
-            backendFilter: nil, modelFilter: ["tiny"], profileName: "balanced", asJSON: true
+            backendFilter: nil, modelFilter: ["tiny"], profileName: "medium", asJSON: true
         )
         let json = try #require(
             try JSONSerialization.jsonObject(with: Data(report.utf8)) as? [String: Any])
@@ -195,7 +195,7 @@ struct BenchmarkCommandTests {
         do {
             _ = try await core.benchmark(
                 audioPath: audio, referencePath: "/nonexistent/truth.srt", language: "en",
-                backendFilter: nil, modelFilter: nil, profileName: "balanced", asJSON: false
+                backendFilter: nil, modelFilter: nil, profileName: "medium", asJSON: false
             )
             Issue.record("expected a usage error")
         } catch let error as BestASRError {
@@ -215,7 +215,7 @@ struct BenchmarkCommandTests {
         do {
             _ = try await core.benchmark(
                 audioPath: audio, referencePath: srt, language: "en",
-                backendFilter: nil, modelFilter: ["tiny"], profileName: "balanced", asJSON: false
+                backendFilter: nil, modelFilter: ["tiny"], profileName: "medium", asJSON: false
             )
             Issue.record("expected a runtime error")
         } catch let error as BestASRError {
@@ -306,7 +306,7 @@ struct ContextCommandTests {
             probe: FakeClockProbe.probe()
         )
         let selection = SelectionRequest(
-            profileName: "balanced", backendOverride: nil, modelOverride: nil,
+            profileName: "medium", backendOverride: nil, modelOverride: nil,
             requestedLanguage: "auto", contextDir: ctxDir)
 
         let outcome = try await core.transcribe(
@@ -342,7 +342,7 @@ struct ContextCommandTests {
             probe: FakeClockProbe.probe()
         )
         let selection = SelectionRequest(
-            profileName: "balanced", backendOverride: nil, modelOverride: nil,
+            profileName: "medium", backendOverride: nil, modelOverride: nil,
             requestedLanguage: "auto", contextDir: emptyCtx.path)
 
         let outcome = try await core.transcribe(
@@ -363,7 +363,7 @@ struct ContextCommandTests {
             probe: FakeClockProbe.probe()
         )
         let selection = SelectionRequest(
-            profileName: "balanced", backendOverride: nil, modelOverride: nil,
+            profileName: "medium", backendOverride: nil, modelOverride: nil,
             requestedLanguage: "auto", contextDir: ctxDir)
         let output = try await core.recommendJSON(audioPath: audio, selection: selection)
         let json = try #require(
