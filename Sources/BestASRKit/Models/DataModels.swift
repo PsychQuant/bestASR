@@ -257,6 +257,16 @@ public struct ASRRecommendation: Sendable, Equatable {
         self.reason = reason
         self.warnings = warnings
     }
+
+    /// Copy prepending extra reasons (e.g. the `auto` profile-resolution note),
+    /// so callers do not rebuild the struct field-by-field (#29 verify #12).
+    public func prepending(reasons: [String]) -> ASRRecommendation {
+        guard !reasons.isEmpty else { return self }
+        return ASRRecommendation(
+            backend: backend, model: model, quantization: quantization, profile: profile,
+            language: language, dataSource: dataSource, measured: measured,
+            reason: reasons + reason, warnings: warnings)
+    }
 }
 
 // MARK: - Router profiles

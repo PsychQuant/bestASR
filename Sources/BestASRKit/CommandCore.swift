@@ -133,11 +133,15 @@ public struct CommandCore: Sendable {
             "Recommendation:",
         ]
         do {
+            // Resolve the same way transcribe/recommend do, so diagnose's
+            // "what would it recommend?" tells the truth under machine pressure
+            // (#29 verify #1/#9/#10/#14 — one source of truth for the default).
+            let resolved = try Self.resolveProfile(named: "auto", dynamicState: dynamicHost())
             let rec = try Router.recommend(
-                host: host, profile: .medium, requestedLanguage: nil,
+                host: host, profile: resolved.profile, requestedLanguage: nil,
                 backendOverride: nil, modelOverride: nil,
                 records: try loadRecords(), availability: await availability()
-            )
+            ).prepending(reasons: resolved.reasons)
             lines += [
                 "  Backend:      \(rec.backend.rawValue)",
                 "  Model:        \(rec.model)",
@@ -189,8 +193,12 @@ public struct CommandCore: Sendable {
                 "profile '\(lowered)' was renamed — use '\(replacement)'; profiles are now "
                     + RouterProfile.allCases.map(\.rawValue).joined(separator: ", "))
         }
+        // Note: `auto` is NOT listed here — it is intercepted by resolveProfile
+        // before this function, and benchmark (the other caller) does not accept
+        // it. Advertising auto here contradicted `benchmark --profile auto` (#29
+        // verify #2/#3).
         throw BestASRError.usage(
-            "unknown profile: '\(name)'; supported profiles are auto, "
+            "unknown profile: '\(name)'; supported profiles are "
                 + RouterProfile.allCases.map(\.rawValue).joined(separator: ", "))
     }
 
@@ -224,12 +232,7 @@ public struct CommandCore: Sendable {
             records: try loadRecords(),
             availability: await availability()
         )
-        guard !resolved.reasons.isEmpty else { return rec }
-        return ASRRecommendation(
-            backend: rec.backend, model: rec.model, quantization: rec.quantization,
-            profile: rec.profile, language: rec.language, dataSource: rec.dataSource,
-            measured: rec.measured, reason: resolved.reasons + rec.reason,
-            warnings: rec.warnings)
+        return rec.prepending(reasons: resolved.reasons)
     }
 
     public func recommendJSON(audioPath: String, selection: SelectionRequest) async throws -> String {

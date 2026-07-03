@@ -6,9 +6,11 @@ import Foundation
 ///
 /// Both axes are min-max normalized within the candidate set (a degenerate
 /// axis where all values are equal scores 1 for everyone), then combined with
-/// the profile's renormalized accuracy/speed weights. Locked to the spec SBE
-/// tables: under `accurate` the low-CER candidate wins; under `fast` the same
-/// measurements flip to the high-throughput candidate.
+/// the profile's renormalized accuracy/speed weights, then sorted by an
+/// explicit total order (score, then faster, then lexicographic) so equal
+/// scores — the normal state under `max` — resolve deterministically. Locked
+/// to the spec SBE tables: under `high` the low-CER candidate wins; under
+/// `low` the same measurements flip to the high-throughput candidate.
 public enum Ranking {
     public struct Scored: Sendable {
         public let record: BenchmarkRecord

@@ -87,6 +87,11 @@ exists — not a hardcoded model name. Without measurements the top tiers fall
 back to the same biggest-that-fits cold-start prior (ordinals can only
 differ once there is data to weigh — run the benchmark).
 
+Because `auto` reads live machine state, `recommend` / `transcribe` with no
+`--profile` can resolve differently on a throttled machine (it says so in
+`--explain`). If you need a byte-stable result for automation, pass an
+explicit ordinal — an explicit choice is never touched by machine state.
+
 Migrating from ≤0.7.x: `fast` → `low`, `balanced` → `medium`, `accurate` →
 `high` (or `max` when you truly don't care about time). The old names now
 fail with exactly that hint.
@@ -186,9 +191,11 @@ diarized speakers (cosine distance, 0.65 threshold): enrolled voices are
 labeled by name, strangers keep their ordinals, and a corrupt sample is
 skipped with a warning instead of failing the transcription.
 
-**Voice prints are sensitive biometric data and never leave your machine**:
-`voices/` is git-ignored by the repo, excluded from context ingestion, and
-read only by the local `--diarize` run.
+**Voice prints are sensitive biometric data — bestASR ships no code that
+transmits them.** Concretely: `voices/` is in the repo's `.gitignore`, the
+context-ingest skill's rules exclude it, and the only reader is the local
+`--diarize` run. (These are the enforced mechanisms; bestASR cannot govern
+what other tools on your machine do with the files.)
 
 ### See why (--explain)
 

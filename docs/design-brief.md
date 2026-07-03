@@ -68,9 +68,9 @@ bestASR 自動判斷最適合的 backend 與模型，然後輸出逐字稿。
 ### 2.2 指定策略
 
 ```
-bestasr transcribe input.mp3 --profile fast
-bestasr transcribe input.mp3 --profile balanced
-bestasr transcribe input.mp3 --profile accurate
+bestasr transcribe input.mp3 --profile low
+bestasr transcribe input.mp3 --profile medium
+bestasr transcribe input.mp3 --profile max
 ```
 
 三種模式：
@@ -124,7 +124,7 @@ Reason:
 - NVIDIA GPU detected
 - VRAM is 6 GB, which may be insufficient for large-v3 fp16
 - Audio language appears multilingual
-- balanced profile prefers medium model over small
+- medium profile prefers medium model over small
 ```
 
 ⸻
@@ -248,7 +248,7 @@ bestasr recommend input.mp3
   "reason": [
     "CUDA GPU detected",
     "VRAM below 8 GB",
-    "balanced profile selected",
+    "medium profile selected",
     "audio language appears multilingual"
   ]
 }
@@ -643,9 +643,9 @@ bestasr transcribe input.mp3
 ```
 bestasr diagnose
 bestasr recommend input.mp3
-bestasr transcribe input.mp3 --profile fast
-bestasr transcribe input.mp3 --profile balanced
-bestasr transcribe input.mp3 --profile accurate
+bestasr transcribe input.mp3 --profile low
+bestasr transcribe input.mp3 --profile medium
+bestasr transcribe input.mp3 --profile max
 bestasr transcribe input.mp3 --format srt
 bestasr transcribe input.mp3 --format vtt
 ```
@@ -692,7 +692,7 @@ Initial supported commands:
 2. bestasr recommend <audio_path>
 3. bestasr transcribe <audio_path>
 The CLI should support:
-- --profile fast|balanced|accurate
+- --profile auto|low|medium|high|xhigh|max (effort ladder; renamed from fast/balanced/accurate in #29)
 - --backend auto|faster-whisper|whisper.cpp|mlx-whisper
 - --model auto|tiny|base|small|medium|large-v3|large-v3-turbo
 - --language auto|en|zh|ja|ko|...
@@ -711,9 +711,9 @@ The router should first use a rule-based strategy:
 - CPU-only machines should prefer whisper.cpp with quantized models.
 - If memory or VRAM is insufficient, downgrade the model size.
 - For multilingual transcription, prefer Whisper-family models.
-- For fast profile, prioritize speed and smaller models.
-- For balanced profile, prioritize medium-sized models.
-- For accurate profile, prioritize larger models when memory allows.
+- For low profile, prioritize speed and smaller models.
+- For medium profile, prioritize medium-sized models.
+- For high/xhigh/max profiles, prioritize larger models when memory allows.
 The project should include:
 - type hints
 - dataclasses or pydantic models for recommendations and transcripts

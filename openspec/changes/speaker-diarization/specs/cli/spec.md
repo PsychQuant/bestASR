@@ -12,7 +12,7 @@
 #### Scenario: defaults apply when options are omitted
 
 - **WHEN** the user runs `bestasr transcribe input.mp3`
-- **THEN** the profile is `balanced`, the format is `txt`, and backend, model, and language are chosen automatically
+- **THEN** the profile resolves from `auto` (see the effort-ordinal-profiles change, #29), the format is `txt`, and backend, model, and language are chosen automatically
 
 #### Scenario: explicit context directory feeds the transcription
 

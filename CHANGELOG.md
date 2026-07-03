@@ -26,6 +26,14 @@ All notable changes to bestASR are documented here. The format follows
 - **README rewritten for 0.7.x reality**: effort-profile contract table,
   speaker diarization and voice-enrollment identification sections (both
   previously undocumented), explain walkthrough, updated command reference.
+- **`diagnose` now resolves the profile the same way `transcribe`/`recommend`
+  do** (#29 verify): it was pinned to `medium` and ignored the injected
+  dynamic-state seam, so on a throttled machine it would report a different
+  recommendation than the real runs. All three commands now share one
+  source of truth for the default. Also: the shared profile parser no longer
+  advertises `auto` in its error (which made `benchmark --profile auto`
+  self-contradictory), and the benchmark capability spec gains the
+  accurate→high delta the first-round dual-track sweep missed.
 
 
 ## [0.7.0] - 2026-07-03

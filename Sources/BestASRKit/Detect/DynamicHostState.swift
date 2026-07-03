@@ -28,7 +28,10 @@ public struct DynamicHostState: Sendable {
 
     public var isUnderPressure: Bool { pressureCause != nil }
 
-    /// No-pressure default — also the degraded value when a provider fails.
+    /// The no-pressure default. Also the value a seam SHOULD yield when it
+    /// cannot determine the conditions — reads are pure synchronous value
+    /// access (no I/O), so there is no runtime failure channel to catch; the
+    /// injection point exists for tests and future providers (#29 verify #11/#13).
     public static let nominal = DynamicHostState(
         thermalState: .nominal, lowPowerModeEnabled: false)
 
