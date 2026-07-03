@@ -5,6 +5,8 @@ All notable changes to bestASR are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-07-03
+
 ### Added
 
 - **Cue-level speaker diarization (#25)** — `bestasr transcribe --diarize` labels each

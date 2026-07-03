@@ -6,7 +6,7 @@
   },
   "metadata": {
     "description": "Benchmark-driven local ASR for Apple Silicon — plugins for context ingestion and SRT proofreading",
-    "version": "0.5.0"
+    "version": "0.6.0"
   },
   "plugins": [
     {
