@@ -22,7 +22,14 @@ All notable changes to bestASR are documented here. The format follows
   or transmitted off the machine (voice prints are sensitive biometric data).
   Reproducibly validated by `scripts/validate-diarization.sh`: a half-cut enrollment (the
   female recording's first 5.1s, definitionally the same person as the fixture's second
-  half) labels that cue `TestVoice` while the male speaker stays `SPEAKER_1`.
+  half) labels that cue `TestVoice` while the male speaker stays `SPEAKER_1`. Identification
+  is a self-owned post-hoc cosine match — the SDK's known-speaker pre-load path was
+  probed and abandoned (it does not feed enrolled voices into DiarizerManager's
+  clustering). Robustness: a corrupt or unreadable `voices/` sample is skipped with a
+  warning rather than aborting the transcription; enrollment filenames are sanitized
+  before reaching cue prefixes; the explain line reports `N/M enrolled` (embeddings
+  obtained / files found); and `**/voices/` is git-ignored so voice prints never
+  reach a remote.
 
 ## [0.6.0] - 2026-07-03
 
