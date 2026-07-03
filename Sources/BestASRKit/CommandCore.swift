@@ -19,7 +19,8 @@ public struct CommandCore: Sendable {
     public let engines: [any Engine]
     let detect: @Sendable () throws -> SystemInfo
     let store: BenchmarkStore
-    let diarizer: @Sendable (String) async throws -> [SpeakerTurn]
+    let diarizer: @Sendable (String) async throws -> DiarizationOutput
+    let enroller: @Sendable (String) async throws -> [Float]?
     let probe: MeasurementProbe
 
     public init(
@@ -27,14 +28,18 @@ public struct CommandCore: Sendable {
         detect: @escaping @Sendable () throws -> SystemInfo = { try SystemDetector.detect() },
         store: BenchmarkStore = BenchmarkStore(),
         probe: MeasurementProbe = .live(),
-        diarizer: @escaping @Sendable (String) async throws -> [SpeakerTurn] = {
+        diarizer: @escaping @Sendable (String) async throws -> DiarizationOutput = {
             try await DiarizationEngine().diarize(audioPath: $0)
+        },
+        enroller: @escaping @Sendable (String) async throws -> [Float]? = {
+            try await SpeakerEnroller().embedding(for: $0)
         }
     ) {
         self.engines = engines
         self.detect = detect
         self.store = store
         self.diarizer = diarizer
+        self.enroller = enroller
         self.probe = probe
     }
 
@@ -247,9 +252,38 @@ public struct CommandCore: Sendable {
         // after transcription — fail-loud per design D4 (an explicitly requested
         // capability must not silently disappear from the output).
         var finalTranscript = transcript
+        var identificationNote: String?
         if diarize {
-            let turns = try await diarizer(audio.path)
-            let labels = SpeakerAssigner.assign(segments: transcript.segments, turns: turns)
+            // Speaker identification (#26): enrollment voices under the resolved
+            // context dir's voices/ folder become known speakers, so matching
+            // turns come back labeled by name. Resolved independently of the
+            // prompt context (a dir with ONLY voices/ is "empty" to loadContext
+            // but still enrolls). voices absent → pure #25 diarization.
+            var enrolled: [(name: String, embedding: [Float])] = []
+            let voices = (try? ContextLoader.load(flag: selection.contextDir))?.voices ?? []
+            for voice in voices {
+                if let embedding = try await enroller(voice.path) {
+                    enrolled.append((name: voice.label, embedding: embedding))
+                }
+            }
+            let output = try await diarizer(audio.path)
+            // Post-hoc identification (#26): map raw diarization ids to enrolled
+            // names by embedding distance, then relabel the turns before
+            // assignment. Unmatched ids keep their raw id → SPEAKER_N ordinal.
+            let idToName = SpeakerIdentifier.resolve(
+                embeddings: output.embeddings, enrolled: enrolled)
+            let namedTurns = output.turns.map { turn in
+                idToName[turn.speaker].map {
+                    SpeakerTurn(speaker: $0, start: turn.start, end: turn.end)
+                } ?? turn
+            }
+            let knownNames = Set(idToName.values)
+            let labels = SpeakerAssigner.assign(
+                segments: transcript.segments, turns: namedTurns, knownNames: knownNames)
+            if !voices.isEmpty {
+                identificationNote =
+                    "voices: \(voices.count) enrolled, \(knownNames.count) matched"
+            }
             // D4 fail-loud covers the SOFT failure too: an engine that
             // "succeeds" with zero usable turns would emit output
             // indistinguishable from --diarize never being passed.
@@ -277,6 +311,9 @@ public struct CommandCore: Sendable {
         explanation += rec.warnings.map { "  ! \($0)" }
         if let context {
             explanation += Self.contextExplanation(context)
+        }
+        if let identificationNote {
+            explanation.append("  \(identificationNote)")
         }
         return TranscribeOutcome(
             outputPath: destination,

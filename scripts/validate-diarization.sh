@@ -96,4 +96,38 @@ fi
   --format srt --output "$WORK/plain.srt" >/dev/null
 grep -q "SPEAKER" "$WORK/plain.srt" && { echo "✗ no-diarize output contains SPEAKER"; exit 1; }
 echo "✓ no-diarize output clean"
+
+# ── 5: identification — half-cut enrollment (#26) ──
+# FLEURS speakers are anonymous, so guarantee "same person" by enrolling the
+# FEMALE recording's FIRST HALF and identifying against the full fixture: the
+# female cue must carry the enrolled name, the male stays an ordinal.
+ENROLL_HALF="$WORK/enroll_female.wav"
+ENROLL_SHA="1c27d287964d8f69e37fe1220474c86505e32a97f9b84ed61334464a2d71dade"
+if [ ! -f "$ENROLL_HALF" ]; then
+  # rebuild from the pinned female pcm16 the fixture step extracted
+  FEMALE_PCM=$(find "$WORK" /tmp -name "5510872108388823452.pcm16.wav" 2>/dev/null | head -1)
+  if [ -z "$FEMALE_PCM" ]; then
+    echo "⚠ identification check skipped — female pcm16 source not found (run after the fixture step in one session)"
+  else
+    /usr/bin/python3 - "$FEMALE_PCM" "$ENROLL_HALF" <<'PY'
+import sys, wave, contextlib
+src, out = sys.argv[1], sys.argv[2]
+with contextlib.closing(wave.open(src, "rb")) as r:
+    half = r.getnframes() // 2
+    with wave.open(out, "wb") as w:
+        w.setparams(r.getparams()); w.writeframes(r.readframes(half))
+PY
+  fi
+fi
+if [ -f "$ENROLL_HALF" ]; then
+  echo "$ENROLL_SHA  $ENROLL_HALF" | shasum -a 256 -c - >/dev/null     || { echo "✗ enrollment half digest mismatch"; exit 1; }
+  IDCTX=$(mktemp -d); mkdir -p "$IDCTX/voices"
+  cp "$ENROLL_HALF" "$IDCTX/voices/TestVoice.wav"
+  "$BIN" transcribe "$FIXTURE" --model large-v3-turbo --language ja     --context-dir "$IDCTX" --format srt --output "$WORK/id.srt" --diarize >/dev/null
+  grep -q "\[TestVoice\]" "$WORK/id.srt"     || { echo "✗ enrolled voice not identified"; cat "$WORK/id.srt"; rm -rf "$IDCTX"; exit 1; }
+  grep -q "\[SPEAKER_1\]" "$WORK/id.srt"     || { echo "✗ stranger lost its ordinal"; rm -rf "$IDCTX"; exit 1; }
+  rm -rf "$IDCTX"
+  echo "✓ enrolled voice identified by name, stranger stays SPEAKER_1"
+fi
+
 echo "✓ diarization validation passed"

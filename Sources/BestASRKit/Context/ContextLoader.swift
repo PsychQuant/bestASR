@@ -2,6 +2,16 @@ import Foundation
 
 /// Everything the context directory yielded, ready for rendering and
 /// disclosure (design D4/D9).
+/// One enrollment voice sample: `<label>.<ext>` under `voices/` (#26).
+public struct EnrollmentVoice: Sendable, Equatable {
+    public let label: String
+    public let path: String
+    public init(label: String, path: String) {
+        self.label = label
+        self.path = path
+    }
+}
+
 public struct LoadedContext: Sendable, Equatable {
     public let directory: String
     public let document: ContextDocument?
@@ -10,6 +20,10 @@ public struct LoadedContext: Sendable, Equatable {
     /// Unsupported files that were loudly ignored (spec: Loudly ignore
     /// unsupported document formats).
     public let ignoredFiles: [String]
+    /// Enrollment voice samples in `voices/`, sorted by label (#26). Reserved
+    /// + local-only: never parsed as terms, never in ignoredFiles, never leaves
+    /// the machine (spec context-calibration).
+    public var voices: [EnrollmentVoice] = []
 
     /// All terms: context.json terms first, then term-list terms.
     public var allTerms: [String] {
@@ -77,6 +91,7 @@ public enum ContextLoader {
         var document: ContextDocument?
         var termListTerms: [String] = []
         var ignored: [String] = []
+        var voices: [EnrollmentVoice] = []
 
         for entry in entries.sorted(by: { $0.lastPathComponent < $1.lastPathComponent }) {
             let ext = entry.pathExtension.lowercased()
@@ -87,7 +102,8 @@ public enum ContextLoader {
             } else if termListExtensions.contains(ext) {
                 termListTerms += parseTermList(try String(contentsOf: entry, encoding: .utf8))
             } else if ext.isEmpty && directoryExists(entry) {
-                continue  // subdirectories are out of scope for v1
+                if fileName == "voices" { voices = collectVoices(in: entry) }
+                continue  // other subdirectories are out of scope for v1
             } else {
                 ignored.append(fileName)
             }
@@ -97,8 +113,23 @@ public enum ContextLoader {
             directory: directory.path,
             document: document,
             termListTerms: termListTerms,
-            ignoredFiles: ignored
+            ignoredFiles: ignored,
+            voices: voices
         )
+    }
+
+    static let voiceExtensions: Set<String> = ["wav", "m4a", "mp3"]
+
+    /// Enrollment samples under `voices/` — reserved + local-only (#26). The
+    /// filename stem is the verbatim speaker label; sorted by label for
+    /// deterministic ordering.
+    static func collectVoices(in dir: URL) -> [EnrollmentVoice] {
+        let entries = (try? FileManager.default.contentsOfDirectory(
+            at: dir, includingPropertiesForKeys: nil)) ?? []
+        return entries
+            .filter { voiceExtensions.contains($0.pathExtension.lowercased()) }
+            .map { EnrollmentVoice(label: $0.deletingPathExtension().lastPathComponent, path: $0.path) }
+            .sorted { $0.label < $1.label }
     }
 
     /// One term per line; blank lines and `#` comment lines are skipped

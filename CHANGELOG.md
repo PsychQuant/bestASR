@@ -5,6 +5,25 @@ All notable changes to bestASR are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **Speaker identification by enrolled voice (#26)** — with `--diarize`, an enrollment
+  sample under the resolved context directory's `voices/<name>.<ext>` folder labels that
+  speaker's cues with the name verbatim (`[Alice] …`) instead of an ordinal; unmatched
+  speakers keep `SPEAKER_N`, and enrolled names never consume an ordinal number. No new
+  CLI surface — dropping a voice file into `voices/` is the whole interface; `--explain`
+  reports `voices: N enrolled, M matched`. Identification is a self-owned post-hoc cosine
+  match (`SpeakerIdentifier`, pure/unit-tested): the run's per-speaker embeddings are
+  compared to each enrolled embedding under the SDK's 0.65 threshold — deliberately NOT
+  the vendored SDK's known-speaker pre-load path, which on the DiarizerManager pipeline
+  does not feed enrolled voices into clustering (verified: the pre-loaded speaker never
+  entered the distance decision). `voices/` is reserved and local-only: never parsed as a
+  context term, never in the ignored list, and — spec-level — never uploaded, committed,
+  or transmitted off the machine (voice prints are sensitive biometric data).
+  Reproducibly validated by `scripts/validate-diarization.sh`: a half-cut enrollment (the
+  female recording's first 5.1s, definitionally the same person as the fixture's second
+  half) labels that cue `TestVoice` while the male speaker stays `SPEAKER_1`.
+
 ## [0.6.0] - 2026-07-03
 
 ### Added
