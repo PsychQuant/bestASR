@@ -5,6 +5,27 @@ All notable changes to bestASR are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **Cue-level speaker diarization (#25)** — `bestasr transcribe --diarize` labels each
+  cue with an acoustic speaker (`[SPEAKER_1] ` SRT/VTT prefixes, JSON `speaker` field,
+  `SPEAKER_N: ` txt prefixes). Engine: FluidAudio pinned v0.15.4 (Apache-2.0, CoreML/ANE;
+  models fetched and cached by the vendored SDK on first use). Assignment is a pure
+  max-time-overlap function (`SpeakerAssigner`) — zero overlap yields no label rather
+  than a fabricated one, ties go to the earlier turn, labels are first-appearance
+  ordinals. Diarization failure with `--diarize` requested fails loudly — including
+  the soft failure where the engine "succeeds" with no usable turns (a run whose
+  assignment labels nothing refuses to emit output indistinguishable from the flag
+  never being passed). Without the flag every output format is byte-identical to
+  before (all four formats unit-pinned), and the acoustic layer is provably never
+  invoked (injectable seam + spy test). Reproducibly validated by
+  `scripts/validate-diarization.sh`: a pinned two-speaker fixture (same FLEURS
+  sentence, male + female recordings, one second of silence at the join — cue-level
+  assignment can only show a change where transcription breaks a segment, and the
+  gap makes that break deterministic) switches SPEAKER_1→SPEAKER_2 exactly at the
+  known 9.30s boundary; single-speaker jfk stays SPEAKER_1; the no-diarize run is
+  clean. Speaker identification (real names) is #26.
+
 ## [0.5.0] - 2026-07-03
 
 ### Added

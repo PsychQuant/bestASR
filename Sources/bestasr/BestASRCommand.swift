@@ -97,13 +97,17 @@ struct Transcribe: AsyncParsableCommand {
     @Flag(help: "Explain why this backend/model was chosen (printed to stderr)")
     var explain = false
 
+    @Flag(help: "Label each cue with an acoustic speaker (SPEAKER_1…); downloads CoreML diarization models on first use")
+    var diarize = false
+
     func run() async throws {
         try await runMapped {
             let result = try await CommandCore.live().transcribe(
                 audioPath: audio,
                 selection: selection.resolved(),
                 formatName: format,
-                outputPath: output
+                outputPath: output,
+                diarize: diarize
             )
             print("Wrote \(result.format) transcript to \(result.outputPath)")
             if explain {

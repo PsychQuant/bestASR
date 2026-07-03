@@ -83,13 +83,28 @@ public struct TranscriptSegment: Sendable, Equatable {
     public let end: Double
     public let text: String
     public let confidence: Double?
+    /// Cue-level diarization label (`SPEAKER_1`-based, order of first appearance;
+    /// #25). nil when diarization did not run or no turn overlapped this segment
+    /// — absent means "unknown", never a fabricated speaker (spec diarization).
+    public let speaker: String?
 
-    public init(id: Int, start: Double, end: Double, text: String, confidence: Double? = nil) {
+    public init(
+        id: Int, start: Double, end: Double, text: String, confidence: Double? = nil,
+        speaker: String? = nil
+    ) {
         self.id = id
         self.start = start
         self.end = end
         self.text = text
         self.confidence = confidence
+        self.speaker = speaker
+    }
+
+    /// Same segment with a speaker label attached (assignment happens post-transcription).
+    public func withSpeaker(_ speaker: String?) -> TranscriptSegment {
+        TranscriptSegment(
+            id: id, start: start, end: end, text: text, confidence: confidence,
+            speaker: speaker)
     }
 }
 

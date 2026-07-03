@@ -19,17 +19,22 @@ public struct CommandCore: Sendable {
     public let engines: [any Engine]
     let detect: @Sendable () throws -> SystemInfo
     let store: BenchmarkStore
+    let diarizer: @Sendable (String) async throws -> [SpeakerTurn]
     let probe: MeasurementProbe
 
     public init(
         engines: [any Engine],
         detect: @escaping @Sendable () throws -> SystemInfo = { try SystemDetector.detect() },
         store: BenchmarkStore = BenchmarkStore(),
-        probe: MeasurementProbe = .live()
+        probe: MeasurementProbe = .live(),
+        diarizer: @escaping @Sendable (String) async throws -> [SpeakerTurn] = {
+            try await DiarizationEngine().diarize(audioPath: $0)
+        }
     ) {
         self.engines = engines
         self.detect = detect
         self.store = store
+        self.diarizer = diarizer
         self.probe = probe
     }
 
@@ -218,7 +223,8 @@ public struct CommandCore: Sendable {
         audioPath: String,
         selection: SelectionRequest,
         formatName: String,
-        outputPath: String?
+        outputPath: String?,
+        diarize: Bool = false
     ) async throws -> TranscribeOutcome {
         let format = try TranscriptWriter.format(named: formatName)
         let audio = try AudioProber.probe(
@@ -236,8 +242,32 @@ public struct CommandCore: Sendable {
                 language: audio.language, prompt: context?.rendered.prompt)
         )
 
+        // Cue-level diarization (#25, spec diarization): acoustic turns from the
+        // FluidAudio pipeline, assigned to segments by max time overlap. Runs
+        // after transcription — fail-loud per design D4 (an explicitly requested
+        // capability must not silently disappear from the output).
+        var finalTranscript = transcript
+        if diarize {
+            let turns = try await diarizer(audio.path)
+            let labels = SpeakerAssigner.assign(segments: transcript.segments, turns: turns)
+            // D4 fail-loud covers the SOFT failure too: an engine that
+            // "succeeds" with zero usable turns would emit output
+            // indistinguishable from --diarize never being passed.
+            guard transcript.segments.isEmpty || labels.contains(where: { $0 != nil }) else {
+                throw BestASRError.runtime(
+                    "diarization yielded no speaker for any segment — refusing to emit "
+                        + "unlabeled output for an explicit --diarize (check the audio, or "
+                        + "run without --diarize)")
+            }
+            finalTranscript = Transcript(
+                text: transcript.text, language: transcript.language,
+                duration: transcript.duration, backend: transcript.backend,
+                model: transcript.model,
+                segments: zip(transcript.segments, labels).map { $0.withSpeaker($1) })
+        }
+
         let destination = outputPath ?? Self.derivedOutputPath(audioPath: audioPath, format: format)
-        try TranscriptWriter.write(transcript, to: destination, format: format)
+        try TranscriptWriter.write(finalTranscript, to: destination, format: format)
 
         var explanation = [
             "Selected \(rec.backend.rawValue) \(rec.model) (\(rec.quantization)) "
