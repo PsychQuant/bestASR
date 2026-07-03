@@ -5,6 +5,8 @@ All notable changes to bestASR are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-07-04
+
 ### Changed
 
 - **`--profile` becomes an ordinal effort ladder — `low` / `medium` / `high` /
