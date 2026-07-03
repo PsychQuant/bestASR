@@ -109,7 +109,7 @@ struct SpeakerRenderingTests {
 struct DiarizePathTests {
     private func core(
         in dir: URL,
-        diarizer: @escaping @Sendable (String) async throws -> [SpeakerTurn]
+        diarizer: @escaping @Sendable (String) async throws -> DiarizationOutput
     ) -> CommandCore {
         CommandCore(
             engines: [MockEngine.fixed(.whisperKit)],
@@ -129,7 +129,7 @@ struct DiarizePathTests {
         let dir = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: dir) }
         let audio = try makeWavFile(in: dir)
-        let core = core(in: dir) { _ in [SpeakerTurn(speaker: "x", start: 0, end: 2.5)] }
+        let core = core(in: dir) { _ in DiarizationOutput(turns: [SpeakerTurn(speaker: "x", start: 0, end: 2.5)], embeddings: [:]) }
 
         let outcome = try await core.transcribe(
             audioPath: audio, selection: selection(), formatName: "srt",
@@ -142,7 +142,7 @@ struct DiarizePathTests {
         let dir = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: dir) }
         let audio = try makeWavFile(in: dir)
-        let core = core(in: dir) { _ in [] }  // engine "succeeds" with zero turns
+        let core = core(in: dir) { _ in DiarizationOutput(turns: [], embeddings: [:]) }  // zero turns
 
         await #expect(throws: BestASRError.self) {
             _ = try await core.transcribe(
@@ -157,7 +157,7 @@ struct DiarizePathTests {
         let audio = try makeWavFile(in: dir)
         let core = core(in: dir) { _ in
             Issue.record("diarizer must not run without --diarize")
-            return []
+            return DiarizationOutput(turns: [], embeddings: [:])
         }
 
         let outcome = try await core.transcribe(
@@ -202,5 +202,207 @@ struct NoSpeakerBytePinTests {
           "text" : "hello world"
         }
         """)
+    }
+}
+
+
+// #26: known-speaker labeling — enrolled names pass through verbatim, strangers
+// keep stable ordinals, and names never consume an ordinal number.
+struct KnownSpeakerAssignerTests {
+    private func seg(_ id: Int, _ start: Double, _ end: Double) -> TranscriptSegment {
+        TranscriptSegment(id: id, start: start, end: end, text: "s\(id)")
+    }
+
+    @Test func `An enrolled name passes through verbatim`() {
+        let segments = [seg(0, 0, 5)]
+        let turns = [SpeakerTurn(speaker: "Alice", start: 0, end: 5)]
+        #expect(SpeakerAssigner.assign(
+            segments: segments, turns: turns, knownNames: ["Alice"]) == ["Alice"])
+    }
+
+    @Test func `Enrolled names do not consume ordinal numbers`() {
+        // Alice is known; two strangers must still be SPEAKER_1 and SPEAKER_2,
+        // not SPEAKER_2/SPEAKER_3.
+        let segments = [seg(0, 0, 5), seg(1, 5, 10), seg(2, 10, 15)]
+        let turns = [
+            SpeakerTurn(speaker: "raw-x", start: 0, end: 5),
+            SpeakerTurn(speaker: "Alice", start: 5, end: 10),
+            SpeakerTurn(speaker: "raw-y", start: 10, end: 15),
+        ]
+        #expect(SpeakerAssigner.assign(
+            segments: segments, turns: turns, knownNames: ["Alice"])
+            == ["SPEAKER_1", "Alice", "SPEAKER_2"])
+    }
+
+    @Test func `A hostile enrollment filename cannot break the cue prefix`() {
+        let segments = [seg(0, 0, 5)]
+        let turns = [SpeakerTurn(speaker: "ev]il\nname", start: 0, end: 5)]
+        // The label reaches [label] SRT prefixes verbatim — strip ] / newline / control.
+        #expect(SpeakerAssigner.assign(
+            segments: segments, turns: turns, knownNames: ["ev]il\nname"]) == ["evilname"])
+    }
+
+    @Test func `No known names is identical to plain diarization`() {
+        let segments = [seg(0, 0, 5), seg(1, 5, 10)]
+        let turns = [
+            SpeakerTurn(speaker: "raw-a", start: 0, end: 5),
+            SpeakerTurn(speaker: "raw-b", start: 5, end: 10),
+        ]
+        #expect(SpeakerAssigner.assign(segments: segments, turns: turns, knownNames: [])
+            == SpeakerAssigner.assign(segments: segments, turns: turns))
+    }
+}
+
+
+// #26: identification wiring through CommandCore — enrolled voice labels turns
+// by name, explain discloses counts, and no-voices behaves like #25.
+struct IdentificationPathTests {
+    private func core(
+        in dir: URL,
+        diarizer: @escaping @Sendable (String) async throws -> DiarizationOutput,
+        enroller: @escaping @Sendable (String) async throws -> [Float]? = { _ in [1, 0, 0] }
+    ) -> CommandCore {
+        CommandCore(
+            engines: [MockEngine.fixed(.whisperKit, segments: [
+                .init(start: 0, end: 2, text: "one"),
+                .init(start: 2, end: 4, text: "two"),
+            ], duration: 4)],
+            detect: { Fixtures.m5Max },
+            store: BenchmarkStore(directory: dir.appendingPathComponent("store")),
+            probe: .live(),
+            diarizer: diarizer, enroller: enroller)
+    }
+
+    private func selection(_ ctx: String?) -> SelectionRequest {
+        SelectionRequest(
+            profileName: "balanced", backendOverride: nil, modelOverride: nil,
+            requestedLanguage: "en", contextDir: ctx)
+    }
+
+    @Test func `An enrolled voice labels its turns by name, strangers stay ordinal`() async throws {
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let audio = try makeWavFile(in: dir)
+        // A context dir with only voices/Alice.wav (no context.json).
+        let voicesDir = dir.appendingPathComponent("ctx/voices")
+        try FileManager.default.createDirectory(at: voicesDir, withIntermediateDirectories: true)
+        FileManager.default.createFile(atPath: voicesDir.appendingPathComponent("Alice.wav").path, contents: Data([0]))
+
+        // enroller returns [1,0,0] for Alice; the diarizer reports raw-A with a
+        // matching embedding and raw-B orthogonal → post-hoc identify maps
+        // raw-A→Alice, raw-B stays a stranger.
+        let core = core(in: dir, diarizer: { _ in
+            DiarizationOutput(
+                turns: [
+                    SpeakerTurn(speaker: "raw-A", start: 0, end: 2),
+                    SpeakerTurn(speaker: "raw-B", start: 2, end: 4),
+                ],
+                embeddings: ["raw-A": [1, 0, 0], "raw-B": [0, 1, 0]])
+        })
+        let outcome = try await core.transcribe(
+            audioPath: audio, selection: selection(dir.appendingPathComponent("ctx").path),
+            formatName: "srt", outputPath: dir.appendingPathComponent("o.srt").path, diarize: true)
+        let srt = try String(contentsOfFile: outcome.outputPath, encoding: .utf8)
+        #expect(srt.contains("[Alice] one"))
+        #expect(srt.contains("[SPEAKER_1] two"))
+        #expect(outcome.explanation.contains("voices: 1/1 enrolled, 1 name(s) matched across 1 diarized speaker(s)"))
+    }
+
+    @Test func `Two raw speakers collapsing onto one name is disclosed, not hidden`() async throws {
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let audio = try makeWavFile(in: dir)
+        let voicesDir = dir.appendingPathComponent("ctx/voices")
+        try FileManager.default.createDirectory(at: voicesDir, withIntermediateDirectories: true)
+        FileManager.default.createFile(atPath: voicesDir.appendingPathComponent("Alice.wav").path, contents: Data([0]))
+        // enroller returns [1,0,0]; BOTH raw ids sit within threshold of Alice.
+        let core = core(in: dir, diarizer: { _ in
+            DiarizationOutput(
+                turns: [
+                    SpeakerTurn(speaker: "raw-A", start: 0, end: 2),
+                    SpeakerTurn(speaker: "raw-B", start: 2, end: 4),
+                ],
+                embeddings: ["raw-A": [1, 0, 0], "raw-B": [0.98, 0.2, 0]])  // both ≈ Alice
+        }, enroller: { _ in [1, 0, 0] })
+        let outcome = try await core.transcribe(
+            audioPath: audio, selection: selection(dir.appendingPathComponent("ctx").path),
+            formatName: "srt", outputPath: dir.appendingPathComponent("o.srt").path, diarize: true)
+        // 1 name matched, but across 2 diarized speakers — the collapse is visible.
+        #expect(outcome.explanation.contains("1 name(s) matched across 2 diarized speaker(s)"))
+    }
+
+    @Test func `No voices folder is pure diarization`() async throws {
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let audio = try makeWavFile(in: dir)
+        let core = core(in: dir, diarizer: { _ in
+            DiarizationOutput(
+                turns: [SpeakerTurn(speaker: "raw", start: 0, end: 4)],
+                embeddings: ["raw": [1, 0, 0]])
+        }, enroller: { _ in
+            Issue.record("enroller must not run without voices/")
+            return nil
+        })
+        let outcome = try await core.transcribe(
+            audioPath: audio, selection: selection(nil), formatName: "srt",
+            outputPath: dir.appendingPathComponent("o.srt").path, diarize: true)
+        let srt = try String(contentsOfFile: outcome.outputPath, encoding: .utf8)
+        #expect(srt.contains("[SPEAKER_1]"))
+        #expect(!outcome.explanation.contains("voices:"))
+    }
+}
+
+// #26: voices/ is reserved — discovered as enrollment, never parsed / ignored.
+struct VoicesContextTests {
+    @Test func `voices folder is collected and kept out of ignored files`() throws {
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let voices = dir.appendingPathComponent("voices")
+        try FileManager.default.createDirectory(at: voices, withIntermediateDirectories: true)
+        for n in ["Bob.wav", "Alice.m4a", "notes.txt"] {  // notes.txt is a stray, not a voice
+            FileManager.default.createFile(atPath: voices.appendingPathComponent(n).path, contents: Data([0]))
+        }
+        // a term list at top level to prove voices don't disturb parsing
+        FileManager.default.createFile(atPath: dir.appendingPathComponent("terms.txt").path, contents: Data("hello\n".utf8))
+
+        let loaded = try ContextLoader.load(directory: dir)
+        #expect(loaded.voices.map(\.label) == ["Alice", "Bob"])  // sorted, stems only, .txt excluded
+        #expect(!loaded.ignoredFiles.contains("voices"))
+        #expect(loaded.termListTerms == ["hello"])  // top-level term list still parsed
+    }
+}
+
+
+// #26: post-hoc identification — the pure embedding-match core.
+struct SpeakerIdentifierTests {
+    @Test func `Closest enrolled name within threshold wins; strangers stay unmapped`() {
+        let embeddings = [
+            "raw-A": [Float(1), 0, 0],   // == Alice direction
+            "raw-B": [Float(0), 1, 0],   // orthogonal to both enrolled
+        ]
+        let enrolled = [(name: "Alice", embedding: [Float(1), 0, 0])]
+        let map = SpeakerIdentifier.resolve(embeddings: embeddings, enrolled: enrolled)
+        #expect(map == ["raw-A": "Alice"])  // raw-B distance 1.0 ≥ 0.65 → unmapped
+    }
+
+    @Test func `No enrolled voices maps nothing`() {
+        #expect(SpeakerIdentifier.resolve(
+            embeddings: ["x": [1, 0]], enrolled: []) == [:])
+    }
+
+    @Test func `Cosine distance: identical is 0, orthogonal is 1, zero-vector is max`() {
+        #expect(SpeakerIdentifier.cosineDistance([1, 2, 3], [1, 2, 3]) < 1e-6)  // Float：≈0，非精確 0
+        #expect(abs(SpeakerIdentifier.cosineDistance([1, 0], [0, 1]) - 1) < 1e-6)
+        #expect(SpeakerIdentifier.cosineDistance([0, 0], [1, 1]) == 2)  // never spuriously matches
+        #expect(SpeakerIdentifier.cosineDistance([1, 2], [1, 2, 3]) == 2)  // size mismatch
+    }
+
+    @Test func `Nearest of several enrolled voices wins`() {
+        let embeddings = ["raw": [Float(0.9), 0.1, 0]]
+        let enrolled = [
+            (name: "Bob", embedding: [Float(0), 1, 0]),      // far
+            (name: "Alice", embedding: [Float(1), 0, 0]),    // near
+        ]
+        #expect(SpeakerIdentifier.resolve(embeddings: embeddings, enrolled: enrolled) == ["raw": "Alice"])
     }
 }

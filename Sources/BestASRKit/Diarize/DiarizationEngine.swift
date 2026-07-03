@@ -8,6 +8,17 @@ import Foundation
 /// (trusted-vendor boundary — the SDK manages its own model revisions and
 /// supports an offline mode). Failures throw: with `--diarize` explicitly
 /// requested, degrading silently to unlabeled output is forbidden (design D4).
+/// Diarization result: speaker turns plus per-speaker embeddings for
+/// post-hoc identification (#26).
+public struct DiarizationOutput: Sendable, Equatable {
+    public let turns: [SpeakerTurn]
+    public let embeddings: [String: [Float]]
+    public init(turns: [SpeakerTurn], embeddings: [String: [Float]]) {
+        self.turns = turns
+        self.embeddings = embeddings
+    }
+}
+
 public struct DiarizationEngine: Sendable {
     public init() {}
 
@@ -15,7 +26,7 @@ public struct DiarizationEngine: Sendable {
     /// Label remapping to `SPEAKER_N` ordinals happens in `SpeakerAssigner`
     /// at assignment time — the ordinals depend on which turns actually win
     /// segments, not on raw engine order.
-    public func diarize(audioPath: String) async throws -> [SpeakerTurn] {
+    public func diarize(audioPath: String) async throws -> DiarizationOutput {
         do {
             let models = try await DiarizerModels.downloadIfNeeded()
             let diarizer = DiarizerManager()
@@ -23,12 +34,25 @@ public struct DiarizationEngine: Sendable {
             let samples = try AudioConverter()
                 .resampleAudioFile(URL(fileURLWithPath: audioPath))
             let result = try diarizer.performCompleteDiarization(samples)
-            return result.segments.map {
+            let turns = result.segments.map {
                 SpeakerTurn(
                     speaker: $0.speakerId,
                     start: Double($0.startTimeSeconds),
                     end: Double($0.endTimeSeconds))
             }
+            // Per-speaker embeddings for post-hoc identification (#26): each id's
+            // LONGEST segment embedding (most representative — the first fragment
+            // is noisy; #26 verify F32). Works regardless of whether the SDK
+            // exposes a speakerDatabase.
+            var bestSegById: [String: (duration: Float, embedding: [Float])] = [:]
+            for seg in result.segments {
+                let dur = seg.endTimeSeconds - seg.startTimeSeconds
+                if bestSegById[seg.speakerId] == nil || dur > bestSegById[seg.speakerId]!.duration {
+                    bestSegById[seg.speakerId] = (dur, seg.embedding)
+                }
+            }
+            let embeddingById = bestSegById.mapValues(\.embedding)
+            return DiarizationOutput(turns: turns, embeddings: embeddingById)
         } catch {
             throw TranscriptionError(
                 backend: "diarization",

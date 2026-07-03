@@ -46,5 +46,6 @@ description: 把任意格式的領域文件（pdf/docx/txt/md/圖片…）蒸餾
 ## 鐵律
 
 - **只寫 context.json，不動源文件**。
+- **`voices/` 是禁區（#26）**：資料夾內是說話人 enrollment 聲紋樣本——敏感生物特徵。此 skill **絕不**讀取、處理、上傳、commit、或以任何形式將 `voices/` 內容或其 embedding 送離本機（等同 raw 第三方逐字內容的處置）。voices/ 只由 core 的 `--diarize` 在本機消費。
 - **不虛構**：每個 term/name 都要能指回某份源文件；不確定的寧可不收。
 - 大量文件時先挑「會在音檔中被念出來」的詞——context 是給 ASR 的，不是索引。

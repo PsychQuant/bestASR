@@ -22,11 +22,25 @@ public enum SpeakerAssigner {
     /// For each segment, the speaker whose turn overlaps it the most.
     /// Zero overlap → nil (unknown, never fabricated). Ties (within a 1ns
     /// epsilon — engine times are Doubles, exact `==` would let a rounding
-    /// ULP defeat the rule) → the earlier-starting turn. Labels are
-    /// `SPEAKER_1`-based ordinals in order of first appearance across the
-    /// returned assignments.
+    /// ULP defeat the rule) → the earlier-starting turn.
+    ///
+    /// A winning turn whose raw speaker id is in `knownNames` (an enrolled
+    /// voice, #26) is labeled with that name verbatim; every other speaker
+    /// gets a `SPEAKER_N` ordinal in order of first appearance. Enrolled names
+    /// do NOT consume ordinal numbers — strangers are numbered as if the known
+    /// speakers were not present, so their numbering is stable regardless of
+    /// which voices happen to be enrolled.
+    /// Enrollment filenames become labels; strip control chars, newlines, and
+    /// the `]` that would break the `[label]` cue prefix (#26 verify security).
+    static func sanitizeLabel(_ raw: String) -> String {
+        String(raw.unicodeScalars.filter {
+            $0 != "]" && $0 != "\n" && $0 != "\r" && !($0.value < 0x20)
+        })
+    }
+
     public static func assign(
-        segments: [TranscriptSegment], turns: [SpeakerTurn]
+        segments: [TranscriptSegment], turns: [SpeakerTurn],
+        knownNames: Set<String> = []
     ) -> [String?] {
         var ordinalByRawId: [String: Int] = [:]
         var next = 1
@@ -48,6 +62,7 @@ public enum SpeakerAssigner {
                 }
             }
             guard let winner = best?.turn else { return nil }
+            if knownNames.contains(winner.speaker) { return sanitizeLabel(winner.speaker) }
             if ordinalByRawId[winner.speaker] == nil {
                 ordinalByRawId[winner.speaker] = next
                 next += 1
