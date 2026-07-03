@@ -60,7 +60,7 @@ struct DataModelTests {
         #expect(abs(profile.accuracyWeight + profile.speedWeight - 1.0) < 1e-9)
     }
 
-    @Test func `Accurate profile weighs accuracy above speed and fast does the opposite`() {
+    @Test func `High profile weighs accuracy above speed and low does the opposite`() {
         #expect(RouterProfile.high.accuracyWeight > RouterProfile.high.speedWeight)
         #expect(RouterProfile.low.speedWeight > RouterProfile.low.accuracyWeight)
     }

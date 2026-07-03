@@ -131,7 +131,7 @@ struct BenchmarkMeasurementTests {
 }
 
 struct RankingTests {
-    @Test func `Accuracy-first ranking under the accurate profile matches the spec table`() {
+    @Test func `Accuracy-first ranking under the high profile matches the spec table`() {
         // Spec SBE: wk large-v3-turbo (CER .05, 12x) #1; wcpp large-v3 q5 (.06, 6x) #2;
         // wcpp small q5 (.15, 20x) #3.
         let records = [

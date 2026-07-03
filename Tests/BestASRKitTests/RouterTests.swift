@@ -100,7 +100,7 @@ struct RouterColdStartTests {
         #expect(warnings.count == warningCount)
     }
 
-    @Test func `Accurate profile on a small machine picks a model that fits`() throws {
+    @Test func `High profile on a small machine picks a model that fits`() throws {
         let rec = try Router.recommend(
             host: Fixtures.smallMac, profile: .high, requestedLanguage: nil,
             backendOverride: nil, modelOverride: nil,
