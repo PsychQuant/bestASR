@@ -202,21 +202,25 @@ what other tools on your machine do with the files.)
 `bestasr transcribe` takes a local audio file. The **`transcript` agent skill**
 (in this repo's Claude plugin) wraps it so you can point at *any* source —
 a YouTube URL, any yt-dlp-supported site, a local audio/video file, or an
-existing subtitle — and get an SRT back:
+existing subtitle — and get an SRT back. It's a conversational skill: you ask
+Claude in plain language and it drives yt-dlp / ffmpeg / `bestasr` for you.
 
-```
-transcript https://www.youtube.com/watch?v=xxxx      # download audio → ASR → SRT
-transcript ~/Movies/lecture.mp4 --profile max        # local video, most accurate
-transcript ~/rec/meeting.m4a --context-dir ./bestasr-context --diarize
-transcript                                           # no source → the skill asks
-```
+> "Transcribe https://www.youtube.com/watch?v=xxxx for me" → downloads the
+> audio, ASR-transcribes it, writes an SRT.
+> "Make subtitles for ~/Movies/lecture.mp4, most accurate" → extracts audio,
+> transcribes with `--profile max`.
+> "Transcribe ~/rec/meeting.m4a with my term list and speaker labels" →
+> `--context-dir ./bestasr-context --diarize`.
+> "Make a transcript" (no source) → the skill asks what to transcribe.
 
 The skill treats every input as a "source" and branches by type: URLs and
 video get their audio extracted (yt-dlp / ffmpeg) then ASR-transcribed;
 audio files go straight to `bestasr transcribe`; an existing `.srt`/`.vtt` is
 normalized rather than re-transcribed. Downloaded audio lives in a temp dir
-and is always cleaned up. This is **ASR transcription** — distinct from
-grabbing a platform's existing captions (that's a different tool).
+that's always cleaned up, and the skill treats a pasted URL/path as untrusted
+input (validated before it reaches any shell command). This is **ASR
+transcription** — distinct from grabbing a platform's existing captions (use
+yt-subtitle-downloader when you want the platform's own subtitles).
 
 ### See why (--explain)
 
