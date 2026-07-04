@@ -1,7 +1,7 @@
 {
   "name": "bestasr",
   "version": "0.8.0",
-  "description": "Context calibration workflows for bestASR: context-ingest (documents → context.json) and srt-proofread (three-axis SRT correction).",
+  "description": "Context calibration + transcription workflows for bestASR: context-ingest (documents → context.json), srt-proofread (three-axis SRT correction), and transcript (any source → SRT via bestASR ASR).",
   "author": {
     "name": "PsychQuant",
     "url": "https://github.com/PsychQuant/bestASR"

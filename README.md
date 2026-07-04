@@ -197,6 +197,27 @@ context-ingest skill's rules exclude it, and the only reader is the local
 `--diarize` run. (These are the enforced mechanisms; bestASR cannot govern
 what other tools on your machine do with the files.)
 
+### Transcribe any source (agent skill)
+
+`bestasr transcribe` takes a local audio file. The **`transcript` agent skill**
+(in this repo's Claude plugin) wraps it so you can point at *any* source —
+a YouTube URL, any yt-dlp-supported site, a local audio/video file, or an
+existing subtitle — and get an SRT back:
+
+```
+transcript https://www.youtube.com/watch?v=xxxx      # download audio → ASR → SRT
+transcript ~/Movies/lecture.mp4 --profile max        # local video, most accurate
+transcript ~/rec/meeting.m4a --context-dir ./bestasr-context --diarize
+transcript                                           # no source → the skill asks
+```
+
+The skill treats every input as a "source" and branches by type: URLs and
+video get their audio extracted (yt-dlp / ffmpeg) then ASR-transcribed;
+audio files go straight to `bestasr transcribe`; an existing `.srt`/`.vtt` is
+normalized rather than re-transcribed. Downloaded audio lives in a temp dir
+and is always cleaned up. This is **ASR transcription** — distinct from
+grabbing a platform's existing captions (that's a different tool).
+
 ### See why (--explain)
 
 Every selection is explainable — including what `auto` decided:
