@@ -5,6 +5,22 @@ All notable changes to bestASR are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-07-04
+
+### Added
+
+- **`transcript` agent skill** (#31): a conversational bestASR plugin skill that
+  takes any source — a YouTube (or any yt-dlp-supported) URL, a local
+  audio/video file, or an existing subtitle — and produces an SRT. Download
+  lives in the skill orchestration layer (yt-dlp/ffmpeg extract audio →
+  `bestasr transcribe --format srt`), keeping the CLI a pure local ASR router.
+  Every input is a "source" branched by type (URL/video extract audio then ASR;
+  audio transcribes directly; an existing `.srt`/`.vtt` is normalized, not
+  re-transcribed); an empty invocation asks for a source. Pasted URLs/paths are
+  validated as untrusted input before reaching any shell command, and the whole
+  download→transcribe→output pipeline runs in a single shell so the temp audio
+  is never orphaned.
+
 ## [0.8.0] - 2026-07-04
 
 ### Changed
