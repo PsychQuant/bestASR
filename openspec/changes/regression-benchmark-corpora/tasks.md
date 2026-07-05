@@ -32,3 +32,10 @@
 
 ## 7. 繁中 script 正規化（mid-apply 裁決，design "D7 — zh 的 CER 做 script 正規化（雙側 Hant→Hans，mid-apply 裁決 2026-07-05）"）
 - [x] 7.1 TDD：ErrorRate/TextNormalizer 對 language zh 的 CER 比對前雙側 Hant→Hans（ICU StringTransform）；ja/ko/en 不動；spec 既有 CER example（今天天氣好）行為保持；新 scenario（簡體 hypothesis vs 繁體 reference → CER 0）；BenchmarkRunner 兩處 compute call site 傳 language；重播種 zh golden
+
+## 8. Verify round-1 修正（6-AI ensemble 2026-07-05）
+- [x] 8.1 fold gate 精確比對 `== "zh"` → 共用 LanguageResolver base-subtag 判準（`zh-TW`/`zh-Hant` 同 fold、`auto`/ja/ko/yue 絕不 fold）；benchmark spec MODIFIED 措辭同步（"regional Chinese tags fold like bare zh" scenario）+ 測試（regional tags / auto）
+- [x] 8.2 "Regression gate fails on accuracy regression" 的 gate script 資料流硬化：benchmark 輸出/baseline 一律以 file/argv/stdin 傳遞（不再內插 python source）、benchmark 呼叫 `</dev/null` 防 stdin 吞行、corpus 名 sanitize、空 baseline/重複 corpus 顯式報錯、disk 標準語料缺 baseline 條目 → gate error；compare 加 duplicate 防護 + 測試
+- [x] 8.3 zh-TW 稽核錨點補齊（與 ja 對稱）：dev.tsv + clip_durations.tsv digest pin 進 script 註解、derivation rule 記錄、嵌入 SRT 24/24 逐字對 pinned TSV 機械查證（ja 亦 24/24——疑似筆誤實為 FLEURS 原始資料怪癖，忠實重現）
+- [x] 8.4 model provenance sidecar `benchmarks/baseline-meta.json`（播種日 HF repo revision + 機器 + 誠實註記——audit anchor 非 cryptographic pin）；README/design D1 的 machine-independent 宣稱誠實化（同機 ±0.0000 已證、跨機為 tolerance 吸收的期望）；proposal Impact 補宣告 benchmark spec MODIFIED；corpora delta「per-corpus isolation」正名 per-language
+- [x] 8.5 canary 決定論化（live 發現 2026-07-06）：驗證期間實測 temperature fallback 隨機翻動 cv-zhtw-4 CER；受控 A/B 定向——第一遍 greedy = 0.1452（3/3 精確），預設 fallback 通常重解碼成更差的 0.2097、偶爾落回——"Regression gate fails on accuracy regression" 補 normative（gate 以 deterministic decode 轉錄）+ "the canary decode is reproducible" scenario；`bestasr benchmark --decode-deterministic`（WhisperKit fallbackCount=0 / whisper-cli `-nf`）貫穿 TranscribeOptions→engines→runner→CommandCore→CLI→gate script；cv-zhtw-4 golden 重播種 0.2097→0.1452（舊值為 fallback 產物）、其餘 11 corpus 不變；正常 transcribe 保留 fallback

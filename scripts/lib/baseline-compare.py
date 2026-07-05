@@ -17,9 +17,22 @@ import sys
 
 def main() -> int:
     data = json.load(sys.stdin)
+    failures = 0
+
+    # Duplicate corpus names would silently collapse (last-wins) in the dicts
+    # below — surface them as gate errors instead (#34 verify).
+    for side in ("baseline", "measured"):
+        names = [e["corpus"] for e in data.get(side, [])]
+        for dup in sorted({n for n in names if names.count(n) > 1}):
+            print(f"✗ GATE ERROR: duplicate corpus '{dup}' in {side} "
+                  f"— entries would silently shadow each other")
+            failures += 1
+    if failures:
+        print(f"\n✗ regression gate: {failures} failure(s).")
+        return 1
+
     baseline = {e["corpus"]: e for e in data.get("baseline", [])}
     measured = {m["corpus"]: m for m in data.get("measured", [])}
-    failures = 0
 
     for corpus, m in measured.items():
         b = baseline.get(corpus)

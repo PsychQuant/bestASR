@@ -70,11 +70,19 @@ public struct WhisperKitEngine: Engine {
     /// WhisperKit returns `<|startoftranscript|>`/timestamp tokens inside
     /// segment text, polluting transcripts and inflating WER (#6 — caught by
     /// real-model verification against jfk.wav / OSR Harvard).
-    static func makeDecodeOptions(language: String?, promptTokens: [Int]?) -> DecodingOptions {
+    static func makeDecodeOptions(
+        language: String?, promptTokens: [Int]?, deterministic: Bool = false
+    ) -> DecodingOptions {
         var decodeOptions = DecodingOptions()
         decodeOptions.language = language
         decodeOptions.detectLanguage = language == nil
         decodeOptions.skipSpecialTokens = true
+        if deterministic {
+            // #34 regression gate: WhisperKit defaults to 5 temperature-
+            // fallback retries (0.2 increments) on low-quality segments —
+            // stochastic sampling. Greedy-only makes the decode reproducible.
+            decodeOptions.temperatureFallbackCount = 0
+        }
         // Empty non-nil is NOT nil-equivalent in WhisperKit 0.18 (a stray
         // <|startofprev|> enters the decoder context and prefill caching is
         // silently disabled) — guard here so the factory is safe for any caller.
@@ -134,7 +142,8 @@ public struct WhisperKitEngine: Engine {
             if !tokens.isEmpty { promptTokens = tokens }
         }
         let decodeOptions = Self.makeDecodeOptions(
-            language: options.language, promptTokens: promptTokens)
+            language: options.language, promptTokens: promptTokens,
+            deterministic: options.deterministicDecode)
 
         let results = try await pipe.transcribe(audioPath: audioPath, decodeOptions: decodeOptions)
         let segments = results.flatMap(\.segments).map { seg in

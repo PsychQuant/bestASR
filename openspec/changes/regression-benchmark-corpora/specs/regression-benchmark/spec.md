@@ -17,12 +17,18 @@ The project SHALL keep a version-controlled baseline file (`benchmarks/baseline.
 
 ### Requirement: Regression gate fails on accuracy regression
 
-A regression gate script SHALL, for the fixed reference model, transcribe every standard corpus, compute its accuracy metric, compare against the corresponding `benchmarks/baseline.json` entry, and exit non-zero if any corpus's measured accuracy is worse than its golden value by more than the tolerance. The gate SHALL surface, for each regressed corpus, the language, golden value, measured value, and the difference. The gate SHALL judge accuracy only and SHALL NOT fail on speed differences. A corpus present in the standard set but missing a baseline entry SHALL be reported as a gate error rather than silently passing.
+A regression gate script SHALL, for the fixed reference model, transcribe every standard corpus with deterministic decoding (temperature-fallback re-decoding disabled — fallback samples at temperature > 0 and was observed to flip a corpus score between otherwise-identical runs; normal transcription keeps the fallback), compute its accuracy metric, compare against the corresponding `benchmarks/baseline.json` entry, and exit non-zero if any corpus's measured accuracy is worse than its golden value by more than the tolerance. The gate SHALL surface, for each regressed corpus, the language, golden value, measured value, and the difference. The gate SHALL judge accuracy only and SHALL NOT fail on speed differences. A corpus present in the standard set but missing a baseline entry SHALL be reported as a gate error rather than silently passing.
 
 #### Scenario: no regression passes
 
 - **WHEN** the gate runs and every corpus's measured accuracy is within its baseline tolerance
 - **THEN** the gate exits zero and prints a pass summary
+
+#### Scenario: the canary decode is reproducible
+
+- **GIVEN** the same corpus, reference model, and machine
+- **WHEN** the gate benchmarks it twice
+- **THEN** both runs produce the same accuracy figure (greedy-only decode — no stochastic temperature-fallback sampling)
 
 #### Scenario: an accuracy regression fails loudly
 

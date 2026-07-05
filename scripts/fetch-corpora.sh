@@ -39,7 +39,11 @@ SRT
 # Raw-download pins: third-party bytes are verified BEFORE any parser
 # (afconvert/CoreAudio) touches them (#15 — parse-before-verify gap).
 # Ground truth = the published Harvard sentence lists (recordings are standard
-# readings of them; mapping ASR-verified at pin time, #34).
+# readings of them; mapping ASR-verified at pin time, #34). Honesty note: the
+# non-zero goldens for these corpora bake in canonical-text-vs-spoken drift
+# together with true recognition error — deterministic for the pinned audio,
+# which is what the gate needs (stability), but don't read them as pure
+# model-error figures (#34 verify).
 OSR1_RAW_SHA="a4bf9becd046d7aedb6d05b6e12347a6294a44f74d263089c636fb0a2b1e6561"
 OSR1_SHA="0ed4ea79ee09b36f40235992b5bc03009f23167c0525930ddeafee0c04716a49"
 OSR2_RAW_SHA="3b3b791dc1eda4ed9ae7869c6adff95cbd9a0a4b0f45e31be31324024279b739"
@@ -91,6 +95,10 @@ FLEURS_REV="70bb2e84b976b7e960aa89f1c648e09c59f894dd"
 # truth): 92beded0999347ad5b8599fe70940e2e7b9232c67c426defb258e596ade94f48
 # Derivation rule for the picks: first recording of the first 24 distinct
 # sentence ids in TSV order, split into 4 groups of 6 in that order (#34).
+# Embedded SRT cues are the verbatim `raw_transcription` column of dev.tsv —
+# verified verbatim 24/24 against the pinned TSV on 2026-07-05. Apparent
+# oddities (e.g. fleurs-ja-3 cue 4's 「…にながりうる」) are FLEURS's own raw
+# data, reproduced faithfully, NOT embedding typos (#34 verify).
 FLEURS_JA_TAR_SHA="2547f19203e1272aeba99c2235326fea525d6cfb9348bafbea2c3a7929e8e441"
 FLEURS_JA_G1_SHA="3a6b87c746722c51d010d9becbd924dfb2735441aa1bd75fb71c781c1bbb2eac"
 FLEURS_JA_G2_SHA="b291e769586cf78df4eeda60545eeecbb442aa690a29ea8e43a8f73d5e729c80"
@@ -288,6 +296,16 @@ SRT
 # zh-TW tarball from Data Collective yourself and place the selected clips at
 # $tmp — the per-clip digests below still verify them (design D3).
 # License: CC-0 (public domain dedication) — https://commonvoice.mozilla.org
+#
+# transcript/zh-TW/dev.tsv digest at CV_ZHTW_REV (auditability of the embedded
+# ground truth): 09fedaf398a256c239ec708fa9ff28950e3e0f63026ac8239139b104b2d9d890
+# clip_durations.tsv digest (SRT cue-timing source):
+#   438fa69a45a0154e23f1825198fe3090ca31b2a95fbaf543fe8bc048ae762761
+# Derivation rule for the picks: fixed curated list (quality filter
+# up_votes>=2 / down_votes=0, plus length + numeral diversity), 4 groups of 6
+# in the order listed. Every embedded SRT cue is the verbatim `sentence`
+# column of its clip's row in dev.tsv — grep the pinned TSV to audit any line.
+# Verified verbatim 24/24 against the pinned dev.tsv on 2026-07-05 (#34).
 CV_ZHTW_REV="8262c16bf297c87a9cd88c51997c4758ed7a8ba2"
 CV_ZHTW_TAR_SHA="dd75cfd240e3ee3be7a8a755417a7a02077d449a57a2f8be23b811d6179c3d32"
 CV_ZHTW_G1_SHA="33dd468f27c641805bf6ddf6582a5ba9a21313df03e9ef14cffb71148c247c28"

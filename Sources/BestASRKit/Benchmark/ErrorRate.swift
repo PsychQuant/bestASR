@@ -28,9 +28,12 @@ public enum ErrorRate {
     ) -> Double {
         var h = TextNormalizer.normalize(hypothesis)
         var r = TextNormalizer.normalize(reference)
-        if language == "zh" {
+        if LanguageResolver.isChinese(language) {
             // #34 D7: script-normalized CER — fold BOTH sides Hant→Hans so the
-            // metric scores recognition content, not output script.
+            // metric scores recognition content, not output script. The gate
+            // shares LanguageResolver's base-subtag predicate, so zh-TW /
+            // zh-Hant / zh-CN fold exactly like zh; ja/ko/yue and `auto`
+            // never do (see LanguageResolver.isChinese).
             h = TextNormalizer.foldHanToSimplified(h)
             r = TextNormalizer.foldHanToSimplified(r)
         }

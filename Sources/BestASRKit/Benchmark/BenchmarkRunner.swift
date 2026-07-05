@@ -153,7 +153,8 @@ public struct BenchmarkRunner {
         referenceText: String,
         metricKind: MetricKind,
         language: String,
-        contextPrompt: String? = nil
+        contextPrompt: String? = nil,
+        deterministicDecode: Bool = false
     ) async -> BenchmarkOutcome {
         var measured: [MeasuredCandidate] = []
         var failures: [BenchmarkFailure] = []
@@ -183,7 +184,8 @@ public struct BenchmarkRunner {
             let options = TranscribeOptions(
                 model: candidate.model,
                 quantization: candidate.quantization,
-                language: effectiveLanguage
+                language: effectiveLanguage,
+                deterministicDecode: deterministicDecode
             )
             do {
                 // Memory baseline BEFORE warm-up: with pipeline reuse (#7) the
@@ -218,7 +220,8 @@ public struct BenchmarkRunner {
                         model: candidate.model,
                         quantization: candidate.quantization,
                         language: effectiveLanguage,
-                        prompt: contextPrompt
+                        prompt: contextPrompt,
+                        deterministicDecode: deterministicDecode
                     )
                     if let contextTranscript = try? await engine.transcribe(
                         audioPath: audio.path, options: contextOptions)

@@ -127,6 +127,25 @@ struct RegressionBaselineTests {
         #expect(r.output.contains("c1"))
     }
 
+    @Test func `duplicate corpus names are a gate error, never last-wins`() throws {
+        // A dict keyed by corpus would silently shadow duplicates; the compare
+        // stage must surface them instead (#34 verify).
+        let r = try runCompare(
+            baseline: [entry, entry],
+            measured: [["corpus": "c1", "metric": "cer", "error_rate": 0.10]])
+        #expect(r.exit != 0)
+        #expect(r.output.contains("duplicate"))
+
+        let m = try runCompare(
+            baseline: [entry],
+            measured: [
+                ["corpus": "c1", "metric": "cer", "error_rate": 0.10],
+                ["corpus": "c1", "metric": "cer", "error_rate": 0.01],
+            ])
+        #expect(m.exit != 0)
+        #expect(m.output.contains("duplicate"))
+    }
+
     @Test func `speed differences never trip the gate`() throws {
         // Same accuracy, wildly different speed field — must pass (design D1:
         // speed is machine-dependent and is not gated).

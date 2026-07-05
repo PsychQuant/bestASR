@@ -92,7 +92,7 @@
     "language": "zh",
     "model": "large-v3-turbo",
     "metric": "cer",
-    "golden": 0.2097,
+    "golden": 0.1452,
     "tolerance": 0.02
   }
 ]

@@ -22,4 +22,4 @@ The fetch script SHALL download, verify, and register standard **Traditional Chi
 
 - **GIVEN** a download (Common Voice clip or FLEURS tar) whose bytes do not match the pinned digest
 - **WHEN** the fetch script verifies the raw download
-- **THEN** it refuses to extract, convert, or register that clip, and the remaining corpora still register (per-corpus isolation)
+- **THEN** it refuses to extract, convert, or register anything from that download — the affected language registers nothing (fail-closed) — and the other languages' corpora still register (per-language isolation)

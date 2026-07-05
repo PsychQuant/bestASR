@@ -137,16 +137,28 @@ fixed reference model (whisperkit large-v3-turbo). The gate re-benchmarks
 every corpus and fails loudly when any accuracy drifts past its tolerance.
 Two design points worth knowing:
 
-- **Accuracy only, machine-independent.** CER/WER is a text comparison —
-  same model + same audio → same number on any machine, so the baseline is
-  committed to the repo and works in CI. Speed is machine-dependent and is
-  *never* gated.
+- **Accuracy only, deterministic decode.** CER/WER is a text comparison, so
+  the committed baseline carries no timing numbers; speed is
+  machine-dependent and is *never* gated. The gate benchmarks with
+  `--decode-deterministic` (temperature fallback disabled) — Whisper's
+  fallback re-decodes low-quality segments at temperature > 0, which is
+  stochastic sampling and was observed live to flip a corpus CER between
+  runs; the canary pins greedy decoding so goldens are reproducible, while
+  normal transcription keeps the fallback rescue. CoreML inference is still
+  not guaranteed bit-identical across chip generations or OS versions — the
+  per-corpus tolerance absorbs small drift, and the seeding provenance
+  (machine, model-repo revision, decode config) is recorded in
+  `benchmarks/baseline-meta.json`. Same-machine repeat runs reproduce
+  goldens to ±0.0000; running in CI needs an Apple-silicon runner with the
+  ~1.5 GB reference model.
 - **Traditional Chinese is scored fairly.** Whisper-family models emit
-  Simplified for Mandarin; the references here are Traditional. zh CER folds
-  both sides Traditional→Simplified inside the metric (system ICU, the
-  unambiguous direction) so the score measures recognition, not output
-  script. Delivered transcripts are untouched; Japanese kanji are never
-  folded.
+  Simplified for Mandarin; the references here are Traditional. Chinese CER
+  (any zh tag — `zh`, `zh-TW`, `zh-Hant`, …) folds both sides
+  Traditional→Simplified inside the metric (system ICU, the unambiguous
+  direction) so the score measures recognition, not output script. Delivered
+  transcripts are untouched; Japanese kanji are never folded, and
+  `--language auto` never folds (it cannot tell Chinese from Japanese text —
+  pass an explicit zh tag for folded scoring).
 
 A gate failure has three possible causes — triage before blaming code: a code
 regression, a corpus change, or upstream model-artifact drift.
