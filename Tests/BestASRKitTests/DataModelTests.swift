@@ -55,6 +55,18 @@ struct DataModelTests {
         #expect(RecommendationDataSource.coldStartPrior.rawValue == "cold_start_prior")
     }
 
+    @Test func `BackendID enumerates the three bundled engines in stable order`() throws {
+        // #35 (spec asr-engine "Common engine interface"): exactly the backends
+        // with a bundled runtime — appended at the tail so store enumeration
+        // order stays stable (design D2).
+        #expect(BackendID.allCases == [.whisperKit, .whisperCpp, .fluidParakeet])
+        #expect(BackendID.fluidParakeet.rawValue == "fluid-parakeet")
+        // Codable round-trip through the raw value (store records use strings).
+        let decoded = try JSONDecoder().decode(
+            BackendID.self, from: Data("\"fluid-parakeet\"".utf8))
+        #expect(decoded == .fluidParakeet)
+    }
+
     @Test(arguments: RouterProfile.allCases)
     func `Profile weights over the two measured axes sum to one`(profile: RouterProfile) {
         #expect(abs(profile.accuracyWeight + profile.speedWeight - 1.0) < 1e-9)

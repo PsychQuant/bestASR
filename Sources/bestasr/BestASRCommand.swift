@@ -213,10 +213,14 @@ struct SelectionOptions: ParsableArguments {
     )
     var profile: String = "auto"
 
-    @Option(help: "Force a backend: auto | whisperkit | whisper.cpp")
+    @Option(
+        help: ArgumentHelp(
+            "Force a backend: auto | "
+                + BackendID.allCases.map(\.rawValue).joined(separator: " | ")))
     var backend: String = "auto"
 
-    @Option(help: "Force a model size: auto | \(ModelRegistry.supportedModels.joined(separator: " | "))")
+    @Option(
+        help: "Force a model size: auto | \(ModelRegistry.supportedModels.joined(separator: " | ")) | 0.6b-v3 (fluid-parakeet)")
     var model: String = "auto"
 
     @Option(help: "Audio language code, or 'auto'")

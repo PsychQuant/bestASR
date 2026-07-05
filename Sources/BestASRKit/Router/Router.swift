@@ -19,10 +19,12 @@ public enum Router {
         var warnings: [String] = []
 
         // Validate overrides early (usage errors, not silent acceptance).
-        if let modelOverride, !ModelRegistry.isSupportedModel(modelOverride) {
+        // Runnable = whisper sizes plus live non-Whisper rows (#35); the
+        // mlx-audio section stays a reference catalog with no bundled backend.
+        if let modelOverride, !ModelRegistry.isRunnableModel(modelOverride) {
             throw BestASRError.usage(
                 "unknown model: '\(modelOverride)'; run list-models for the "
-                    + "runnable catalog (whisper sizes — the mlx-audio section is a "
+                    + "runnable catalog (the mlx-audio section is a "
                     + "reference catalog with no bundled backend)"
             )
         }
@@ -36,8 +38,12 @@ public enum Router {
             return id
         }
 
-        // Availability, in preference order (spec: whisperkit first).
-        let availableOrdered: [BackendID] = [.whisperKit, .whisperCpp].filter {
+        // Availability, in preference order (spec: whisperkit first). Every
+        // backend with a bundled engine enumerates (#35, spec asr-routing) —
+        // the measured tier ranks across families; the cold-start prior below
+        // still walks its whisper chain, so an unmeasured family is never
+        // proposed without evidence.
+        let availableOrdered: [BackendID] = [.whisperKit, .whisperCpp, .fluidParakeet].filter {
             availability[$0] == true
         }
         guard !availableOrdered.isEmpty else {
@@ -135,8 +141,24 @@ public enum Router {
                 + "measured, machine-specific recommendations"
         )
 
+        // A locked non-whisper backend has no rows for the whisper cold-start
+        // sizes — fall back to the backend's own catalog instead of throwing
+        // about a model the user never asked for (#35 verify H2: the natural
+        // "benchmarked whisper, now try parakeet" first step must route).
+        if modelOverride == nil,
+            ModelRegistry.quantizations(for: backend, model: model).isEmpty,
+            let catalogFallback = ModelGrid.rows(
+                backend: backend.rawValue, priorityCeiling: nil
+            ).first?.size {
+            reasons.append(
+                "cold-start prior has no '\(model)' on \(backend.rawValue); "
+                    + "using its catalog model '\(catalogFallback)'")
+            model = catalogFallback
+        }
+
         // A model address only pairs with backends whose grid lists variants
-        // for it (#14; since #20 only the whisper backends are runnable).
+        // for it (#14; explicit mismatches like --backend whisperkit
+        // --model 0.6b-v3 still fail loud here).
         guard let quantization = ModelRegistry.quantizations(for: backend, model: model).first
         else {
             throw BestASRError.usage(

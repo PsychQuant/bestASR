@@ -18,12 +18,23 @@ public enum ModelRegistry {
     ]
 
     /// Estimated unified-memory requirement (GB) per model — projected from
-    /// the model grid's whisperkit rows (fp16-weight upper bounds; quantized
-    /// variants use less, so the gate is conservative).
+    /// the model grid's live-engine rows (fp16-weight upper bounds; quantized
+    /// variants use less, so the gate is conservative). whisperkit and
+    /// fluid-parakeet size names are disjoint, so the union stays keyed by
+    /// size alone (#35).
     private static var memoryEstimates: [String: Double] {
-        Dictionary(uniqueKeysWithValues: ModelGrid.rows
-            .filter { $0.backend == ModelGrid.backendWhisperKit }
-            .map { ($0.size, $0.estMemoryGB) })
+        // uniquingKeysWith: a future duplicate size (second parakeet quant
+        // row, or a family collision) must degrade to the conservative max
+        // estimate, not runtime-trap on first requirements() call (#35
+        // verify M2).
+        Dictionary(
+            ModelGrid.rows
+                .filter {
+                    $0.backend == ModelGrid.backendWhisperKit
+                        || $0.backend == ModelGrid.backendFluidParakeet
+                }
+                .map { ($0.size, $0.estMemoryGB) },
+            uniquingKeysWith: max)
     }
 
     /// Candidate models per profile (design brief §7.4, carried into the
@@ -63,6 +74,16 @@ public enum ModelRegistry {
 
     public static func isSupportedModel(_ name: String) -> Bool {
         supportedModels.contains(name)
+    }
+
+    /// Whether a model name is runnable on ANY live-engine backend — whisper
+    /// sizes plus live non-Whisper rows (#35). Reference rows (mlx-audio)
+    /// stay excluded: no bundled backend can run them.
+    public static func isRunnableModel(_ name: String) -> Bool {
+        isSupportedModel(name)
+            || ModelGrid.rows.contains {
+                $0.backend == ModelGrid.backendFluidParakeet && $0.size == name
+            }
     }
 
     /// Static memory estimate for cold-start feasibility (spec asr-engine:
