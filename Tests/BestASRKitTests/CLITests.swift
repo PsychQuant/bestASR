@@ -252,6 +252,25 @@ struct ListCommandTests {
         #expect(output.contains("q5_1"))  // tiny/base/small row (HF-accurate, #5)
         #expect(output.contains("q5_0"))  // medium/large-tier row
     }
+
+    @Test func `Production wiring bundles all three engines`() {
+        // #35 (spec asr-engine "Common engine interface"): live() carries one
+        // engine per BackendID case — a new case without live wiring would
+        // never enumerate for routing or benchmark.
+        let ids = CommandCore.live().engines.map(\.id)
+        #expect(ids == BackendID.allCases)
+    }
+
+    @Test func `list-models shows the live parakeet row alongside whisper sizes`() throws {
+        // #35 (spec model-grid "Full-family catalog"): the live fluid-parakeet
+        // row is a first-class catalog entry, not a reference footnote.
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let core = makeCore(engines: [], cacheDir: dir)
+        let output = core.listModels()
+        #expect(output.contains("0.6b-v3"))
+        #expect(output.contains("fluid-parakeet"))
+    }
 }
 
 // MARK: - Context wiring (tasks 3.1/3.2; spec context-calibration + cli MODIFIED)
