@@ -1,0 +1,193 @@
+import AVFoundation
+import FluidAudio
+import Foundation
+
+/// FluidAudio Parakeet backend (#35, spec parakeet-engine) — the first
+/// non-Whisper family in the competition pool, zero new dependencies
+/// (FluidAudio 0.15.4 is already exact-pinned for diarization, #25).
+///
+/// API mapping (task 1.1 spike, FluidAudio 0.15.4 → BestASRKit):
+///
+/// | FluidAudio                                              | here                          |
+/// |---------------------------------------------------------|-------------------------------|
+/// | `AsrModels.downloadAndLoad(version: .v3)`                | pipeline factory (lazy, #7)   |
+/// | `AsrManager(config: .default, models:)`                  | held by the production adapter|
+/// | `manager.transcribe(URL, decoderState:, language:)`      | `transcribe(audioPath:language:)` |
+/// | `ASRResult.text / .confidence / .duration`               | `ParakeetOutput` fields       |
+/// | `ASRResult.tokenTimings: [TokenTiming]?`                 | `ParakeetOutput.tokenTimings` |
+/// | `Language(rawValue:)` (v3 script-aware hint, euro set)   | `options.language` best-effort|
+///
+/// `AsrManager.transcribe(URL, ...)` handles long files itself (disk-backed
+/// chunked processing, constant memory) — no extra chunking layer here. The
+/// engine seam already guarantees 16 kHz mono input (#36 AudioNormalizer),
+/// and FluidAudio resamples defensively on top; both paths are cheap for
+/// conforming input.
+///
+/// Segment shaping: Parakeet reports token-level timings, not segments. The
+/// mapper splits at inter-token gaps > `segmentGapSeconds` so SRT cues track
+/// natural pauses; with no timings it degrades to one full-text segment.
+
+/// Backend-neutral slice of a Parakeet transcription — the seam type (#9
+/// discipline: tests spy on this without loading CoreML models).
+public struct ParakeetOutput: Sendable {
+    public struct Timing: Sendable {
+        public let token: String
+        public let startTime: TimeInterval
+        public let endTime: TimeInterval
+
+        public init(token: String, startTime: TimeInterval, endTime: TimeInterval) {
+            self.token = token
+            self.startTime = startTime
+            self.endTime = endTime
+        }
+    }
+
+    public let text: String
+    public let confidence: Double
+    public let duration: TimeInterval
+    public let tokenTimings: [Timing]?
+
+    public init(
+        text: String, confidence: Double, duration: TimeInterval, tokenTimings: [Timing]?
+    ) {
+        self.text = text
+        self.confidence = confidence
+        self.duration = duration
+        self.tokenTimings = tokenTimings
+    }
+}
+
+/// The slice of FluidAudio the engine consumes — injectable for tests.
+protocol ParakeetTranscribing: Sendable {
+    func transcribe(audioPath: String, language: String?) async throws -> ParakeetOutput
+}
+
+/// Production adapter: owns the loaded AsrManager. A fresh TdtDecoderState
+/// per call keeps files independent (stateless per transcription).
+struct FluidAudioParakeetPipeline: ParakeetTranscribing {
+    let manager: AsrManager
+
+    func transcribe(audioPath: String, language: String?) async throws -> ParakeetOutput {
+        var state = try TdtDecoderState()
+        // v3 script-aware hint covers a European-language set; unknown codes
+        // (zh, ja, …) resolve to nil and Parakeet decodes unhinted.
+        let hint = language.flatMap { Language(rawValue: $0) }
+        let result = try await manager.transcribe(
+            URL(fileURLWithPath: audioPath), decoderState: &state, language: hint)
+        return ParakeetOutput(
+            text: result.text,
+            confidence: Double(result.confidence),
+            duration: result.duration,
+            tokenTimings: result.tokenTimings?.map {
+                .init(token: $0.token, startTime: $0.startTime, endTime: $0.endTime)
+            }
+        )
+    }
+}
+
+/// FluidAudio Parakeet engine — third `Engine` conformer.
+public struct ParakeetEngine: Engine {
+    public let id: BackendID = .fluidParakeet
+
+    /// Inter-token silence that starts a new raw segment.
+    static let segmentGapSeconds: TimeInterval = 0.8
+
+    public init() {
+        self.init(pipelineFactory: { _ in
+            // Models download on first use (same posture as WhisperKit); the
+            // pinned FluidAudio release manages weights + auto-recovery.
+            let models = try await AsrModels.downloadAndLoad(version: .v3)
+            return FluidAudioParakeetPipeline(manager: AsrManager(config: .default, models: models))
+        })
+    }
+
+    /// Internal seam (#9): tests inject a spy keyed by model name.
+    init(
+        pipelineFactory: @escaping @Sendable (String) async throws -> any ParakeetTranscribing
+    ) {
+        self.pipelineFactory = pipelineFactory
+    }
+
+    let pipelineFactory: @Sendable (String) async throws -> any ParakeetTranscribing
+
+    /// Per-instance pipeline cache (#7): the CoreML load happens once per
+    /// model for the engine's lifetime.
+    let pipelines = CreateOnceStore<any ParakeetTranscribing>()
+
+    public func isAvailable() async -> Bool {
+        true
+    }
+
+    public func transcribeRaw(
+        audioPath: String, options: TranscribeOptions
+    ) async throws -> RawTranscription {
+        let pipe: any ParakeetTranscribing
+        do {
+            let factory = pipelineFactory
+            pipe = try await pipelines.value(for: options.model) {
+                try await factory(options.model)
+            }
+        } catch {
+            throw TranscriptionError(
+                backend: id.rawValue,
+                message: "failed to load model '\(options.model)': \(error.localizedDescription)",
+                underlying: error
+            )
+        }
+
+        let output: ParakeetOutput
+        do {
+            output = try await pipe.transcribe(audioPath: audioPath, language: options.language)
+        } catch {
+            throw TranscriptionError(
+                backend: id.rawValue,
+                message: "\(audioPath): \(error.localizedDescription)",
+                underlying: error
+            )
+        }
+
+        return RawTranscription(
+            segments: Self.segments(from: output),
+            language: options.language,
+            duration: output.duration
+        )
+    }
+
+    /// Groups token timings into raw segments at natural pauses; degrades to
+    /// one full-text segment when timings are absent.
+    static func segments(from output: ParakeetOutput) -> [RawTranscription.RawSegment] {
+        guard let timings = output.tokenTimings, !timings.isEmpty else {
+            let text = output.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !text.isEmpty else { return [] }
+            return [
+                .init(start: 0, end: output.duration, text: text, confidence: output.confidence)
+            ]
+        }
+
+        var segments: [RawTranscription.RawSegment] = []
+        var groupTokens: [ParakeetOutput.Timing] = []
+
+        func flush() {
+            guard let first = groupTokens.first, let last = groupTokens.last else { return }
+            let text = groupTokens.map(\.token).joined()
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if !text.isEmpty {
+                segments.append(
+                    .init(
+                        start: first.startTime, end: last.endTime,
+                        text: text, confidence: output.confidence))
+            }
+            groupTokens.removeAll()
+        }
+
+        for timing in timings {
+            if let previous = groupTokens.last,
+                timing.startTime - previous.endTime > segmentGapSeconds {
+                flush()
+            }
+            groupTokens.append(timing)
+        }
+        flush()
+        return segments
+    }
+}

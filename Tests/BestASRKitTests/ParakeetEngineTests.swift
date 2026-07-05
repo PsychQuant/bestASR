@@ -1,0 +1,109 @@
+import Foundation
+import Testing
+@testable import BestASRKit
+
+/// ParakeetEngine contract (#35, spec parakeet-engine): the third Engine
+/// conformer, backed by FluidAudio's Parakeet TDT CoreML models. Tests use
+/// the injectable pipeline seam (same discipline as WhisperKitEngine #9) so
+/// no CoreML model ever loads here.
+struct ParakeetEngineTests {
+    let options = TranscribeOptions(model: "0.6b-v3", quantization: "default", language: "en")
+
+    /// Spy pipeline standing in for the FluidAudio-backed adapter.
+    struct SpyPipeline: ParakeetTranscribing {
+        let result: @Sendable (String, String?) throws -> ParakeetOutput
+
+        func transcribe(audioPath: String, language: String?) async throws -> ParakeetOutput {
+            try result(audioPath, language)
+        }
+    }
+
+    @Test func `Engine identifies as the fluid-parakeet backend and is available`() async {
+        let engine = ParakeetEngine()
+        #expect(engine.id == .fluidParakeet)
+        #expect(await engine.isAvailable() == true)
+    }
+
+    @Test func `FluidAudio output maps onto raw segments with timings and confidence`() async throws {
+        let engine = ParakeetEngine(pipelineFactory: { _ in
+            SpyPipeline { _, _ in
+                ParakeetOutput(
+                    text: "hello world again",
+                    confidence: 0.9,
+                    duration: 3.0,
+                    tokenTimings: [
+                        .init(token: "hello", startTime: 0.0, endTime: 0.5),
+                        .init(token: " world", startTime: 0.5, endTime: 1.0),
+                        // A gap far beyond the segment-break threshold splits
+                        // the transcript into a second raw segment.
+                        .init(token: " again", startTime: 2.4, endTime: 3.0),
+                    ]
+                )
+            }
+        })
+        let raw = try await engine.transcribeRaw(audioPath: "clip.wav", options: options)
+
+        try #require(raw.segments.count == 2)
+        #expect(raw.segments[0].text == "hello world")
+        #expect(raw.segments[0].start == 0.0)
+        #expect(raw.segments[0].end == 1.0)
+        #expect(raw.segments[1].text == "again")
+        #expect(raw.segments[1].start == 2.4)
+        #expect(raw.segments[1].end == 3.0)
+        #expect(raw.duration == 3.0)
+        // Whole-result confidence flows onto every segment (Parakeet reports
+        // one confidence per transcription, not per segment).
+        #expect(raw.segments.allSatisfy { $0.confidence.map { $0 > 0.8 } ?? false })
+    }
+
+    @Test func `Missing token timings degrade to a single full-text segment`() async throws {
+        let engine = ParakeetEngine(pipelineFactory: { _ in
+            SpyPipeline { _, _ in
+                ParakeetOutput(
+                    text: "no timings here", confidence: 0.7, duration: 2.0, tokenTimings: nil)
+            }
+        })
+        let raw = try await engine.transcribeRaw(audioPath: "clip.wav", options: options)
+
+        try #require(raw.segments.count == 1)
+        #expect(raw.segments[0].text == "no timings here")
+        #expect(raw.segments[0].start == 0.0)
+        #expect(raw.segments[0].end == 2.0)
+    }
+
+    @Test func `Model loading failure surfaces as a typed TranscriptionError`() async {
+        struct DownloadFailed: Error, LocalizedError {
+            var errorDescription: String? { "model download failed" }
+        }
+        let engine = ParakeetEngine(pipelineFactory: { _ in throw DownloadFailed() })
+
+        do {
+            _ = try await engine.transcribeRaw(audioPath: "clip.wav", options: options)
+            Issue.record("expected transcribeRaw to throw")
+        } catch let error as TranscriptionError {
+            #expect(error.backend == "fluid-parakeet")
+            #expect(error.message.contains("model download failed"))
+        } catch {
+            Issue.record("unexpected error type: \(error)")
+        }
+    }
+
+    @Test func `Pipeline is created once per model and reused`() async throws {
+        // CreateOnceStore discipline (#7): the factory must run once for the
+        // same cache key across consecutive transcriptions.
+        actor Counter {
+            var value = 0
+            func bump() -> Int { value += 1; return value }
+        }
+        let counter = Counter()
+        let engine = ParakeetEngine(pipelineFactory: { _ in
+            _ = await counter.bump()
+            return SpyPipeline { _, _ in
+                ParakeetOutput(text: "x", confidence: 1, duration: 1, tokenTimings: nil)
+            }
+        })
+        _ = try await engine.transcribeRaw(audioPath: "a.wav", options: options)
+        _ = try await engine.transcribeRaw(audioPath: "b.wav", options: options)
+        #expect(await counter.value == 1)
+    }
+}
