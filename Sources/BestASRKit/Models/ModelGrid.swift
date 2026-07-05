@@ -12,13 +12,30 @@ public enum ModelGrid {
     public static let backendWhisperKit = "whisperkit"
     public static let backendWhisperCpp = "whisper.cpp"
     public static let backendMLXAudio = "mlx-audio"
+    public static let backendFluidParakeet = "fluid-parakeet"
 
     static let whisperSizes: [(size: String, memoryGB: Double)] = [
         ("tiny", 1.0), ("base", 1.5), ("small", 2.5),
         ("medium", 5.0), ("large-v3-turbo", 6.0), ("large-v3", 10.0),
     ]
 
-    public static let rows: [ModelRow] = existingBackendRows + mlxAudioRows
+    public static let rows: [ModelRow] = existingBackendRows + fluidParakeetRows + mlxAudioRows
+
+    /// Live rows for the fluid-parakeet backend (#35, spec model-grid
+    /// "Full-family catalog"): the first non-Whisper family with a bundled
+    /// engine. Distinct from the mlx-audio parakeet REFERENCE row — same
+    /// family, different backend id, and this one enumerates as a benchmark
+    /// candidate. Model weights are managed by the pinned FluidAudio release
+    /// (SwiftPM exact: 0.15.4 is the supply-chain anchor), so no repo id is
+    /// carried here — the unverified-rows invariant (#5) forbids one until a
+    /// hub probe; `verified` and the repo id land together after the first
+    /// on-device measurement (task 4.1).
+    static let fluidParakeetRows: [ModelRow] = [
+        ModelRow(
+            backend: backendFluidParakeet, family: "parakeet", size: "0.6b-v3",
+            quantization: "default",
+            languages: ["multi"], estMemoryGB: 2.0, priority: 1, verified: false)
+    ]
 
     /// Existing backends: live-validated all session — verified, priority 1.
     static let existingBackendRows: [ModelRow] = {

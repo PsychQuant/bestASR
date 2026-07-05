@@ -9,6 +9,11 @@ public enum BestASRVersion {
 public enum BackendID: String, Codable, CaseIterable, Sendable {
     case whisperKit = "whisperkit"
     case whisperCpp = "whisper.cpp"
+    // #35: first non-Whisper family (FluidAudio Parakeet, zero new deps).
+    // Appended at the tail — store enumeration order stays stable (design D2).
+    // "fluid-parakeet" (vendor-prefixed) stays distinguishable from the
+    // mlx-audio parakeet REFERENCE row that shares the family name (#20).
+    case fluidParakeet = "fluid-parakeet"
 }
 
 // MARK: - Detection
