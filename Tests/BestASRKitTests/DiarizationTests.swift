@@ -74,25 +74,39 @@ struct SpeakerRenderingTests {
             backend: "whisperkit", model: "tiny", segments: segs)
     }
 
-    @Test func `SRT and VTT cues carry speaker prefixes when present`() {
+    @Test func `SRT and VTT cues carry the human-readable colon prefix`() {
+        // #54 (spec cli + diarization): display form is `Speaker N: `, not
+        // the internal `[SPEAKER_N] ` machine style.
         let t = transcript(speakers: ["SPEAKER_1", "SPEAKER_2"])
         let srt = TranscriptWriter.render(t, format: .srt)
-        #expect(srt.contains("[SPEAKER_1] hello there"))
-        #expect(srt.contains("[SPEAKER_2] hi back"))
+        #expect(srt.contains("Speaker 1: hello there"))
+        #expect(srt.contains("Speaker 2: hi back"))
+        #expect(!srt.contains("[SPEAKER"))
         let vtt = TranscriptWriter.render(t, format: .vtt)
-        #expect(vtt.contains("[SPEAKER_2] hi back"))
+        #expect(vtt.contains("Speaker 2: hi back"))
     }
 
     @Test func `JSON gains a speaker field only when present`() {
+        // JSON keeps the INTERNAL label (spec diarization: display mapping is
+        // a rendering concern; the ordinal id stays stable for consumers).
         let with = TranscriptWriter.render(transcript(speakers: ["SPEAKER_1", nil]), format: .json)
         #expect(with.contains("\"speaker\" : \"SPEAKER_1\""))
         let without = TranscriptWriter.render(transcript(speakers: [nil, nil]), format: .json)
         #expect(!without.contains("\"speaker\""))
     }
 
-    @Test func `txt lines gain speaker prefixes when present`() {
+    @Test func `txt lines gain the same display prefix when present`() {
         let txt = TranscriptWriter.render(transcript(speakers: ["SPEAKER_1", "SPEAKER_2"]), format: .txt)
-        #expect(txt.contains("SPEAKER_1: hello there"))
+        #expect(txt.contains("Speaker 1: hello there"))
+    }
+
+    @Test func `Enrolled real names render with the colon convention untouched`() {
+        // #26 names are not SPEAKER_N ordinals — the display mapper must pass
+        // them through verbatim.
+        let t = transcript(speakers: ["Alice", "SPEAKER_2"])
+        let srt = TranscriptWriter.render(t, format: .srt)
+        #expect(srt.contains("Alice: hello there"))
+        #expect(srt.contains("Speaker 2: hi back"))
     }
 
     @Test func `No speakers means byte-identical legacy output in every format`() {
@@ -135,7 +149,7 @@ struct DiarizePathTests {
             audioPath: audio, selection: selection(), formatName: "srt",
             outputPath: dir.appendingPathComponent("out.srt").path, diarize: true)
         let srt = try String(contentsOfFile: outcome.outputPath, encoding: .utf8)
-        #expect(srt.contains("[SPEAKER_1] hello world"))
+        #expect(srt.contains("Speaker 1: hello world"))
     }
 
     @Test func `An all-unlabeled diarize run fails loudly instead of emitting clean output`() async throws {
@@ -303,8 +317,8 @@ struct IdentificationPathTests {
             audioPath: audio, selection: selection(dir.appendingPathComponent("ctx").path),
             formatName: "srt", outputPath: dir.appendingPathComponent("o.srt").path, diarize: true)
         let srt = try String(contentsOfFile: outcome.outputPath, encoding: .utf8)
-        #expect(srt.contains("[Alice] one"))
-        #expect(srt.contains("[SPEAKER_1] two"))
+        #expect(srt.contains("Alice: one"))
+        #expect(srt.contains("Speaker 1: two"))
         #expect(outcome.explanation.contains("voices: 1/1 enrolled, 1 name(s) matched across 1 diarized speaker(s)"))
     }
 
@@ -347,7 +361,7 @@ struct IdentificationPathTests {
             audioPath: audio, selection: selection(nil), formatName: "srt",
             outputPath: dir.appendingPathComponent("o.srt").path, diarize: true)
         let srt = try String(contentsOfFile: outcome.outputPath, encoding: .utf8)
-        #expect(srt.contains("[SPEAKER_1]"))
+        #expect(srt.contains("Speaker 1:"))
         #expect(!outcome.explanation.contains("voices:"))
     }
 }

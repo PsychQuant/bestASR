@@ -1,5 +1,10 @@
 # Changelog
 
+## [Unreleased]
+
+### Changed
+- **Breaking (output format)**: diarized speaker prefixes are now human-readable — SRT/VTT cues read `Speaker 1: text` (was `[SPEAKER_1] text`) and txt lines use the same `Speaker N: ` form; enrolled names render as `Name: `. JSON keeps the internal `SPEAKER_N` label. Downstream parsers of the old bracket form must update. (#54)
+
 All notable changes to bestASR are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow SemVer.
 
