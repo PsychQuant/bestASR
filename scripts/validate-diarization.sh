@@ -61,11 +61,11 @@ echo "$FIXTURE_SHA  $FIXTURE" | shasum -a 256 -c - >/dev/null
 # ── 1+2: two speakers, switch near the boundary ──
 "$BIN" transcribe "$FIXTURE" --model large-v3-turbo --language ja \
   --format srt --output "$WORK/twospk.srt" --diarize >/dev/null
-DISTINCT=$(grep -oE '\[SPEAKER_[0-9]+\]' "$WORK/twospk.srt" | sort -u | wc -l | tr -d ' ')
+DISTINCT=$(grep -oE '^Speaker [0-9]+:' "$WORK/twospk.srt" | sort -u | wc -l | tr -d ' ')
 [ "$DISTINCT" -ge 2 ] || { echo "✗ expected ≥2 distinct speakers, got $DISTINCT"; cat "$WORK/twospk.srt"; exit 1; }
 SWITCH=$(/usr/bin/python3 - "$WORK/twospk.srt" <<'PY'
 import re, sys
-cues = re.findall(r"(\d\d):(\d\d):(\d\d),(\d\d\d) --> .*\n\[(SPEAKER_\d+)\]", open(sys.argv[1]).read())
+cues = re.findall(r"(\d\d):(\d\d):(\d\d),(\d\d\d) --> .*\n(Speaker \d+):", open(sys.argv[1]).read())
 prev = None
 for h, m, s, ms, spk in cues:
     t = int(h)*3600 + int(m)*60 + int(s) + int(ms)/1000
@@ -84,7 +84,7 @@ JFK="${BESTASR_CORPORA_DIR:-$HOME/.bestasr/corpora}/jfk.wav"
 if [ -f "$JFK" ]; then
   "$BIN" transcribe "$JFK" --model large-v3-turbo --language en \
     --format srt --output "$WORK/jfk.srt" --diarize >/dev/null
-  N=$(grep -oE '\[SPEAKER_[0-9]+\]' "$WORK/jfk.srt" | sort -u | wc -l | tr -d ' ')
+  N=$(grep -oE '^Speaker [0-9]+:' "$WORK/jfk.srt" | sort -u | wc -l | tr -d ' ')
   [ "$N" = "1" ] || { echo "✗ jfk negative control: expected 1 speaker, got $N"; exit 1; }
   echo "✓ jfk single-speaker control"
 else
@@ -130,8 +130,8 @@ if [ -f "$ENROLL_HALF" ]; then
   mkdir -p "$IDCTX/voices"
   cp "$ENROLL_HALF" "$IDCTX/voices/TestVoice.wav"
   "$BIN" transcribe "$FIXTURE" --model large-v3-turbo --language ja     --context-dir "$IDCTX" --format srt --output "$WORK/id.srt" --diarize >/dev/null
-  grep -q "\[TestVoice\]" "$WORK/id.srt"     || { echo "✗ enrolled voice not identified (recall)"; cat "$WORK/id.srt"; return 1; }
-  grep -q "\[SPEAKER_1\]" "$WORK/id.srt"     || { echo "✗ stranger lost its ordinal (precision failure)"; cat "$WORK/id.srt"; return 1; }
+  grep -q "^TestVoice:" "$WORK/id.srt"     || { echo "✗ enrolled voice not identified (recall)"; cat "$WORK/id.srt"; return 1; }
+  grep -q "^Speaker 1:" "$WORK/id.srt"     || { echo "✗ stranger lost its ordinal (precision failure)"; cat "$WORK/id.srt"; return 1; }
   # PRECISION: the un-enrolled male's cue must NOT carry TestVoice (#26 verify F8).
   grep -A1 "00:00:00,000" "$WORK/id.srt" | tail -1 | grep -q "TestVoice" \
     && { echo "✗ un-enrolled male misattributed to TestVoice (false positive)"; return 1; }

@@ -101,7 +101,23 @@ public enum TranscriptWriter {
         return "WEBVTT\n\n\(cues)"
     }
 
-    // MARK: - speaker rendering (#25, spec diarization)
+    // MARK: - speaker rendering (#25, spec diarization; display form #54)
+
+    /// Human-readable display form of a speaker label (#54, spec diarization
+    /// "Cue-level speaker diarization on demand"): the internal `SPEAKER_N`
+    /// ordinal renders as `Speaker N`; anything else (an enrolled real name,
+    /// #26) passes through verbatim. JSON keeps the internal label — this
+    /// mapping is a rendering concern only.
+    static func displaySpeaker(_ label: String) -> String {
+        guard label.hasPrefix("SPEAKER_") else { return label }
+        let ordinal = label.dropFirst("SPEAKER_".count)
+        // Internal ordinals are ASCII, 1-based, no leading zero — anything
+        // else (Unicode digits, SPEAKER_01, empty) is not ours to rewrite.
+        guard let first = ordinal.first, ("1"..."9").contains(first),
+            ordinal.unicodeScalars.allSatisfy({ ("0"..."9").contains(Character($0)) })
+        else { return label }
+        return "Speaker \(ordinal)"
+    }
 
     /// Cue text with the diarization prefix when a speaker is known. Without
     /// one this is exactly `seg.text` — the no-diarization output stays
@@ -109,7 +125,7 @@ public enum TranscriptWriter {
     /// byte-identical).
     private static func cueText(_ seg: TranscriptSegment) -> String {
         guard let speaker = seg.speaker else { return seg.text }
-        return "[\(speaker)] \(seg.text)"
+        return "\(displaySpeaker(speaker)): \(seg.text)"
     }
 
     /// txt: legacy behavior is the flat transcript text. When any segment
@@ -120,7 +136,7 @@ public enum TranscriptWriter {
             return transcript.text
         }
         return transcript.segments.map { seg in
-            seg.speaker.map { "\($0): \(seg.text)" } ?? seg.text
+            seg.speaker.map { "\(displaySpeaker($0)): \(seg.text)" } ?? seg.text
         }
         .joined(separator: "\n")
     }

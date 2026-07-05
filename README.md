@@ -208,11 +208,11 @@ bestasr transcribe meeting.m4a --format srt --diarize
 ```
 1
 00:00:00,000 --> 00:00:09,300
-[SPEAKER_1] 先講一下上週的進度……
+Speaker 1: 先講一下上週的進度……
 
 2
 00:00:10,300 --> 00:00:18,000
-[SPEAKER_2] 我這邊模型已經跑完了。
+Speaker 2: 我這邊模型已經跑完了。
 ```
 
 Each cue is labeled with the acoustic speaker that overlaps it most.
@@ -235,7 +235,7 @@ bestasr-context/
 
 ```bash
 bestasr transcribe meeting.m4a --format srt --diarize
-# → [Alice] …, [Bob] …, and any un-enrolled voice stays [SPEAKER_1]
+# → Alice: …, Bob: …, and any un-enrolled voice stays Speaker 1:
 ```
 
 Identification is a post-hoc embedding match against each recording's
