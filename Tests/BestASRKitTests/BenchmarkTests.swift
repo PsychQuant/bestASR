@@ -66,6 +66,26 @@ struct BenchmarkEnumerationTests {
             _ = try await runner.enumerateCandidates(modelFilter: ["gigantic-v9"])
         }
     }
+
+    @Test func `Fluid-parakeet enters the measurement matrix`() async throws {
+        // #35 (spec benchmark "Compute accuracy metric selected by language"):
+        // the live parakeet row enumerates alongside whisper candidates —
+        // same corpora, same normalizer, one measurement matrix.
+        let runner = BenchmarkRunner(
+            engines: [
+                MockEngine.fixed(.whisperKit),
+                MockEngine.fixed(.whisperCpp),
+                MockEngine.fixed(.fluidParakeet),
+            ],
+            host: Fixtures.m5Max
+        )
+        let enumeration = try await runner.enumerateCandidates()
+        #expect(enumeration.candidates.contains(
+            BenchmarkCandidate(backend: .fluidParakeet, model: "0.6b-v3", quantization: "default")))
+        // And the model filter accepts the parakeet size as a grid name.
+        let filtered = try await runner.enumerateCandidates(modelFilter: ["0.6b-v3"])
+        #expect(filtered.candidates.allSatisfy { $0.backend == .fluidParakeet })
+    }
 }
 
 struct BenchmarkMeasurementTests {

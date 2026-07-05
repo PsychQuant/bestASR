@@ -45,6 +45,12 @@ Backends:
   you the exact file name and download URL when one is missing). Quantization
   variants differ per model on HuggingFace — `bestasr list-models` shows the
   hosted set (e.g. tiny/base/small ship `q5_1`, not `q5_0`).
+- **fluid-parakeet** is built in (#35) — the first non-Whisper family in the
+  competition pool, backed by FluidAudio's Parakeet TDT CoreML models
+  (`0.6b-v3`, multilingual with a European-language focus; weights download
+  on demand). It enters `bestasr benchmark`'s measurement matrix and wins
+  routing only on measured merit — for languages it covers poorly (e.g. zh)
+  the whisper candidates keep winning naturally.
 - The model grid additionally carries a **reference catalog** of 15
   MLX-native STT families (Parakeet, Qwen3-ASR, Moonshine, Canary, MMS,
   Voxtral, …) with verified HuggingFace repos and pinned revisions — visible
