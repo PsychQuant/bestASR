@@ -70,9 +70,15 @@ public enum AudioNormalizer {
     /// Streams `source` through ONE AVAudioConverter instance into a 16 kHz
     /// mono wav. A single converter across all chunks keeps the resampler's
     /// filter state continuous — per-chunk converter rebuilds are exactly the
-    /// upstream pattern this normalizer routes around. Reading until the file
-    /// actually runs dry (not until its estimated length) sidesteps the
-    /// unreliable frame counts compressed containers report.
+    /// upstream pattern this normalizer routes around.
+    ///
+    /// EOF strategy: reads up to the container's declared length, with a
+    /// zero-length read as the second stop condition. Compressed containers
+    /// may declare an *estimated* length; behavior for misdeclared lengths
+    /// (VBR over/under-estimates) is tracked as a follow-up with a real
+    /// fixture — the guard below refuses output that is drastically shorter
+    /// than the declaration, so a bad estimate fails loud instead of
+    /// producing a silently truncated file.
     private static func convert(_ source: AVAudioFile, to destination: URL) throws {
         let sourceFormat = source.processingFormat
         guard let outputFormat = AVAudioFormat(
@@ -131,11 +137,12 @@ public enum AudioNormalizer {
                 return nil
             }
             inputBuffer.frameLength = 0
+            // Clamp in Int64 BEFORE the UInt32 conversion: AVAudioFrameCount(remaining)
+            // traps (uncatchable) for remaining > UInt32.max (~27 h at 44.1 kHz) —
+            // function arguments evaluate before min gets a chance to clamp.
+            let framesToRead = AVAudioFrameCount(min(Int64(chunkFrames), remaining))
             do {
-                try source.read(
-                    into: inputBuffer,
-                    frameCount: min(chunkFrames, AVAudioFrameCount(remaining))
-                )
+                try source.read(into: inputBuffer, frameCount: framesToRead)
             } catch {
                 state.error = error
                 outStatus.pointee = .endOfStream
@@ -150,7 +157,7 @@ public enum AudioNormalizer {
             return inputBuffer
         }
 
-        while true {
+        conversion: while true {
             guard let outputBuffer = AVAudioPCMBuffer(
                 pcmFormat: outputFormat, frameCapacity: chunkFrames)
             else {
@@ -176,16 +183,37 @@ public enum AudioNormalizer {
             case .haveData:
                 continue
             case .endOfStream:
-                return
+                break conversion
             case .inputRanDry:
-                // Only reachable when the input block returns .noDataNow,
-                // which this block never does — treat as exhausted.
-                return
+                // Only reachable when the input block returns .noDataNow, which
+                // this block never does. If the converter reports it anyway the
+                // state machine's invariant is broken — fail loud rather than
+                // return a silently partial file (#36's whole failure family).
+                throw NormalizationError(
+                    message: "converter reported inputRanDry, which this pull "
+                        + "loop never signals — refusing to emit a partial file")
             case .error:
                 throw NormalizationError(message: "converter reported an error status")
             @unknown default:
                 throw NormalizationError(
                     message: "converter returned unknown status \(status.rawValue)")
+            }
+        }
+
+        // Degenerate-output guard: a conversion that "succeeds" while emitting
+        // drastically less audio than the container declared is #36's failure
+        // signature (87 minutes in, one 30-second cue out). The 50% floor is
+        // deliberately loose — declared lengths on compressed containers are
+        // estimates with a few percent error, never half.
+        let sourceRate = source.fileFormat.sampleRate
+        if sourceRate > 0, source.length > 0 {
+            let expectedFrames = Double(source.length) / sourceRate * targetSampleRate
+            if Double(output.length) < expectedFrames * 0.5 {
+                throw NormalizationError(
+                    message: "conversion produced \(output.length) frames where about "
+                        + "\(Int(expectedFrames)) were declared — refusing the "
+                        + "drastically truncated output"
+                )
             }
         }
     }

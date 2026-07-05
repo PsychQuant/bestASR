@@ -24,7 +24,10 @@ struct AudioNormalizerTests {
     @Test func `44_1 kHz stereo audio converts to a temporary 16 kHz mono file`() throws {
         let dir = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: dir) }
-        let path = try makeWavFile(in: dir, seconds: 2.0, sampleRate: 44100, channels: 2)
+        // A 440 Hz tone, not silence: the original failure emitted format-valid
+        // output whose CONTENT was gone, so the assertion must cover both.
+        let path = try makeWavFile(
+            in: dir, seconds: 2.0, sampleRate: 44100, channels: 2, toneHz: 440)
 
         let normalized = try AudioNormalizer.normalize(audioPath: path)
         defer { normalized.cleanup() }
@@ -39,6 +42,19 @@ struct AudioNormalizerTests {
         // almost all content, not a few priming frames).
         let duration = Double(converted.length) / converted.fileFormat.sampleRate
         #expect(abs(duration - 2.0) < 0.05)
+        // Content must survive too: the tone's amplitude stays near 0.5 after
+        // stereo downmix + resampling. A zeroing converter fails here.
+        let frames = AVAudioFrameCount(converted.length)
+        let readBuffer = AVAudioPCMBuffer(
+            pcmFormat: converted.processingFormat, frameCapacity: frames)!
+        try converted.read(into: readBuffer)
+        var peak: Float = 0
+        if let data = readBuffer.floatChannelData {
+            for frame in 0..<Int(readBuffer.frameLength) {
+                peak = max(peak, abs(data[0][frame]))
+            }
+        }
+        #expect(peak > 0.2)
     }
 
     @Test func `Sample rate alone triggers conversion`() throws {
