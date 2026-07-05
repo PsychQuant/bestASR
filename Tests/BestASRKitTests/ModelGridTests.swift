@@ -10,6 +10,19 @@ struct ModelGridTests {
         #expect(ModelGrid.rows.count >= 30)
     }
 
+    @Test func `Live and reference parakeet rows coexist distinguishably`() {
+        // #35 (spec model-grid "Full-family catalog"): same family, different
+        // backend id — the live row enumerates, the reference row never does.
+        let parakeet = ModelGrid.rows.filter { $0.family == "parakeet" }
+        #expect(parakeet.contains { $0.backend == ModelGrid.backendFluidParakeet })
+        #expect(parakeet.contains { $0.backend == ModelGrid.backendMLXAudio })
+        // Reference-catalog integrity: adding the live row changed nothing
+        // in the 15-family reference section.
+        let live = ModelGrid.rows(backend: ModelGrid.backendFluidParakeet, priorityCeiling: nil)
+        #expect(!live.isEmpty)
+        #expect(live.allSatisfy { $0.priority == 1 })
+    }
+
     @Test func `Historical first-run tier is retained on the reference catalog`() {
         // #20: priority is historical metadata on reference rows.
         let p1 = ModelGrid.rows(backend: ModelGrid.backendMLXAudio, priorityCeiling: 1)

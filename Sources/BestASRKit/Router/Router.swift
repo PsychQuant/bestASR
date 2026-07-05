@@ -19,10 +19,12 @@ public enum Router {
         var warnings: [String] = []
 
         // Validate overrides early (usage errors, not silent acceptance).
-        if let modelOverride, !ModelRegistry.isSupportedModel(modelOverride) {
+        // Runnable = whisper sizes plus live non-Whisper rows (#35); the
+        // mlx-audio section stays a reference catalog with no bundled backend.
+        if let modelOverride, !ModelRegistry.isRunnableModel(modelOverride) {
             throw BestASRError.usage(
                 "unknown model: '\(modelOverride)'; run list-models for the "
-                    + "runnable catalog (whisper sizes — the mlx-audio section is a "
+                    + "runnable catalog (the mlx-audio section is a "
                     + "reference catalog with no bundled backend)"
             )
         }
@@ -36,8 +38,12 @@ public enum Router {
             return id
         }
 
-        // Availability, in preference order (spec: whisperkit first).
-        let availableOrdered: [BackendID] = [.whisperKit, .whisperCpp].filter {
+        // Availability, in preference order (spec: whisperkit first). Every
+        // backend with a bundled engine enumerates (#35, spec asr-routing) —
+        // the measured tier ranks across families; the cold-start prior below
+        // still walks its whisper chain, so an unmeasured family is never
+        // proposed without evidence.
+        let availableOrdered: [BackendID] = [.whisperKit, .whisperCpp, .fluidParakeet].filter {
             availability[$0] == true
         }
         guard !availableOrdered.isEmpty else {

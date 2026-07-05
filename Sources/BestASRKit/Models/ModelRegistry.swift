@@ -70,6 +70,16 @@ public enum ModelRegistry {
         supportedModels.contains(name)
     }
 
+    /// Whether a model name is runnable on ANY live-engine backend — whisper
+    /// sizes plus live non-Whisper rows (#35). Reference rows (mlx-audio)
+    /// stay excluded: no bundled backend can run them.
+    public static func isRunnableModel(_ name: String) -> Bool {
+        isSupportedModel(name)
+            || ModelGrid.rows.contains {
+                $0.backend == ModelGrid.backendFluidParakeet && $0.size == name
+            }
+    }
+
     /// Static memory estimate for cold-start feasibility (spec asr-engine:
     /// Estimate model requirements). Unknown model names are a caller bug.
     public static func requirements(for model: String) throws -> ModelRequirements {
