@@ -137,7 +137,7 @@ bestasr transcribe -- "$SRC" --format srt --output "./$(來源檔名).srt" --exp
 **承接 bestASR 全部能力**（依使用者需要，加在 `bestasr transcribe` 上）：
 - `--profile low|medium|high|xhigh|max`：effort 檔位（預設 `auto` 依機器狀態選；`max` = 不計時間最準）
 - `--context-dir <dir>`：領域術語／人名 prompt biasing（先跑 context-ingest 產 context.json）
-- `--diarize`：多說話人標 `[SPEAKER_N]`（voices/ 有 enrollment 則標真名）
+- `--diarize`：多說話人標 `Speaker N:` 前綴（voices/ 有 enrollment 則標 `Name:` 真名）
 - `--language <code>`：指定語言（省略則自動偵測）
 
 ### 3. 字幕來源正規化（現成字幕，不 ASR）
