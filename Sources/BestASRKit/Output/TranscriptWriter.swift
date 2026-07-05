@@ -109,9 +109,12 @@ public enum TranscriptWriter {
     /// #26) passes through verbatim. JSON keeps the internal label — this
     /// mapping is a rendering concern only.
     static func displaySpeaker(_ label: String) -> String {
-        guard label.hasPrefix("SPEAKER_"),
-            case let ordinal = label.dropFirst("SPEAKER_".count),
-            !ordinal.isEmpty, ordinal.allSatisfy(\.isNumber)
+        guard label.hasPrefix("SPEAKER_") else { return label }
+        let ordinal = label.dropFirst("SPEAKER_".count)
+        // Internal ordinals are ASCII, 1-based, no leading zero — anything
+        // else (Unicode digits, SPEAKER_01, empty) is not ours to rewrite.
+        guard let first = ordinal.first, ("1"..."9").contains(first),
+            ordinal.unicodeScalars.allSatisfy({ ("0"..."9").contains(Character($0)) })
         else { return label }
         return "Speaker \(ordinal)"
     }

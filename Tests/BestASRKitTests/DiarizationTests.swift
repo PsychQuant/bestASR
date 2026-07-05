@@ -107,6 +107,24 @@ struct SpeakerRenderingTests {
         let srt = TranscriptWriter.render(t, format: .srt)
         #expect(srt.contains("Alice: hello there"))
         #expect(srt.contains("Speaker 2: hi back"))
+        let vtt = TranscriptWriter.render(t, format: .vtt)
+        #expect(!vtt.contains("[SPEAKER"))
+        let txt = TranscriptWriter.render(t, format: .txt)
+        #expect(!txt.contains("SPEAKER_2:"))
+    }
+
+    @Test func `Display mapping only rewrites well-formed ASCII ordinals`() {
+        // #54 verify (codex): internal labels are ASCII 1-based ordinals with
+        // no leading zero — anything else passes through verbatim rather than
+        // being claimed by the display mapper.
+        #expect(TranscriptWriter.displaySpeaker("SPEAKER_1") == "Speaker 1")
+        #expect(TranscriptWriter.displaySpeaker("SPEAKER_12") == "Speaker 12")
+        #expect(TranscriptWriter.displaySpeaker("SPEAKER_") == "SPEAKER_")
+        #expect(TranscriptWriter.displaySpeaker("SPEAKER_0") == "SPEAKER_0")
+        #expect(TranscriptWriter.displaySpeaker("SPEAKER_01") == "SPEAKER_01")
+        #expect(TranscriptWriter.displaySpeaker("SPEAKER_１") == "SPEAKER_１")  // fullwidth digit
+        #expect(TranscriptWriter.displaySpeaker("SPEAKER_1x") == "SPEAKER_1x")
+        #expect(TranscriptWriter.displaySpeaker("Alice") == "Alice")
     }
 
     @Test func `No speakers means byte-identical legacy output in every format`() {

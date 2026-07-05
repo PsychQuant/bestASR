@@ -29,6 +29,6 @@
 
 - Affected specs: cli, diarization
 - Affected code:
-  - Modified: Sources/BestASRKit/Output/TranscriptWriter.swift, Tests/BestASRKitTests/OutputTests.swift
+  - Modified: Sources/BestASRKit/Output/TranscriptWriter.swift, Tests/BestASRKitTests/DiarizationTests.swift
   - New: (none)
   - Removed: (none)
