@@ -206,7 +206,8 @@ public struct BenchmarkRunner {
                 let peakMemoryGB = max(probe.memoryGB() - memoryBefore, 0)
 
                 let errorRate = ErrorRate.compute(
-                    hypothesis: transcript.text, reference: referenceText, kind: metricKind)
+                    hypothesis: transcript.text, reference: referenceText, kind: metricKind,
+                    language: language)
 
                 // Optional second pass with the context prompt (spec benchmark:
                 // Measure the context-biasing delta). Model is warm; failures
@@ -224,7 +225,7 @@ public struct BenchmarkRunner {
                     {
                         contextErrorRate = ErrorRate.compute(
                             hypothesis: contextTranscript.text,
-                            reference: referenceText, kind: metricKind)
+                            reference: referenceText, kind: metricKind, language: language)
                     }
                 }
                 let record = BenchmarkRecord(

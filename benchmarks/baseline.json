@@ -1,0 +1,98 @@
+[
+  {
+    "corpus": "jfk",
+    "language": "en",
+    "model": "large-v3-turbo",
+    "metric": "wer",
+    "golden": 0,
+    "tolerance": 0.02
+  },
+  {
+    "corpus": "osr-harvard-1",
+    "language": "en",
+    "model": "large-v3-turbo",
+    "metric": "wer",
+    "golden": 0.0375,
+    "tolerance": 0.02
+  },
+  {
+    "corpus": "osr-harvard-2",
+    "language": "en",
+    "model": "large-v3-turbo",
+    "metric": "wer",
+    "golden": 0.0253,
+    "tolerance": 0.02
+  },
+  {
+    "corpus": "osr-harvard-3",
+    "language": "en",
+    "model": "large-v3-turbo",
+    "metric": "wer",
+    "golden": 0.0247,
+    "tolerance": 0.02
+  },
+  {
+    "corpus": "fleurs-ja-1",
+    "language": "ja",
+    "model": "large-v3-turbo",
+    "metric": "cer",
+    "golden": 0.1061,
+    "tolerance": 0.02
+  },
+  {
+    "corpus": "fleurs-ja-2",
+    "language": "ja",
+    "model": "large-v3-turbo",
+    "metric": "cer",
+    "golden": 0.1206,
+    "tolerance": 0.02
+  },
+  {
+    "corpus": "fleurs-ja-3",
+    "language": "ja",
+    "model": "large-v3-turbo",
+    "metric": "cer",
+    "golden": 0.0717,
+    "tolerance": 0.02
+  },
+  {
+    "corpus": "fleurs-ja-4",
+    "language": "ja",
+    "model": "large-v3-turbo",
+    "metric": "cer",
+    "golden": 0.0875,
+    "tolerance": 0.02
+  },
+  {
+    "corpus": "cv-zhtw-1",
+    "language": "zh",
+    "model": "large-v3-turbo",
+    "metric": "cer",
+    "golden": 0.1549,
+    "tolerance": 0.02
+  },
+  {
+    "corpus": "cv-zhtw-2",
+    "language": "zh",
+    "model": "large-v3-turbo",
+    "metric": "cer",
+    "golden": 0.125,
+    "tolerance": 0.02
+  },
+  {
+    "corpus": "cv-zhtw-3",
+    "language": "zh",
+    "model": "large-v3-turbo",
+    "metric": "cer",
+    "golden": 0.0921,
+    "tolerance": 0.02
+  },
+  {
+    "corpus": "cv-zhtw-4",
+    "language": "zh",
+    "model": "large-v3-turbo",
+    "metric": "cer",
+    "golden": 0.2097,
+    "tolerance": 0.02
+  }
+]

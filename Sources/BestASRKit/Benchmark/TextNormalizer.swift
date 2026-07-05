@@ -20,4 +20,15 @@ public enum TextNormalizer {
             .joined(separator: " ")
         return collapsed
     }
+
+    /// Traditional→Simplified Han fold for zh metric comparison ONLY (#34 D7).
+    /// Whisper-family models emit Simplified by default while this project's
+    /// Chinese references are Traditional; folding BOTH sides (the well-defined
+    /// many-to-one direction) makes CER measure recognition content instead of
+    /// output script. Uses the system ICU transform — zero external deps.
+    /// Never applied to ja/ko (Japanese kanji must not be rewritten) and never
+    /// to the transcript files delivered to the user.
+    public static func foldHanToSimplified(_ text: String) -> String {
+        text.applyingTransform(StringTransform("Hant-Hans"), reverse: false) ?? text
+    }
 }
