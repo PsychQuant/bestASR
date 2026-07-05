@@ -81,6 +81,51 @@ struct RouterCrossFamilyTests {
         #expect(rec.model == "0.6b-v3")
     }
 
+    @Test func `Locked fluid-parakeet without records routes to its own catalog model`() throws {
+        // Verify H2 (#35): the natural "benchmarked whisper, now try parakeet"
+        // first step — no parakeet records, --backend fluid-parakeet, no
+        // --model. The cold-start prior only knows whisper sizes; the router
+        // must fall back to the locked backend's own catalog instead of
+        // throwing about a whisper model the user never asked for.
+        let rec = try Router.recommend(
+            host: Fixtures.m5Max, profile: .high, requestedLanguage: "en",
+            backendOverride: "fluid-parakeet", modelOverride: nil,
+            records: [], availability: allThreeAvailable
+        )
+        #expect(rec.backend == .fluidParakeet)
+        #expect(rec.model == "0.6b-v3")
+        #expect(rec.dataSource == .coldStartPrior)
+    }
+
+    @Test func `A measured-but-worse parakeet zh record never outranks whisper`() throws {
+        // Codex finding (#35 verify): the zh fairness case with BOTH families
+        // measured — family diversity must not override measured evidence.
+        let records = [
+            Fixtures.record(backend: .whisperKit, model: "large-v3-turbo",
+                            language: "zh", errorRate: 0.06, timesRealtime: 12),
+            Fixtures.record(backend: .fluidParakeet, model: "0.6b-v3",
+                            language: "zh", errorRate: 0.55, timesRealtime: 30),
+        ]
+        let rec = try Router.recommend(
+            host: Fixtures.m5Max, profile: .high, requestedLanguage: "zh",
+            backendOverride: nil, modelOverride: nil,
+            records: records, availability: allThreeAvailable
+        )
+        #expect(rec.backend == .whisperKit)
+    }
+
+    @Test func `Cross-family backend and model mismatch fails loud as a usage error`() throws {
+        // Codex + Security L5 (#35 verify): whisperkit cannot run the
+        // parakeet size — the router must throw, never silently fall back.
+        #expect(throws: BestASRError.self) {
+            _ = try Router.recommend(
+                host: Fixtures.m5Max, profile: .high, requestedLanguage: "en",
+                backendOverride: "whisperkit", modelOverride: "0.6b-v3",
+                records: [], availability: allThreeAvailable
+            )
+        }
+    }
+
     @Test func `Cold start still prefers the whisper prior over an unmeasured family`() throws {
         // No records at all: the cold-start prior stays on the whisper chain
         // (an unmeasured family must not be recommended without evidence).

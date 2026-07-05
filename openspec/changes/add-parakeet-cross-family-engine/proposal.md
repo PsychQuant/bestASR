@@ -39,7 +39,7 @@ FluidAudio（0.15.4，#25 diarization 已 exact-pin）自帶 Parakeet ASR（TDT 
 - Affected specs: parakeet-engine (new), asr-engine, asr-routing, model-grid, benchmark
 - Affected code:
   - New: Sources/BestASRKit/Engines/ParakeetEngine.swift, Tests/BestASRKitTests/ParakeetEngineTests.swift
-  - Modified: Sources/BestASRKit/Models/DataModels.swift, Sources/BestASRKit/Models/ModelGrid.swift, Sources/BestASRKit/Models/ModelRegistry.swift, Sources/BestASRKit/CommandCore.swift, Sources/BestASRKit/Benchmark/BenchmarkRunner.swift, Sources/bestasr/BestASRCommand.swift, Tests/BestASRKitTests/RouterTests.swift, Tests/BestASRKitTests/ModelGridTests.swift
+  - Modified: Sources/BestASRKit/Models/DataModels.swift（BenchmarkRunner 經評估無需修改——枚舉為 engine+grid 資料驅動）, Sources/BestASRKit/Models/ModelGrid.swift, Sources/BestASRKit/Models/ModelRegistry.swift, Sources/BestASRKit/CommandCore.swift, Sources/bestasr/BestASRCommand.swift, Tests/BestASRKitTests/RouterTests.swift, Tests/BestASRKitTests/ModelGridTests.swift
   - Removed: (none)
 
 ## Assumptions（unattended 決策，可挑戰）

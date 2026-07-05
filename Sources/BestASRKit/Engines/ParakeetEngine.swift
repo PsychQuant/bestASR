@@ -154,14 +154,19 @@ public struct ParakeetEngine: Engine {
     }
 
     /// Groups token timings into raw segments at natural pauses; degrades to
-    /// one full-text segment when timings are absent.
+    /// one full-text segment when timings are absent — or when they
+    /// reconstruct to nothing (all-whitespace tokens), so `output.text` is
+    /// never silently dropped (#35 verify M1).
     static func segments(from output: ParakeetOutput) -> [RawTranscription.RawSegment] {
-        guard let timings = output.tokenTimings, !timings.isEmpty else {
+        func fullTextSegment() -> [RawTranscription.RawSegment] {
             let text = output.text.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !text.isEmpty else { return [] }
             return [
                 .init(start: 0, end: output.duration, text: text, confidence: output.confidence)
             ]
+        }
+        guard let timings = output.tokenTimings, !timings.isEmpty else {
+            return fullTextSegment()
         }
 
         var segments: [RawTranscription.RawSegment] = []
@@ -169,9 +174,15 @@ public struct ParakeetEngine: Engine {
 
         func flush() {
             guard let first = groupTokens.first, let last = groupTokens.last else { return }
-            let text = groupTokens.map(\.token).joined()
+            var text = groupTokens.map(\.token).joined()
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             if !text.isEmpty {
+                // Seam contract (#35 verify H1): Engine.transcribe joins
+                // segment texts with NO separator — every segment after the
+                // first carries its own leading space (as WhisperKit's do),
+                // or pause boundaries would glue words together and inflate
+                // this family's measured WER.
+                if !segments.isEmpty { text = " " + text }
                 segments.append(
                     .init(
                         start: first.startTime, end: last.endTime,
@@ -188,6 +199,7 @@ public struct ParakeetEngine: Engine {
             groupTokens.append(timing)
         }
         flush()
+        guard !segments.isEmpty else { return fullTextSegment() }
         return segments
     }
 }

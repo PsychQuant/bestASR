@@ -47,13 +47,62 @@ struct ParakeetEngineTests {
         #expect(raw.segments[0].text == "hello world")
         #expect(raw.segments[0].start == 0.0)
         #expect(raw.segments[0].end == 1.0)
-        #expect(raw.segments[1].text == "again")
+        // Leading space on segments after the first is the seam contract
+        // (Engine.transcribe joins with no separator — verify H1).
+        #expect(raw.segments[1].text == " again")
         #expect(raw.segments[1].start == 2.4)
         #expect(raw.segments[1].end == 3.0)
         #expect(raw.duration == 3.0)
         // Whole-result confidence flows onto every segment (Parakeet reports
         // one confidence per transcription, not per segment).
         #expect(raw.segments.allSatisfy { $0.confidence.map { $0 > 0.8 } ?? false })
+    }
+
+    @Test func `Multi-segment transcripts keep word boundaries through the seam join`() async throws {
+        // Verify H1 (#35): Engine.transcribe joins segment texts with NO
+        // separator — the seam contract is that every segment from the second
+        // on carries its own leading space (WhisperKit does; EngineTests locks
+        // it). A trimming mapper glues words across every >0.8s pause and
+        // systematically inflates measured WER for this family only.
+        let engine = ParakeetEngine(pipelineFactory: { _ in
+            SpyPipeline { _, _ in
+                ParakeetOutput(
+                    text: "hello world again",
+                    confidence: 0.9,
+                    duration: 3.0,
+                    tokenTimings: [
+                        .init(token: "hello", startTime: 0.0, endTime: 0.5),
+                        .init(token: " world", startTime: 0.5, endTime: 1.0),
+                        .init(token: " again", startTime: 2.4, endTime: 3.0),
+                    ]
+                )
+            }
+        })
+        let transcript = try await engine.transcribe(
+            audioPath: "clip.wav", options: options)
+        #expect(transcript.text == "hello world again")
+    }
+
+    @Test func `Timings that reconstruct to nothing fall back to the full text`() async throws {
+        // Verify M1 (#35): non-empty tokenTimings whose tokens are all
+        // whitespace must not silently drop output.text.
+        let engine = ParakeetEngine(pipelineFactory: { _ in
+            SpyPipeline { _, _ in
+                ParakeetOutput(
+                    text: "real text survives",
+                    confidence: 0.8,
+                    duration: 2.0,
+                    tokenTimings: [
+                        .init(token: " ", startTime: 0.0, endTime: 0.5),
+                        .init(token: "  ", startTime: 0.5, endTime: 1.0),
+                    ]
+                )
+            }
+        })
+        let raw = try await engine.transcribeRaw(audioPath: "clip.wav", options: options)
+        try #require(raw.segments.count == 1)
+        #expect(raw.segments[0].text == "real text survives")
+        #expect(raw.segments[0].end == 2.0)
     }
 
     @Test func `Missing token timings degrade to a single full-text segment`() async throws {

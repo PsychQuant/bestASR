@@ -23,12 +23,18 @@ public enum ModelRegistry {
     /// fluid-parakeet size names are disjoint, so the union stays keyed by
     /// size alone (#35).
     private static var memoryEstimates: [String: Double] {
-        Dictionary(uniqueKeysWithValues: ModelGrid.rows
-            .filter {
-                $0.backend == ModelGrid.backendWhisperKit
-                    || $0.backend == ModelGrid.backendFluidParakeet
-            }
-            .map { ($0.size, $0.estMemoryGB) })
+        // uniquingKeysWith: a future duplicate size (second parakeet quant
+        // row, or a family collision) must degrade to the conservative max
+        // estimate, not runtime-trap on first requirements() call (#35
+        // verify M2).
+        Dictionary(
+            ModelGrid.rows
+                .filter {
+                    $0.backend == ModelGrid.backendWhisperKit
+                        || $0.backend == ModelGrid.backendFluidParakeet
+                }
+                .map { ($0.size, $0.estMemoryGB) },
+            uniquingKeysWith: max)
     }
 
     /// Candidate models per profile (design brief §7.4, carried into the
