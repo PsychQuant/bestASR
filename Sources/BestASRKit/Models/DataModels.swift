@@ -1,7 +1,7 @@
 import Foundation
 
 public enum BestASRVersion {
-    public static let current = "0.9.0"
+    public static let current = "0.10.0"
 }
 
 // MARK: - Backends
@@ -66,14 +66,23 @@ public struct TranscribeOptions: Sendable, Equatable {
     /// Rendered context vocabulary (spec asr-engine: forwarded to the
     /// backend's prompt mechanism; nil adds nothing to the invocation).
     public let prompt: String?
+    /// Disable temperature-fallback re-decoding so the same audio always
+    /// yields the same text (#34 regression gate). Whisper decoders retry
+    /// low-quality segments at temperature > 0 — stochastic sampling that was
+    /// observed live to flip a corpus CER between runs. The gate's canary
+    /// needs reproducibility more than the occasional rescue; normal
+    /// transcription keeps the fallback.
+    public let deterministicDecode: Bool
 
     public init(
-        model: String, quantization: String, language: String? = nil, prompt: String? = nil
+        model: String, quantization: String, language: String? = nil, prompt: String? = nil,
+        deterministicDecode: Bool = false
     ) {
         self.model = model
         self.quantization = quantization
         self.language = language
         self.prompt = prompt
+        self.deterministicDecode = deterministicDecode
     }
 }
 

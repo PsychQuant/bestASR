@@ -147,6 +147,14 @@ struct Benchmark: AsyncParsableCommand {
     @Flag(help: "Widen the sweep to every grid tier (default: priority-1 rows only)")
     var allGrid = false
 
+    @Flag(
+        help: """
+            Disable temperature-fallback re-decoding so the same audio always \
+            yields the same text (used by scripts/regression-gate.sh — the \
+            canary must be reproducible; normal transcription keeps the fallback)
+            """)
+    var decodeDeterministic = false
+
     @Flag(help: "Emit machine-readable JSON instead of the table")
     var json = false
 
@@ -162,7 +170,8 @@ struct Benchmark: AsyncParsableCommand {
                     profileName: profile,
                     asJSON: json,
                     contextDir: contextDir,
-                    allGrid: allGrid
+                    allGrid: allGrid,
+                    decodeDeterministic: decodeDeterministic
                 )
             )
         }
