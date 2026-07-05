@@ -50,12 +50,20 @@ func makeTempDir() throws -> URL {
     return url
 }
 
-/// Writes a real 16 kHz mono wav (silence) so AVFoundation has something to read.
-func makeWavFile(in dir: URL, seconds: Double = 1.0, name: String = "clip.wav") throws -> String {
+/// Writes a real wav (silence) so AVFoundation has something to read.
+/// Defaults to the 16 kHz mono the engines expect; other rates/channel
+/// counts exercise the AudioNormalizer conversion path (#36).
+func makeWavFile(
+    in dir: URL,
+    seconds: Double = 1.0,
+    name: String = "clip.wav",
+    sampleRate: Double = 16000,
+    channels: AVAudioChannelCount = 1
+) throws -> String {
     let url = dir.appendingPathComponent(name)
-    let format = AVAudioFormat(standardFormatWithSampleRate: 16000, channels: 1)!
+    let format = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: channels)!
     let file = try AVAudioFile(forWriting: url, settings: format.settings)
-    let frames = AVAudioFrameCount(16000 * seconds)
+    let frames = AVAudioFrameCount(sampleRate * seconds)
     let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frames)!
     buffer.frameLength = frames
     try file.write(from: buffer)

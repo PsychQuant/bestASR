@@ -72,9 +72,26 @@ extension Engine {
     /// normalized Transcript): segments ordered by start, 1-based ids, full
     /// text concatenated, duration defaulting to the last segment's end.
     public func transcribe(audioPath: String, options: TranscribeOptions) async throws -> Transcript {
+        // Engines only ever see 16 kHz mono input (#36): WhisperKit's own
+        // resample path corrupts long compressed files (87-minute mp3 →
+        // garbage transcript with exit 0), so normalization happens once at
+        // this shared seam for every backend. Unreadable input passes
+        // through — the engine keeps its established error surface.
+        let normalized: AudioNormalizer.NormalizedAudio
+        do {
+            normalized = try AudioNormalizer.normalize(audioPath: audioPath)
+        } catch {
+            throw TranscriptionError(
+                backend: id.rawValue,
+                message: "\(audioPath): \(error.localizedDescription)",
+                underlying: error
+            )
+        }
+        defer { normalized.cleanup() }
+
         let raw: RawTranscription
         do {
-            raw = try await transcribeRaw(audioPath: audioPath, options: options)
+            raw = try await transcribeRaw(audioPath: normalized.path, options: options)
         } catch let error as TranscriptionError {
             throw error
         } catch {
