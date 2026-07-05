@@ -27,6 +27,6 @@ Design decisions map to tasks as follows (lexical anchors for the analyzer):
 
 ## 4. Benchmark + 實測 + specs
 
-- [ ] 4.1 (design D5; spec benchmark "Compute accuracy metric selected by language") BenchmarkRunner 將 fluid-parakeet 納入量測矩陣（同一 corpora、同一 TextNormalizer 後計 WER/CER）；本機實跑一輪 en corpus 確認 record 落 store（backend 欄位 fluid-parakeet）、`recommend` 對 en 音檔能引用其 measured 證據。實測後把 3.1 的 verified 翻真。驗證：BenchmarkTests 綠 + 實跑輸出貼 PR
+- [x] 4.1 (design D5; spec benchmark "Compute accuracy metric selected by language") BenchmarkRunner 將 fluid-parakeet 納入量測矩陣（同一 corpora、同一 TextNormalizer 後計 WER/CER）；本機實跑一輪 en corpus 確認 record 落 store（backend 欄位 fluid-parakeet）、`recommend` 對 en 音檔能引用其 measured 證據。實測後把 3.1 的 verified 翻真。驗證：BenchmarkTests 綠 + 實跑輸出貼 PR
 - [x] [P] 4.2 README backend 表格與 CLI help 文案更新（--backend 值域、第三 backend 說明、Parakeet 語言覆蓋註記）。驗證：docs 與 `bestasr list-backends` 輸出一致
-- [ ] [P] 4.3 開 2 個 follow-up issues：(a) 中文 high-value 家族（Qwen3-ASR via MLX-Swift）評估；(b) external-process engine 協定（長尾家族）。各附本 change 的 design D1-D6 連結。驗證：issue URLs 記入 PR body
+- [x] [P] 4.3 開 2 個 follow-up issues：(a) 中文 high-value 家族（Qwen3-ASR via MLX-Swift）評估；(b) external-process engine 協定（長尾家族）。各附本 change 的 design D1-D6 連結。驗證：issue URLs 記入 PR body
