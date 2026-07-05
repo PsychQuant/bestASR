@@ -3,7 +3,7 @@
 All notable changes to bestASR are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow SemVer.
 
-## [Unreleased]
+## [0.10.0] - 2026-07-06
 
 ### Added
 
