@@ -26,15 +26,15 @@ public enum ModelGrid {
     /// engine. Distinct from the mlx-audio parakeet REFERENCE row — same
     /// family, different backend id, and this one enumerates as a benchmark
     /// candidate. Model weights are managed by the pinned FluidAudio release
-    /// (SwiftPM exact: 0.15.4 is the supply-chain anchor), so no repo id is
-    /// carried here — the unverified-rows invariant (#5) forbids one until a
-    /// hub probe; `verified` and the repo id land together after the first
-    /// on-device measurement (task 4.1).
+    /// (SwiftPM exact: 0.15.4 is the supply-chain anchor; no per-file HF
+    /// revision pin at this layer). `verified` = live-measured on-device
+    /// (2026-07-06, task 4.1: WER 0.0% / 161.6x realtime on the en probe;
+    /// the repo id is the one FluidAudio actually downloaded from).
     static let fluidParakeetRows: [ModelRow] = [
         ModelRow(
             backend: backendFluidParakeet, family: "parakeet", size: "0.6b-v3",
-            quantization: "default",
-            languages: ["multi"], estMemoryGB: 2.0, priority: 1, verified: false)
+            quantization: "default", hfRepo: "FluidInference/parakeet-tdt-0.6b-v3-coreml",
+            languages: ["multi"], estMemoryGB: 2.0, priority: 1, verified: true)
     ]
 
     /// Existing backends: live-validated all session — verified, priority 1.
