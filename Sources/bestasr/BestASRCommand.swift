@@ -214,8 +214,9 @@ struct SelectionOptions: ParsableArguments {
     var profile: String = "auto"
 
     @Option(
-        help: "Force a backend: auto | "
-            + BackendID.allCases.map(\.rawValue).joined(separator: " | "))
+        help: ArgumentHelp(
+            "Force a backend: auto | "
+                + BackendID.allCases.map(\.rawValue).joined(separator: " | ")))
     var backend: String = "auto"
 
     @Option(
