@@ -21,14 +21,14 @@
 - [x] 4.3 Tests/BestASRKitTests/RegressionBaselineTests.swift：baseline.json schema 合法性 + 比對邏輯單元測試（tolerance 邊界、缺條目報錯、只判 accuracy 不判速度）
 
 ## 5. Spec + 文件
-- [ ] 5.1 [P] corpora spec MODIFIED 套用（en + zh/ja standard set 語言組成 + 規模；繁中取代簡體）
-- [ ] 5.2 [P] regression-benchmark spec ADDED 套用（baseline + gate 兩 requirement）
-- [ ] 5.3 [P] README：三語言 benchmark 段落——「中文」明指繁體、regression gate 用法、machine-independent（只 gate 準確度不 gate 速度）說明
+- [x] 5.1 [P] corpora spec MODIFIED 套用（en + zh/ja standard set 語言組成 + 規模；繁中取代簡體）
+- [x] 5.2 [P] regression-benchmark spec ADDED 套用（baseline + gate 兩 requirement）
+- [x] 5.3 [P] README：三語言 benchmark 段落——「中文」明指繁體、regression gate 用法、machine-independent（只 gate 準確度不 gate 速度）說明
 
 ## 6. 收尾
-- [ ] 6.1 spectra validate + 全套件（swift test）綠
-- [ ] 6.2 regression-gate.sh live：未退步 build exit 0；人為改一個 golden 到不可達 → exit 1 並指出該 corpus（對應 "an accuracy regression fails loudly" scenario）
-- [ ] 6.3 fetch-corpora.sh live：corpus list 顯示三語言各 3-5 corpus、無簡體、繁中源 Common Voice zh-TW（對應 "one command registers Traditional Chinese and ja corpora" scenario）
+- [x] 6.1 spectra validate + 全套件（swift test）綠
+- [x] 6.2 regression-gate.sh live：未退步 build exit 0；人為改一個 golden 到不可達 → exit 1 並指出該 corpus（對應 "an accuracy regression fails loudly" scenario）
+- [x] 6.3 fetch-corpora.sh live：corpus list 顯示三語言各 3-5 corpus、無簡體、繁中源 Common Voice zh-TW（對應 "one command registers Traditional Chinese and ja corpora" scenario）
 
 ## 7. 繁中 script 正規化（mid-apply 裁決，design "D7 — zh 的 CER 做 script 正規化（雙側 Hant→Hans，mid-apply 裁決 2026-07-05）"）
 - [x] 7.1 TDD：ErrorRate/TextNormalizer 對 language zh 的 CER 比對前雙側 Hant→Hans（ICU StringTransform）；ja/ko/en 不動；spec 既有 CER example（今天天氣好）行為保持；新 scenario（簡體 hypothesis vs 繁體 reference → CER 0）；BenchmarkRunner 兩處 compute call site 傳 language；重播種 zh golden

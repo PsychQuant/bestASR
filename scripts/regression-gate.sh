@@ -67,9 +67,11 @@ if [ "$FAILED_RUNS" -gt 0 ]; then
 fi
 
 echo ""
-/usr/bin/python3 "$COMPARE" <<JSON
+# set -e would kill the script on a failing compare BEFORE any assignment ran;
+# capture the status through an if so the FAILED_RUNS combination stays explicit.
+if /usr/bin/python3 "$COMPARE" <<JSON
 {"baseline": $(cat "$BASELINE"), "measured": $MEASURED}
 JSON
-COMPARE_RC=$?
+then COMPARE_RC=0; else COMPARE_RC=$?; fi
 [ "$FAILED_RUNS" -gt 0 ] && exit 1
 exit $COMPARE_RC

@@ -5,6 +5,32 @@ All notable changes to bestASR are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **Three-language regression benchmark suite (#34)**: the standard corpora
+  are now en / **Traditional Chinese** / ja, ~20-30 utterances per language in
+  3-5 medium corpora each, fully digest-pinned. The Chinese set is Common
+  Voice zh-TW (CC-0, Taiwanese Mandarin) via a pinned HF mirror revision —
+  **the Simplified FLEURS `cmn_hans_cn` corpus is removed**; "Chinese" in this
+  project means Traditional Chinese. ja scales to 24 FLEURS utterances; en
+  gains OSR Harvard Lists 2-3 (ASR-verified against the canonical texts).
+- **Machine-independent regression gate**: `benchmarks/baseline.json` pins
+  golden CER/WER per corpus for the fixed reference model
+  (whisperkit large-v3-turbo); `scripts/regression-gate.sh` re-benchmarks and
+  fails loudly on any regression past tolerance. Accuracy only — speed is
+  machine-dependent and never gated. Live-proven: all 12 corpora reproduce
+  their goldens to ±0.0000 on a repeat run; a sabotaged golden fails with the
+  corpus named.
+
+### Fixed
+
+- **Traditional-Chinese CER no longer punishes output script (#34)**:
+  Whisper-family models emit Simplified for Mandarin, so a Traditional
+  reference scored CER 0.35-0.48 on nearly-correct output. zh CER now folds
+  both sides Traditional→Simplified (system ICU transform) inside metric
+  computation only — delivered transcripts are untouched, Japanese kanji are
+  never folded, and the zh goldens dropped to their honest 0.09-0.21.
+
 ## [0.9.0] - 2026-07-04
 
 ### Added
