@@ -408,7 +408,8 @@ public struct CommandCore: Sendable {
         profileName: String,
         asJSON: Bool,
         contextDir: String? = nil,
-        allGrid: Bool = false
+        allGrid: Bool = false,
+        decodeDeterministic: Bool = false
     ) async throws -> String {
         let profile = try Self.parseProfile(profileName)
 
@@ -451,7 +452,8 @@ public struct CommandCore: Sendable {
             referenceText: referenceText,
             metricKind: metricKind,
             language: resolvedLanguage ?? "auto",
-            contextPrompt: contextBundle?.rendered.prompt
+            contextPrompt: contextBundle?.rendered.prompt,
+            deterministicDecode: decodeDeterministic
         )
 
         if !outcome.measured.isEmpty {

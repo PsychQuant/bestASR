@@ -5,6 +5,53 @@ All notable changes to bestASR are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **Three-language regression benchmark suite (#34)**: the standard corpora
+  are now en / **Traditional Chinese** / ja, ~20-30 utterances per language in
+  3-5 medium corpora each, fully digest-pinned. The Chinese set is Common
+  Voice zh-TW (CC-0, Taiwanese Mandarin) via a pinned HF mirror revision —
+  **the Simplified FLEURS `cmn_hans_cn` corpus is removed**; "Chinese" in this
+  project means Traditional Chinese. ja scales to 24 FLEURS utterances; en
+  gains OSR Harvard Lists 2-3 (ASR-verified against the canonical texts).
+- **Accuracy-only regression gate**: `benchmarks/baseline.json` pins
+  golden CER/WER per corpus for the fixed reference model
+  (whisperkit large-v3-turbo); `scripts/regression-gate.sh` re-benchmarks and
+  fails loudly on any regression past tolerance. Speed is machine-dependent
+  and never gated; seeding provenance (machine, model-repo revision at
+  seeding) is recorded in `benchmarks/baseline-meta.json` for drift triage.
+  Live-proven: all 12 corpora reproduce their goldens to ±0.0000 on a repeat
+  run on the seeding machine; a sabotaged golden fails with the corpus named.
+
+### Fixed
+
+- **Traditional-Chinese CER no longer punishes output script (#34)**:
+  Whisper-family models emit Simplified for Mandarin, so a Traditional
+  reference scored CER 0.35-0.48 on nearly-correct output. Chinese CER (any
+  zh tag — `zh`, `zh-TW`, `zh-Hant`, … via the shared base-subtag predicate)
+  now folds both sides Traditional→Simplified (system ICU transform) inside
+  metric computation only — delivered transcripts are untouched, Japanese
+  kanji and `auto` are never folded, and the zh goldens dropped to their
+  honest 0.09-0.16.
+- **Regression-gate hardening (#34 verify)**: benchmark output and baseline
+  JSON now reach python as files/argv/stdin only (never spliced into python
+  source); benchmark runs read `/dev/null` so a stdin-reading subprocess
+  can't swallow the work list; corpus names are validated before touching the
+  filesystem; duplicate corpus entries and an empty baseline are explicit
+  gate errors; standard corpora on disk with no baseline entry fail the gate
+  instead of being silently skipped.
+- **Deterministic canary decode (#34 verify)**: live verification caught
+  Whisper's temperature fallback flipping cv-zhtw-4's CER between runs —
+  stochastic sampling under the gate's "same audio → same number" premise.
+  A controlled A/B pinned the direction: first-pass greedy is 0.1452 (3/3
+  identical), while the default fallback usually re-decodes it to a *worse*
+  0.2097 and occasionally back. `bestasr benchmark` gains
+  `--decode-deterministic` (WhisperKit `temperatureFallbackCount=0`,
+  whisper-cli `-nf`) and the gate uses it; cv-zhtw-4's golden was re-seeded
+  0.2097 → 0.1452 (the old value was a fallback artifact — the other 11
+  corpora never trip fallback and kept their goldens). Normal transcription
+  keeps the fallback rescue.
+
 ## [0.9.0] - 2026-07-04
 
 ### Added

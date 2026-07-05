@@ -130,6 +130,28 @@ struct DecodeOptionsTests {
         #expect(WhisperKitEngine.makeDecodeOptions(language: "en", promptTokens: nil).promptTokens == nil)
         #expect(WhisperKitEngine.makeDecodeOptions(language: "en", promptTokens: []).promptTokens == nil)
     }
+
+    @Test func `Deterministic decode disables temperature fallback; default keeps it`() {
+        // #34 regression gate: temperature fallback is stochastic sampling —
+        // observed live flipping a corpus CER between runs. The canary path
+        // must decode greedy-only; normal transcription keeps the rescue.
+        let canary = WhisperKitEngine.makeDecodeOptions(
+            language: "zh", promptTokens: nil, deterministic: true)
+        #expect(canary.temperatureFallbackCount == 0)
+        let normal = WhisperKitEngine.makeDecodeOptions(language: "zh", promptTokens: nil)
+        #expect(normal.temperatureFallbackCount > 0)
+    }
+
+    @Test func `whisper-cli gets -nf under deterministic decode and not otherwise`() {
+        let canary = WhisperCppEngine.makeArguments(
+            modelPath: "m.bin", audioPath: "a.wav", outputBase: "o",
+            language: "zh", prompt: nil, deterministic: true)
+        #expect(canary.contains("-nf"))
+        let normal = WhisperCppEngine.makeArguments(
+            modelPath: "m.bin", audioPath: "a.wav", outputBase: "o",
+            language: "zh", prompt: nil)
+        #expect(!normal.contains("-nf"))
+    }
 }
 
 struct GuidanceFileNameTests {

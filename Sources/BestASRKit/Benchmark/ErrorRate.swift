@@ -23,9 +23,22 @@ public enum ErrorRate {
 
     /// Character error rate over normalized text. An empty reference with a
     /// non-empty hypothesis caps at 1.0 (fully wrong) instead of dividing by zero.
-    public static func cer(hypothesis: String, reference: String) -> Double {
-        let hyp = Array(TextNormalizer.normalize(hypothesis))
-        let ref = Array(TextNormalizer.normalize(reference))
+    public static func cer(
+        hypothesis: String, reference: String, language: String? = nil
+    ) -> Double {
+        var h = TextNormalizer.normalize(hypothesis)
+        var r = TextNormalizer.normalize(reference)
+        if LanguageResolver.isChinese(language) {
+            // #34 D7: script-normalized CER — fold BOTH sides Hant→Hans so the
+            // metric scores recognition content, not output script. The gate
+            // shares LanguageResolver's base-subtag predicate, so zh-TW /
+            // zh-Hant / zh-CN fold exactly like zh; ja/ko/yue and `auto`
+            // never do (see LanguageResolver.isChinese).
+            h = TextNormalizer.foldHanToSimplified(h)
+            r = TextNormalizer.foldHanToSimplified(r)
+        }
+        let hyp = Array(h)
+        let ref = Array(r)
         guard !ref.isEmpty else { return hyp.isEmpty ? 0 : 1 }
         return Double(levenshtein(hyp, ref)) / Double(ref.count)
     }
@@ -39,10 +52,10 @@ public enum ErrorRate {
     }
 
     public static func compute(
-        hypothesis: String, reference: String, kind: MetricKind
+        hypothesis: String, reference: String, kind: MetricKind, language: String? = nil
     ) -> Double {
         switch kind {
-        case .cer: cer(hypothesis: hypothesis, reference: reference)
+        case .cer: cer(hypothesis: hypothesis, reference: reference, language: language)
         case .wer: wer(hypothesis: hypothesis, reference: reference)
         }
     }

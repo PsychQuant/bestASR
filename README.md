@@ -111,7 +111,11 @@ bestasr transcribe clip2.wav --language zh --explain
 ```
 
 Register your ground truth once (`bestasr corpus add talk.wav talk.srt
---language zh`; `scripts/fetch-corpora.sh` fetches the English standard set)
+--language zh`; `scripts/fetch-corpora.sh` fetches the three-language standard
+set — English, **Traditional Chinese** (Common Voice zh-TW, CC-0), and
+Japanese (FLEURS), ~20-30 utterances per language in 3-5 medium corpora, every
+byte digest-pinned. "Chinese" in this project means Traditional Chinese —
+Taiwanese Mandarin; Simplified is not part of the corpus set)
 — results land in the BCNF store at `~/.bestasr/store/` (four JSONL tables;
 measurements are append-only, routing reads the latest per model × corpus ×
 machine). The ground truth is a standard `.srt` subtitle file. Accuracy is scored as
@@ -121,6 +125,43 @@ WhisperKit pipelines load once per model and are reused, so its timed pass
 measures pure decode speed; whisper.cpp runs as a subprocess and its timed
 pass includes a small GGML load); results persist in
 `~/.bestasr/benchmarks.json` per machine.
+
+### The regression gate (accuracy never regresses)
+
+```bash
+scripts/regression-gate.sh   # exit 0 = no corpus regressed; exit 1 names the culprit
+```
+
+`benchmarks/baseline.json` pins a golden CER/WER per standard corpus for one
+fixed reference model (whisperkit large-v3-turbo). The gate re-benchmarks
+every corpus and fails loudly when any accuracy drifts past its tolerance.
+Two design points worth knowing:
+
+- **Accuracy only, deterministic decode.** CER/WER is a text comparison, so
+  the committed baseline carries no timing numbers; speed is
+  machine-dependent and is *never* gated. The gate benchmarks with
+  `--decode-deterministic` (temperature fallback disabled) — Whisper's
+  fallback re-decodes low-quality segments at temperature > 0, which is
+  stochastic sampling and was observed live to flip a corpus CER between
+  runs; the canary pins greedy decoding so goldens are reproducible, while
+  normal transcription keeps the fallback rescue. CoreML inference is still
+  not guaranteed bit-identical across chip generations or OS versions — the
+  per-corpus tolerance absorbs small drift, and the seeding provenance
+  (machine, model-repo revision, decode config) is recorded in
+  `benchmarks/baseline-meta.json`. Same-machine repeat runs reproduce
+  goldens to ±0.0000; running in CI needs an Apple-silicon runner with the
+  ~1.5 GB reference model.
+- **Traditional Chinese is scored fairly.** Whisper-family models emit
+  Simplified for Mandarin; the references here are Traditional. Chinese CER
+  (any zh tag — `zh`, `zh-TW`, `zh-Hant`, …) folds both sides
+  Traditional→Simplified inside the metric (system ICU, the unambiguous
+  direction) so the score measures recognition, not output script. Delivered
+  transcripts are untouched; Japanese kanji are never folded, and
+  `--language auto` never folds (it cannot tell Chinese from Japanese text —
+  pass an explicit zh tag for folded scoring).
+
+A gate failure has three possible causes — triage before blaming code: a code
+regression, a corpus change, or upstream model-artifact drift.
 
 ### Context calibration (make domain terms and names come out right)
 

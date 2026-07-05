@@ -1,0 +1,11 @@
+{
+  "_comment": "Seeding provenance for baseline.json (#34 verify). The corpora are digest-pinned end-to-end; the reference model is the one link WhisperKit resolves dynamically, so this file records what 'large-v3-turbo' meant when the goldens were seeded. It is an AUDIT ANCHOR, not a cryptographic pin: WhisperKit resolved 'main' at download time and the local CoreML cache was not re-hashed. If the gate fails with no code or corpus change, compare the model repo's current revision against model_repo_revision_at_seeding before blaming code (design D2/A3 triage).",
+  "seeded_at": "2026-07-05",
+  "model": "large-v3-turbo",
+  "model_repo": "argmaxinc/whisperkit-coreml",
+  "model_repo_revision_at_seeding": "97a5bf9bbc74c7d9c12c755d04dea59e672e3808",
+  "model_repo_last_modified_at_seeding": "2026-04-24T20:29:35Z",
+  "seeding_machine": "Apple M5 Max, macOS 27.0",
+  "gate_decode": "deterministic (temperature fallback disabled — bestasr benchmark --decode-deterministic). Whisper's temperature fallback re-decodes segments that trip quality thresholds at temperature > 0, i.e. stochastic sampling. Live A/B on cv-zhtw-4: first-pass greedy is 0.1452 (3/3 identical runs with the flag); the default fallback path usually re-decodes to a WORSE 0.2097 and occasionally back to 0.1452 — run-to-run flapping. The gate pins first-pass greedy; cv-zhtw-4's golden was re-seeded 0.2097 → 0.1452 accordingly (the old value was a fallback-path artifact; the other 11 corpora never trip fallback and kept their goldens). Normal transcription keeps the fallback.",
+  "cross_machine_note": "CER/WER is a text comparison, but the model's decoded text is produced by CoreML inference and is not guaranteed bit-identical across chip generations or OS versions; greedy decode can amplify float differences at decision boundaries. The per-corpus tolerance (0.02 absolute) absorbs small drift. Goldens reproduce to ±0.0000 on repeat deterministic runs on the seeding machine; cross-machine invariance is expected within tolerance, not proven."
+}

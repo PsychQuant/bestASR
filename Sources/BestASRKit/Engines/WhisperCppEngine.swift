@@ -50,7 +50,7 @@ public struct WhisperCppEngine: Engine {
     /// forwarding contract without launching a process (spec asr-engine).
     static func makeArguments(
         modelPath: String, audioPath: String, outputBase: String,
-        language: String?, prompt: String?
+        language: String?, prompt: String?, deterministic: Bool = false
     ) -> [String] {
         var arguments = [
             "-m", modelPath,
@@ -59,6 +59,11 @@ public struct WhisperCppEngine: Engine {
             "-of", outputBase,
             "-np",  // no runtime prints
         ]
+        if deterministic {
+            // #34 regression gate: whisper-cli also retries failed segments at
+            // increasing temperature; -nf keeps the decode greedy-reproducible.
+            arguments += ["-nf"]
+        }
         if let language {
             arguments += ["-l", language]
         }
@@ -100,7 +105,8 @@ public struct WhisperCppEngine: Engine {
             audioPath: audioPath,
             outputBase: outputBase.path,
             language: options.language,
-            prompt: options.prompt
+            prompt: options.prompt,
+            deterministic: options.deterministicDecode
         )
 
         let process = Process()
