@@ -1,0 +1,50 @@
+{
+  "parakeet-tdt-0.6b-v3": {
+    "Decoder.mlmodelc/analytics/coremldata.bin": "4238c4e81ecd0dc94bd7dfbb60f7e2cc824107c1ffe0387b8607b72833dba350",
+    "Decoder.mlmodelc/coremldata.bin": "18647af085d87bd8f3121c8a9b4d4564c1ede038dab63d295b4e745cf2d7fb99",
+    "Decoder.mlmodelc/metadata.json": "a39e93cd8371b8ded92635c7804fcd0590f0d1dd9415c6d19a0484be073077d9",
+    "Decoder.mlmodelc/model.mil": "ef2a0a281695398a62fde86ac269c68f73d5b578d7ed3b31f2ba91a2d1ea1f35",
+    "Decoder.mlmodelc/weights/weight.bin": "48adf0f0d47c406c8253d4f7fef967436a39da14f5a65e66d5a4b407be355d41",
+    "Encoder.mlmodelc/analytics/coremldata.bin": "42e638870d73f26b332918a3496ce36793fbb413a81cbd3d16ba01328637a105",
+    "Encoder.mlmodelc/coremldata.bin": "d48034a167a82e88fc3df64f60af963ab3983538271175b8319e7d5720a0fb86",
+    "Encoder.mlmodelc/metadata.json": "da24da9cca943fb29d7fa8e376d57fca7cb3aa08ca51b956b0b0e56813f087e9",
+    "Encoder.mlmodelc/model.mil": "ed7b19156ca29fa7dfd6891deb9fda4b0e8893f68597c985d135736546a43808",
+    "Encoder.mlmodelc/weights/weight.bin": "e2020f323703477a5b21d7c2d282c403e371afb5962e79877e3033e73ba6f421",
+    "JointDecisionv3.mlmodelc/analytics/coremldata.bin": "26def4bf73dd56d29dee21c8ef97cb8969e62f6120ed1adc91e46828e2737b6c",
+    "JointDecisionv3.mlmodelc/coremldata.bin": "f5fc08b741400f0088492c9e839418b1e18522f19cba28d361dd030c5f398342",
+    "JointDecisionv3.mlmodelc/metadata.json": "d9307211b9a37e0f0ac260c7660b1571a3de25841035cfdf9b58fd40425f890f",
+    "JointDecisionv3.mlmodelc/model.mil": "be60732943389a047175111a83f8839f3eb39d4803adafa828a0871b2f39818d",
+    "JointDecisionv3.mlmodelc/weights/weight.bin": "4e0e63d840032f7f07ddb1d64446051166281e5491bf22da8a945c41f6eedb3e",
+    "Preprocessor.mlmodelc/analytics/coremldata.bin": "c9beeb989c8d66f8be11df59bc6df277ec76cee404f6865b46243835ef562f6d",
+    "Preprocessor.mlmodelc/coremldata.bin": "dbde3f2300842c1fd51ef3ff948a0bcffe65ffd2dca10707f2509f32c1d65b1d",
+    "Preprocessor.mlmodelc/metadata.json": "2a98699e22d279dd37fa1d238aeb1c6db1df0d6fad687775324157689d8f3acf",
+    "Preprocessor.mlmodelc/model.mil": "4b8518a956450fec57f06c2a21bdffc26973f7f1fa6842fb38fe917f896b6b93",
+    "Preprocessor.mlmodelc/weights/weight.bin": "129b76e3aeafa8afa3ea76d995b964b145fe83700d579f6ff42c4c38fa0968ea",
+    "config.json": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "parakeet_v3_vocab.json": "7ec60e05f1b24480736ec0eed40900f4626bce1fa9a60fd700ec7e2a59198735",
+    "parakeet_vocab.json": "7ec60e05f1b24480736ec0eed40900f4626bce1fa9a60fd700ec7e2a59198735"
+  },
+  "silero-vad-coreml": {
+    "config.json": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "silero-vad-unified-256ms-v6.0.0.mlmodelc/analytics/coremldata.bin": "30945d54e32c3f15ec35dc6ee32128a27a6cdc03b0a12ffab04434069c49dfb5",
+    "silero-vad-unified-256ms-v6.0.0.mlmodelc/coremldata.bin": "0c3063bd09ba71c26ede0308d7c33591d0770e971a3fcc603ccad7ba1e8fb88d",
+    "silero-vad-unified-256ms-v6.0.0.mlmodelc/metadata.json": "e00405801b86542dbb722a2ec2fff285e539836990f4fdc6aa321ce1105eb32c",
+    "silero-vad-unified-256ms-v6.0.0.mlmodelc/model.mil": "4f93e2b5920e851fbc0be1c21a2a76e170124467ed7b01125190aa32e795f8af",
+    "silero-vad-unified-256ms-v6.0.0.mlmodelc/weights/weight.bin": "853cf34740d3f5061f977ebe2976f7c921b064261c9c4753b3a1196f2dba42b4"
+  },
+  "speaker-diarization": {
+    "config.json": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "plda-parameters.json": "38ee28d4269c076cef254ee760bbd811f0738a92e0f01f9699ad372828c5de8f",
+    "pyannote_segmentation.mlmodelc/analytics/coremldata.bin": "b379db0541b35344a34bb7540783ae704c11599bbed5aa8bbbda11c20ad215ee",
+    "pyannote_segmentation.mlmodelc/coremldata.bin": "4a450ea1b053b9eb7eef0cab6971018076600840c7e246d064e7c5387f456c98",
+    "pyannote_segmentation.mlmodelc/metadata.json": "44e1fa36d6abafacf688beccad99f7569394248d8bb41545829997c67668c08c",
+    "pyannote_segmentation.mlmodelc/model.mil": "97f2dec6f83e80bf4247b98e13c2dde19f92c05820ef08068bbf554488d70bdd",
+    "pyannote_segmentation.mlmodelc/weights/weight.bin": "0266f4ad4d843ecf31ef9220ad6b80616b3ec64a4404b64f3ea0371554e236ec",
+    "wespeaker_v2.mlmodelc/analytics/coremldata.bin": "d2b1fcde6121aea3ff0e14c1dc50d09dacb0314a2e89156353c31804230a422f",
+    "wespeaker_v2.mlmodelc/coremldata.bin": "6feb2472a71fa9d8a84020c85206138a4f6261c565c9884bf518d59dd5838da7",
+    "wespeaker_v2.mlmodelc/metadata.json": "ddc4858b4051254098015cd0b97080149839d697faf7b036f933190e70b26758",
+    "wespeaker_v2.mlmodelc/model.mil": "2850f775d6ba659f01f616fed77ce6a45a25de3eb7e4bf3a4b07b658be4e13dd",
+    "wespeaker_v2.mlmodelc/weights/weight.bin": "34004f6798d35cad7071e2fdc67e63faaa782f53697e1cb49bcb452cf81ae151",
+    "xvector-transform.json": "f7cd5cc16e63e2d89db052a23018ecfc47a311998ed1e9e39838fbac65048688"
+  }
+}
