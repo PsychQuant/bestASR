@@ -48,7 +48,16 @@ public struct CommandCore: Sendable {
 
     /// The production wiring: real engines, real detection, real store.
     public static func live() -> CommandCore {
-        CommandCore(engines: [WhisperKitEngine(), WhisperCppEngine(), ParakeetEngine()])
+        {
+        // Registered external adapters (#51, spec external-engine-protocol)
+        // join the pool next to the bundled engines; with no registry config
+        // this is exactly the bundled set.
+        var engines: [any Engine] = [WhisperKitEngine(), WhisperCppEngine(), ParakeetEngine()]
+        for entry in ExternalEngineRegistry().engines {
+            engines.append(ExternalProcessEngine(id: entry.id, command: entry.command))
+        }
+        return CommandCore(engines: engines)
+    }()
     }
 
     /// Store-projected records for the router (design D7).

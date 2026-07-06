@@ -79,10 +79,14 @@ public enum ModelRegistry {
     /// Whether a model name is runnable on ANY live-engine backend — whisper
     /// sizes plus live non-Whisper rows (#35). Reference rows (mlx-audio)
     /// stay excluded: no bundled backend can run them.
-    public static func isRunnableModel(_ name: String) -> Bool {
-        isSupportedModel(name)
+    public static func isRunnableModel(_ name: String, includeExternal: Bool = false) -> Bool {
+        var liveBackends: Set<String> = [ModelGrid.backendFluidParakeet]
+        // A registered external adapter upgrades its catalog rows to
+        // runnable (#51, spec asr-routing) — the caller passes availability.
+        if includeExternal { liveBackends.insert(ModelGrid.backendMLXAudio) }
+        return isSupportedModel(name)
             || ModelGrid.rows.contains {
-                $0.backend == ModelGrid.backendFluidParakeet && $0.size == name
+                liveBackends.contains($0.backend) && $0.size == name
             }
     }
 

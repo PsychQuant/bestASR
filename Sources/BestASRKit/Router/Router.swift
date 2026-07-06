@@ -21,7 +21,9 @@ public enum Router {
         // Validate overrides early (usage errors, not silent acceptance).
         // Runnable = whisper sizes plus live non-Whisper rows (#35); the
         // mlx-audio section stays a reference catalog with no bundled backend.
-        if let modelOverride, !ModelRegistry.isRunnableModel(modelOverride) {
+        let externalAvailable = availability[.mlxAudio] == true
+        if let modelOverride,
+            !ModelRegistry.isRunnableModel(modelOverride, includeExternal: externalAvailable) {
             throw BestASRError.usage(
                 "unknown model: '\(modelOverride)'; run list-models for the "
                     + "runnable catalog (the mlx-audio section is a "
@@ -43,7 +45,7 @@ public enum Router {
         // the measured tier ranks across families; the cold-start prior below
         // still walks its whisper chain, so an unmeasured family is never
         // proposed without evidence.
-        let availableOrdered: [BackendID] = [.whisperKit, .whisperCpp, .fluidParakeet].filter {
+        let availableOrdered: [BackendID] = [.whisperKit, .whisperCpp, .fluidParakeet, .mlxAudio].filter {
             availability[$0] == true
         }
         guard !availableOrdered.isEmpty else {

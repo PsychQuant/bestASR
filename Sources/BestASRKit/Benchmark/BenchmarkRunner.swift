@@ -99,10 +99,15 @@ public struct BenchmarkRunner {
                 )
             }
         }
+        // Enumeration follows the engines themselves (#51, spec asr-routing):
+        // a backend with an engine in this run — bundled or registered
+        // external — enumerates its rows; anything else stays reference-only.
+        let engineBackends = Set(engines.map(\.id.rawValue))
+
         // Valid model addresses come from the runnable backends' grid rows
         // (the mlx-audio reference catalog never enumerates, spec model-grid).
         let gridNames = Set(ModelGrid.rows
-            .filter { $0.backend != ModelGrid.backendMLXAudio }
+            .filter { row in engineBackends.contains(row.backend) }
             .map(\.size))
         if let modelFilter {
             for name in modelFilter where !gridNames.contains(name.lowercased()) {
