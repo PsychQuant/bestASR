@@ -8,7 +8,7 @@ TBD - created by archiving change 'swift-benchmark-driven-asr'. Update Purpose a
 
 ### Requirement: Enumerate candidate configurations
 
-The benchmark SHALL enumerate candidate configurations from the model grid: every available backend paired with its grid rows. Backends whose availability probe reports false SHALL be skipped with a note; grid rows whose backend has no bundled engine (the mlx-audio reference catalog) SHALL NOT be enumerated. The caller SHALL be able to narrow candidates with explicit backend and model filters.
+The benchmark SHALL enumerate candidate configurations from the model grid: every available backend paired with its grid rows. Backends whose availability probe reports false SHALL be skipped with a note; grid rows whose backend has no engine in the run SHALL NOT be enumerated — bundled engines and registered external engines (#51) alike drive enumeration, so the mlx-audio catalog enumerates only when its adapter is registered. The caller SHALL be able to narrow candidates with explicit backend and model filters.
 
 #### Scenario: Only available backends produce candidates
 
@@ -21,57 +21,27 @@ The benchmark SHALL enumerate candidate configurations from the model grid: ever
 - **WHEN** the caller passes a backend filter naming `whisperkit` and a model filter naming `large-v3-turbo`
 - **THEN** only whisperkit large-v3-turbo variants are enumerated
 
-#### Scenario: Reference rows never enumerate
+#### Scenario: Unregistered reference rows never enumerate
 
-- **WHEN** the benchmark enumerates with no filters
+- **WHEN** the benchmark enumerates with no filters on a machine without an mlx-audio registry entry
 - **THEN** no mlx-audio reference row appears among the candidates
 
 
 <!-- @trace
-source: remove-mlx-audio-backend
-updated: 2026-07-04
+source: external-process-engine
+updated: 2026-07-06
 code:
-  - Tests/BestASRKitTests/DiarizationTests.swift
-  - Sources/BestASRKit/Engines/mlx_worker.py
-  - Sources/BestASRKit/Diarize/SpeakerIdentifier.swift
-  - plugins/bestasr/.claude-plugin/plugin.json
-  - Tests/BestASRKitTests/RouterTests.swift
-  - Package.swift
-  - docs/design-brief.md
-  - plugins/bestasr/skills/context-ingest/SKILL.md
-  - Sources/BestASRKit/Engines/MLXAudioEngine.swift
-  - CHANGELOG.md
-  - README.md
-  - Sources/BestASRKit/CommandCore.swift
-  - Sources/BestASRKit/Diarize/SpeakerAssigner.swift
-  - Tests/BestASRKitTests/DataModelTests.swift
-  - Package.resolved
-  - Sources/BestASRKit/Diarize/SpeakerEnroller.swift
-  - Tests/BestASRKitTests/ModelGridTests.swift
-  - Tests/BestASRKitTests/PipelineWiringTests.swift
-  - Sources/BestASRKit/Context/ContextLoader.swift
-  - Sources/BestASRKit/Engines/MLXWorkerProtocol.swift
-  - scripts/validate-diarization.sh
-  - Sources/BestASRKit/Store/StoreTables.swift
-  - Sources/BestASRKit/Detect/DynamicHostState.swift
-  - Sources/BestASRKit/Models/ModelRegistry.swift
-  - Sources/BestASRKit/Models/ModelGrid.swift
-  - Sources/BestASRKit/Router/Ranking.swift
-  - Sources/BestASRKit/Benchmark/BenchmarkRunner.swift
-  - Sources/BestASRKit/Store/BenchmarkStore.swift
-  - scripts/fetch-corpora.sh
-  - Tests/BestASRKitTests/MLXAudioEngineTests.swift
-  - Tests/BestASRKitTests/EffortProfileTests.swift
-  - CLAUDE.md
-  - Tests/BestASRKitTests/CLITests.swift
-  - Sources/BestASRKit/Diarize/DiarizationEngine.swift
-  - Sources/bestasr/BestASRCommand.swift
-  - Sources/BestASRKit/Router/Router.swift
-  - .claude-plugin/marketplace.json
+  - Sources/BestASRKit/Engines/ExternalProcessEngine.swift
   - Sources/BestASRKit/Models/DataModels.swift
-  - Sources/BestASRKit/Output/TranscriptWriter.swift
-  - Tests/BestASRKitTests/BenchmarkTests.swift
-  - Tests/BestASRKitTests/BenchmarkStoreTests.swift
+  - Sources/BestASRKit/Models/ModelRegistry.swift
+  - Sources/BestASRKit/Router/Router.swift
+  - Sources/BestASRKit/Benchmark/BenchmarkRunner.swift
+  - Sources/BestASRKit/CommandCore.swift
+  - adapters/mlx-audio/bestasr-mlx-adapter.py
+  - adapters/mlx-audio/setup.sh
+  - Tests/BestASRKitTests/ExternalEngineTests.swift
+  - README.md
+  - CHANGELOG.md
 -->
 
 ---
