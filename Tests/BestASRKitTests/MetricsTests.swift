@@ -34,6 +34,61 @@ struct SRTParserTests {
         #expect(cues[0].text == "first line second line")
     }
 
+    @Test func `Recurring speaker prefixes are stripped from the reference text`() throws {
+        // #55 (spec benchmark): speaker-labeled ground truth (Jobs & Gates
+        // shape — multi-word names, recurring across cues) must not count
+        // speaker labels against the hypothesis.
+        let srt = """
+            1
+            00:00:00,000 --> 00:00:02,000
+            Kara Swisher: So, let's get started.
+
+            2
+            00:00:02,000 --> 00:00:03,000
+            Steve Jobs: Sure.
+
+            3
+            00:00:03,000 --> 00:00:04,000
+            Kara Swisher: Great.
+
+            4
+            00:00:04,000 --> 00:00:05,000
+            Steve Jobs: Thanks.
+            """
+        let cues = try SRTParser.parse(srt)
+        #expect(SRTParser.referenceText(from: cues) == "So, let's get started. Sure. Great. Thanks.")
+        // Cue texts stay verbatim — stripping happens at derivation only (D2).
+        #expect(cues[0].text == "Kara Swisher: So, let's get started.")
+    }
+
+    @Test func `A one-off colon phrase is body text, not a speaker label`() throws {
+        let srt = """
+            1
+            00:00:00,000 --> 00:00:02,000
+            Note: the demo starts now
+
+            2
+            00:00:02,000 --> 00:00:03,000
+            and it works
+            """
+        let cues = try SRTParser.parse(srt)
+        #expect(SRTParser.referenceText(from: cues) == "Note: the demo starts now and it works")
+    }
+
+    @Test func `Prefix-free SRT reference text is unchanged`() throws {
+        let cues = try SRTParser.parse("1\n00:00:00,000 --> 00:00:01,000\nhello\n\n2\n00:00:01,000 --> 00:00:02,000\nworld")
+        #expect(SRTParser.referenceText(from: cues) == "hello world")
+    }
+
+    @Test func `Overlong colon prefixes are never treated as speaker labels`() throws {
+        // A >40-char recurring prefix is prose (e.g. repeated chorus line
+        // ending in a colon), not a speaker name.
+        let long = String(repeating: "a", count: 41)
+        let srt = "1\n00:00:00,000 --> 00:00:01,000\n\(long): one\n\n2\n00:00:01,000 --> 00:00:02,000\n\(long): two"
+        let cues = try SRTParser.parse(srt)
+        #expect(SRTParser.referenceText(from: cues) == "\(long): one \(long): two")
+    }
+
     @Test func `Malformed SRT without any timecode is rejected`() {
         #expect(throws: BestASRError.self) {
             _ = try SRTParser.parse("just some text\nwith no timecodes at all")
