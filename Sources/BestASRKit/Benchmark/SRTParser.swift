@@ -73,8 +73,45 @@ public enum SRTParser {
 
     /// Ground-truth reference text: ordered cue texts joined by a space (word
     /// boundaries survive for WER; normalization collapses whitespace anyway).
+    ///
+    /// Speaker-labeled references (#55, spec benchmark): a leading `Name: `
+    /// whose exact name recurs on ≥2 cues is a speaker label — ASR output
+    /// never contains it, so it must not count against the hypothesis. A
+    /// one-off colon phrase is body text and stays. Cue texts themselves are
+    /// untouched (design D2 — stripping happens at derivation only).
     public static func referenceText(from cues: [SRTCue]) -> String {
-        cues.map(\.text).joined(separator: " ")
+        let recurring = recurringSpeakerPrefixes(in: cues)
+        guard !recurring.isEmpty else {
+            return cues.map(\.text).joined(separator: " ")
+        }
+        return cues.map { cue in
+            if let name = speakerPrefix(of: cue.text), recurring.contains(name) {
+                return String(cue.text.dropFirst(name.count + 2))
+            }
+            return cue.text
+        }.joined(separator: " ")
+    }
+
+    /// The candidate speaker name of a cue text — the part before a leading
+    /// `<name>: ` where the name is ≤40 characters and contains no colon.
+    private static func speakerPrefix(of text: String) -> String? {
+        guard let colon = text.firstIndex(of: ":") else { return nil }
+        let name = text[..<colon]
+        let afterColon = text.index(after: colon)
+        guard !name.isEmpty, name.count <= 40,
+            afterColon < text.endIndex, text[afterColon] == " "
+        else { return nil }
+        return String(name)
+    }
+
+    private static func recurringSpeakerPrefixes(in cues: [SRTCue]) -> Set<String> {
+        var counts: [String: Int] = [:]
+        for cue in cues {
+            if let name = speakerPrefix(of: cue.text) {
+                counts[name, default: 0] += 1
+            }
+        }
+        return Set(counts.filter { $0.value >= 2 }.keys)
     }
 
     private static func seconds(

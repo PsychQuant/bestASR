@@ -122,7 +122,9 @@ bestasr transcribe clip2.wav --language zh --explain
 ```
 
 Register your ground truth once (`bestasr corpus add talk.wav talk.srt
---language zh`; `scripts/fetch-corpora.sh` fetches the three-language standard
+--language zh`; speaker-labeled SRT references work as-is — recurring
+`Name: ` prefixes are stripped from the derived reference text so labels
+never count against the hypothesis; `scripts/fetch-corpora.sh` fetches the three-language standard
 set — English, **Traditional Chinese** (Common Voice zh-TW, CC-0), and
 Japanese (FLEURS), ~20-30 utterances per language in 3-5 medium corpora, every
 byte digest-pinned. "Chinese" in this project means Traditional Chinese —
