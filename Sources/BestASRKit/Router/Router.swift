@@ -101,11 +101,6 @@ public enum Router {
                     + "locked but its mean error rate exceeds \(Self.qualityFloor) — "
                     + "output quality is not established")
         }
-        let runsByKey = Dictionary(
-            uniqueKeysWithValues: pool.map {
-                ("\($0.record.backend)|\($0.record.model)|\($0.record.quantization)", $0.runs)
-            })
-
         if let top = Ranking.rank(pool.map(\.record), profile: profile).first {
             let record = top.record
             guard let backend = BackendID(rawValue: record.backend) else {
@@ -117,16 +112,10 @@ public enum Router {
             }
             let percent = String(format: "%.1f", record.errorRate * 100)
             let speed = String(format: "%.1f", record.timesRealtime)
-            let runs = runsByKey["\(record.backend)|\(record.model)|\(record.quantization)"] ?? 1
-            if runs == 1 {
-                warnings.append(
-                    "winner is backed by a single measurement — benchmark more corpora "
-                        + "to firm up this ranking (#64)")
-            }
             reasons.append(
                 "measured on this machine: \(record.metricKind.rawValue.uppercased()) "
                     + "\(percent)%, \(speed)x realtime "
-                    + "(\(record.model), \(record.quantization), mean of \(runs) run(s))"
+                    + "(\(record.model), \(record.quantization); mean over this machine's measurements)"
             )
             reasons.append(
                 "ranked #1 of \(usable.count) benchmarked candidate(s) under the "
@@ -232,7 +221,10 @@ public enum Router {
 
     static func aggregate(_ records: [BenchmarkRecord]) -> [(record: BenchmarkRecord, runs: Int)] {
         let groups = Dictionary(grouping: records) {
-            "\($0.backend)|\($0.model)|\($0.quantization)"
+            // language in the key (#64 verify F1): a nil-language query sees
+            // per-language rows — averaging WER(en) with CER(zh) is
+            // physically meaningless and could false-trip the quality floor.
+            "\($0.backend)|\($0.model)|\($0.quantization)|\($0.language)"
         }
         return groups.values.map { group in
             let latest = group.max { $0.measuredAt < $1.measuredAt }!

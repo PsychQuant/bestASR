@@ -240,7 +240,7 @@ struct ProjectionAggregationTests {
             appVersion: "0.3.0", macosVersion: "27.0")
     }
 
-    @Test func `One record per candidate across corpora — latest wins`() {
+    @Test func `One record per candidate across corpora — equal-weight mean`() {
         let corpora = [
             CorpusRow(name: "jfk", language: "en", audioSHA256: String(repeating: "a", count: 64),
                       referenceSHA256: "", duration: 11, audioPath: "", referencePath: ""),
@@ -259,7 +259,9 @@ struct ProjectionAggregationTests {
         // machineId "h" won't join machines — chip empty is fine for this lock.
         let records = snapshot.projectedRecords()
         #expect(records.count == 1)  // one candidate, not one per corpus
-        #expect(records[0].errorRate == 0.2)  // newest measurement wins
+        // #64: the collapse is the equal-weight mean over corpora — a lone
+        // flattering 0.0 on the short corpus no longer erases the 0.2.
+        #expect(records[0].errorRate == 0.1)  // mean(0.0, 0.2)
     }
 
     @Test func `Legacy family-equals-size ids converge with fresh whisper ids`() {
@@ -273,8 +275,10 @@ struct ProjectionAggregationTests {
             ],
             warnings: [])
         let records = snapshot.projectedRecords()
-        #expect(records.count == 1)  // legacy row superseded, not competing
-        #expect(records[0].errorRate == 0.1)
+        #expect(records.count == 1)  // legacy row converges, not competing
+        // #64: the per-candidate collapse is a mean, not latest-wins — the
+        // converged legacy id contributes to the candidate's history.
+        #expect(records[0].errorRate == 0.5)  // mean(0.9, 0.1)
     }
 }
 

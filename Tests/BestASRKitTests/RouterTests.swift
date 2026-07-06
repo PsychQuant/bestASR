@@ -139,7 +139,7 @@ struct RouterCrossFamilyTests {
             records: records, availability: allThreeAvailable
         )
         #expect(rec.model == "large-v3-turbo")
-        #expect(rec.reason.contains { $0.contains("mean of") })  // aggregation disclosed
+        #expect(rec.reason.contains { $0.contains("mean over") })  // aggregation disclosed
     }
 
     @Test func `A candidate below the quality floor is never autonomously recommended`() throws {
@@ -196,7 +196,7 @@ struct RouterCrossFamilyTests {
             Fixtures.record(backend: .whisperKit, model: "large-v3-turbo",
                             language: "zh", errorRate: 0.06, timesRealtime: 12),
             Fixtures.record(backend: .fluidParakeet, model: "0.6b-v3",
-                            language: "zh", errorRate: 0.55, timesRealtime: 30),
+                            language: "zh", errorRate: 0.45, timesRealtime: 30),
         ]
         let rec = try Router.recommend(
             host: Fixtures.m5Max, profile: .high, requestedLanguage: "zh",
