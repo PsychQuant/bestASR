@@ -19,9 +19,10 @@ public enum ModelRegistry {
 
     /// Estimated unified-memory requirement (GB) per model — projected from
     /// the model grid's live-engine rows (fp16-weight upper bounds; quantized
-    /// variants use less, so the gate is conservative). whisperkit and
-    /// fluid-parakeet size names are disjoint, so the union stays keyed by
-    /// size alone (#35).
+    /// variants use less, so the gate is conservative). Size names are NOT
+    /// disjoint across families (sensevoice "small" collides with whisper
+    /// "small", #50) — the max-uniquing below keeps the conservative larger
+    /// estimate for colliding names.
     private static var memoryEstimates: [String: Double] {
         // uniquingKeysWith: a future duplicate size (second parakeet quant
         // row, or a family collision) must degrade to the conservative max

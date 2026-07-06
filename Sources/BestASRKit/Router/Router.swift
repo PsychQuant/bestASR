@@ -153,6 +153,12 @@ public enum Router {
             reasons.append(
                 "cold-start prior has no '\(model)' on \(backend.rawValue); "
                     + "using its catalog model '\(catalogFallback)'")
+            if let row = ModelGrid.rows(backend: backend.rawValue, priorityCeiling: nil)
+                .first(where: { $0.size == catalogFallback }), !row.verified {
+                reasons.append(
+                    "warning: '\(catalogFallback)' on \(backend.rawValue) is unverified "
+                        + "on this machine — quality is not established (#50)")
+            }
             model = catalogFallback
         }
 

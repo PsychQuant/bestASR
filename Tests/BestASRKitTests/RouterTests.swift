@@ -97,6 +97,21 @@ struct RouterCrossFamilyTests {
         #expect(rec.dataSource == .coldStartPrior)
     }
 
+    @Test func `Locking an unverified backend warns about unestablished quality`() throws {
+        // #50 verify M6: --backend fluid-paraformer with no records falls back
+        // to its catalog model (large-zh, priority 2, unverified — upstream
+        // decode bug). The route succeeds (explicit user choice) but the
+        // reasons must carry the unverified warning, not silently proceed.
+        let rec = try Router.recommend(
+            host: Fixtures.m5Max, profile: .high, requestedLanguage: "zh",
+            backendOverride: "fluid-paraformer", modelOverride: nil,
+            records: [], availability: [.fluidParaformer: true]
+        )
+        #expect(rec.backend == .fluidParaformer)
+        #expect(rec.model == "large-zh")
+        #expect(rec.reason.contains { $0.contains("unverified") })
+    }
+
     @Test func `A measured-but-worse parakeet zh record never outranks whisper`() throws {
         // Codex finding (#35 verify): the zh fairness case with BOTH families
         // measured — family diversity must not override measured evidence.

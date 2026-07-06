@@ -65,6 +65,22 @@ struct ChineseEnginesTests {
         }
     }
 
+    @Test func `Chinese-family live rows are listed in the grid`() {
+        // spec model-grid (#50): both rows appear without a priority ceiling;
+        // only sensevoice (priority 1, verified) enumerates by default.
+        let all = ModelGrid.rows.filter {
+            $0.backend == ModelGrid.backendFluidParaformer
+                || $0.backend == ModelGrid.backendFluidSenseVoice
+        }
+        #expect(all.count == 2)
+        let defaultSweep = ModelGrid.rows(
+            backend: ModelGrid.backendFluidParaformer, priorityCeiling: 1)
+        #expect(defaultSweep.isEmpty)  // shelved at priority 2 (decode bug)
+        let sv = ModelGrid.rows(backend: ModelGrid.backendFluidSenseVoice, priorityCeiling: 1)
+        #expect(sv.count == 1)
+        #expect(sv[0].verified)
+    }
+
     @Test func `Pipeline is created once per model and reused`() async throws {
         actor Counter {
             var value = 0
