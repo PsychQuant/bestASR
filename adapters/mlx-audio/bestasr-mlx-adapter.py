@@ -50,6 +50,11 @@ def main() -> None:
     except TypeError:
         # Older mlx_audio without a revision kwarg — fall back, revision is
         # then advisory (recorded in the grid, not enforceable here).
+        print(
+            f"warning: this mlx_audio cannot pin revision {args.revision}; "
+            "loading the repo head instead",
+            file=sys.stderr,
+        )
         model = load_model(args.hf_repo)
     except Exception as exc:  # noqa: BLE001
         fail(f"model load failed for {repo}: {exc}")
@@ -75,9 +80,14 @@ def main() -> None:
     if raw_segments:
         segments = []
         for seg in raw_segments:
-            start = float(getattr(seg, "start", seg.get("start", 0)) if not isinstance(seg, dict) else seg.get("start", 0))
-            end = float(getattr(seg, "end", seg.get("end", 0)) if not isinstance(seg, dict) else seg.get("end", 0))
-            seg_text = getattr(seg, "text", seg.get("text", "") if isinstance(seg, dict) else "")
+            if isinstance(seg, dict):
+                start = float(seg.get("start", 0))
+                end = float(seg.get("end", 0))
+                seg_text = seg.get("text", "")
+            else:
+                start = float(getattr(seg, "start", 0))
+                end = float(getattr(seg, "end", 0))
+                seg_text = getattr(seg, "text", "")
             segments.append({"start": start, "end": end, "text": seg_text})
             duration = max(duration, end)
     if duration <= 0:

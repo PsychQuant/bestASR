@@ -558,7 +558,11 @@ public struct CommandCore: Sendable {
                     + "(\(row.backend): \(row.quantization))")
         }
         lines.append("")
-        lines.append("mlx-audio reference catalog (backend not bundled; * = verified repo+pin):")
+        let mlxRegistered = engines.contains { $0.id == .mlxAudio }
+        lines.append(
+            mlxRegistered
+                ? "mlx-audio catalog (external adapter registered — runnable; * = verified repo+pin):"
+                : "mlx-audio reference catalog (backend not bundled; * = verified repo+pin):")
         for row in ModelGrid.rows(backend: ModelGrid.backendMLXAudio, priorityCeiling: nil)
             .sorted(by: { ($0.priority, $0.family) < ($1.priority, $1.family) })
         {

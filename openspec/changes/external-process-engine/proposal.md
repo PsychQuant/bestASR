@@ -24,12 +24,13 @@
 
 ### Modified Capabilities
 
+- `benchmark`: 候選枚舉規則泛化——有 engine 的 backend 才枚舉（bundled 或 registered external）
 - `asr-routing`: reference-only 排除規則放寬——已註冊 external adapter 的 backend rows 可枚舉
 - `model-grid`: mlx-audio rows 的 runnable 條件描述
 
 ## Impact
 
-- Affected specs: external-engine-protocol（新）, asr-routing, model-grid
+- Affected specs: external-engine-protocol（新）, asr-routing, model-grid, benchmark
 - Affected code:
   - New: Sources/BestASRKit/Engines/ExternalProcessEngine.swift, Sources/BestASRKit/Engines/ExternalEngineRegistry.swift, adapters/mlx-audio/bestasr-mlx-adapter.py, adapters/mlx-audio/setup.sh, Tests/BestASRKitTests/ExternalEngineTests.swift
   - Modified: Sources/BestASRKit/Models/DataModels.swift（BackendID + .mlxAudio）, Sources/BestASRKit/Models/ModelGrid.swift, Sources/BestASRKit/Models/ModelRegistry.swift, Sources/BestASRKit/Router/Router.swift, Sources/BestASRKit/CommandCore.swift, README.md, CHANGELOG.md

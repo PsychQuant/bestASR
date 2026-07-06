@@ -13,3 +13,13 @@ The model grid SHALL carry the full-family catalog — the 15-family mlx-audio r
 
 - **WHEN** the grid seeds the store after this change
 - **THEN** all 15 mlx-audio reference families remain present with their pinned HF repo/revision metadata, and none enumerate as candidates
+
+### Requirement: Priority tiers gate the default sweep
+
+Grid rows SHALL carry priority 1, 2, or 3. For runnable backends every current row is priority 1 and enumerates by default; for the mlx-audio catalog the tier was historical metadata while reference-only; once an external adapter registers the backend (#51), the same priority gate applies — the default sweep covers its priority-1 rows and `--all-grid` widens to the rest.
+
+#### Scenario: default sweep
+
+- **WHEN** a benchmark runs
+- **THEN** enumeration covers only runnable backends' rows
+- **AND** no mlx-audio reference row appears as a candidate

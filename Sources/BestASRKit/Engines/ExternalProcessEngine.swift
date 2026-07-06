@@ -104,27 +104,35 @@ public struct ExternalProcessEngine: Engine {
             duration: reply.duration)
     }
 
-    /// Timed segments flow through when present (clamped like every seam);
-    /// otherwise the text-only single-segment shape (#50 semantics).
+    /// Timed segments flow through when the whole batch is trustworthy;
+    /// one inverted pair distrusts the batch and the FULL reply text becomes
+    /// a single segment instead (#53 batch-distrust semantics — dropping a
+    /// timed segment would drop its text, and the transcript text is joined
+    /// from segments, so partial drops silently corrupt WER). Empty-text
+    /// entries are skipped (no text to lose).
     static func segments(from reply: ProtocolReply) -> [RawTranscription.RawSegment] {
         let upper = max(reply.duration, 0)
-        if let timed = reply.segments, !timed.isEmpty {
-            let sane = timed.compactMap { s -> RawTranscription.RawSegment? in
-                let start = min(max(s.start, 0), upper)
-                let end = min(max(s.end, 0), upper)
-                guard end >= start, !s.text.isEmpty else { return nil }
-                return .init(start: start, end: end, text: s.text, confidence: nil)
-            }
-            if !sane.isEmpty { return sane }
+        func fullText() -> [RawTranscription.RawSegment] {
+            let text = reply.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !text.isEmpty else { return [] }
+            return [.init(start: 0, end: upper, text: text, confidence: nil)]
         }
-        let text = reply.text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return [] }
-        return [.init(start: 0, end: upper, text: text, confidence: nil)]
+        guard let timed = reply.segments, !timed.isEmpty else { return fullText() }
+        var sane: [RawTranscription.RawSegment] = []
+        for s in timed {
+            guard s.end >= s.start else { return fullText() }  // batch distrusted
+            guard !s.text.isEmpty else { continue }
+            let start = min(max(s.start, 0), upper)
+            let end = min(max(s.end, 0), upper)
+            if end == start && s.end > s.start { return fullText() }  // entirely out of range
+            sane.append(.init(start: start, end: end, text: s.text, confidence: nil))
+        }
+        return sane.isEmpty ? fullText() : sane
     }
 
     /// Spawn + collect with a hard timeout (D3): SIGTERM on expiry, SIGKILL
-    /// if the process lingers. Runs off the cooperative pool via a
-    /// continuation so a hung adapter can never wedge the host.
+    /// if the process lingers, then the pipe read ends are closed so drain
+    /// tasks unblock even if a grandchild still holds the write end.
     static func run(
         executable: String, arguments: [String], timeout: TimeInterval, backend: String
     ) async throws -> (Int32, String, String) {
@@ -164,6 +172,11 @@ public struct ExternalProcessEngine: Engine {
                 if process.isRunning {
                     kill(process.processIdentifier, SIGKILL)
                 }
+                // A grandchild may still hold the pipe write end — closing
+                // our read ends unblocks the drain tasks so a killed adapter
+                // can never wedge the host (#51 verify M4).
+                try? outPipe.fileHandleForReading.close()
+                try? errPipe.fileHandleForReading.close()
                 break
             }
             try? await Task.sleep(nanoseconds: 50_000_000)
