@@ -45,7 +45,10 @@ public enum Router {
         // the measured tier ranks across families; the cold-start prior below
         // still walks its whisper chain, so an unmeasured family is never
         // proposed without evidence.
-        let availableOrdered: [BackendID] = [.whisperKit, .whisperCpp, .fluidParakeet, .mlxAudio].filter {
+        let availableOrdered: [BackendID] = [
+            .whisperKit, .whisperCpp, .fluidParakeet, .fluidParaformer, .fluidSenseVoice,
+            .mlxAudio,
+        ].filter {
             availability[$0] == true
         }
         guard !availableOrdered.isEmpty else {
@@ -83,7 +86,13 @@ public enum Router {
 
         if let top = Ranking.rank(usable, profile: profile).first {
             let record = top.record
-            let backend = BackendID(rawValue: record.backend) ?? .whisperKit
+            guard let backend = BackendID(rawValue: record.backend) else {
+                // `usable` already filtered unknown backends — this is
+                // unreachable; failing loud beats silently mis-attributing
+                // the record to whisperkit (#53 item 5).
+                throw BestASRError.runtime(
+                    "internal: ranked record carries unknown backend '\(record.backend)'")
+            }
             let percent = String(format: "%.1f", record.errorRate * 100)
             let speed = String(format: "%.1f", record.timesRealtime)
             reasons.append(
@@ -155,6 +164,12 @@ public enum Router {
             reasons.append(
                 "cold-start prior has no '\(model)' on \(backend.rawValue); "
                     + "using its catalog model '\(catalogFallback)'")
+            if let row = ModelGrid.rows(backend: backend.rawValue, priorityCeiling: nil)
+                .first(where: { $0.size == catalogFallback }), !row.verified {
+                reasons.append(
+                    "warning: '\(catalogFallback)' on \(backend.rawValue) is unverified "
+                        + "on this machine — quality is not established (#50)")
+            }
             model = catalogFallback
         }
 

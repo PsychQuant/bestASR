@@ -15,6 +15,13 @@ public struct SpeakerEnroller: Sendable {
     public func embedding(for audioPath: String) async throws -> [Float]? {
         do {
             let models = try await DiarizerModels.downloadIfNeeded()
+            // #52 (spec weight-pinning): DiarizerModels downloads only the
+            // speaker-diarization repo (segmentation + embedding) — VAD is a
+            // separate FluidAudio subsystem bestASR does not invoke. No
+            // download/load split exists on this API, so verification runs
+            // post-load here: it protects every later process, not the one
+            // that raced a tamper mid-download (documented limitation).
+            try WeightVerifier.verifyBundled(repo: "speaker-diarization")
             let diarizer = DiarizerManager()
             diarizer.initialize(models: models)
             let samples = try AudioConverter()

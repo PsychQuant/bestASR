@@ -19,9 +19,10 @@ public enum ModelRegistry {
 
     /// Estimated unified-memory requirement (GB) per model — projected from
     /// the model grid's live-engine rows (fp16-weight upper bounds; quantized
-    /// variants use less, so the gate is conservative). whisperkit and
-    /// fluid-parakeet size names are disjoint, so the union stays keyed by
-    /// size alone (#35).
+    /// variants use less, so the gate is conservative). Size names are NOT
+    /// disjoint across families (sensevoice "small" collides with whisper
+    /// "small", #50) — the max-uniquing below keeps the conservative larger
+    /// estimate for colliding names.
     private static var memoryEstimates: [String: Double] {
         // uniquingKeysWith: a future duplicate size (second parakeet quant
         // row, or a family collision) must degrade to the conservative max
@@ -32,6 +33,8 @@ public enum ModelRegistry {
                 .filter {
                     $0.backend == ModelGrid.backendWhisperKit
                         || $0.backend == ModelGrid.backendFluidParakeet
+                        || $0.backend == ModelGrid.backendFluidParaformer
+                        || $0.backend == ModelGrid.backendFluidSenseVoice
                 }
                 .map { ($0.size, $0.estMemoryGB) },
             uniquingKeysWith: max)
@@ -80,13 +83,18 @@ public enum ModelRegistry {
     /// sizes plus live non-Whisper rows (#35). Reference rows (mlx-audio)
     /// stay excluded: no bundled backend can run them.
     public static func isRunnableModel(_ name: String, includeExternal: Bool = false) -> Bool {
-        var liveBackends: Set<String> = [ModelGrid.backendFluidParakeet]
+        var liveNonWhisper: Set<String> = [
+            ModelGrid.backendFluidParakeet, ModelGrid.backendFluidParaformer,
+            ModelGrid.backendFluidSenseVoice,
+        ]
         // A registered external adapter upgrades its catalog rows to
         // runnable (#51, spec asr-routing) — the caller passes availability.
-        if includeExternal { liveBackends.insert(ModelGrid.backendMLXAudio) }
+        if includeExternal { liveNonWhisper.insert(ModelGrid.backendMLXAudio) }
         return isSupportedModel(name)
             || ModelGrid.rows.contains {
-                liveBackends.contains($0.backend) && $0.size == name
+                liveNonWhisper.contains($0.backend) && $0.size == name
+            }
+    }
             }
     }
 

@@ -14,6 +14,8 @@ public enum BackendID: String, Codable, CaseIterable, Sendable {
     // "fluid-parakeet" (vendor-prefixed) stays distinguishable from the
     // mlx-audio parakeet REFERENCE row that shares the family name (#20).
     case fluidParakeet = "fluid-parakeet"
+    case fluidParaformer = "fluid-paraformer"
+    case fluidSenseVoice = "fluid-sensevoice"
     case mlxAudio = "mlx-audio"
 }
 

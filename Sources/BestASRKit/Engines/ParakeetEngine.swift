@@ -64,6 +64,12 @@ protocol ParakeetTranscribing: Sendable {
 
 /// Production adapter: owns the loaded AsrManager. A fresh TdtDecoderState
 /// per call keeps files independent (stateless per transcription).
+///
+/// Concurrency (#53 item 3): FluidAudio's AsrManager is not documented as
+/// thread-safe, and actor-izing it is upstream's call. bestASR's CLI drives
+/// every transcription sequentially (one engine call at a time per process),
+/// which is the safety assumption this adapter relies on — a future parallel
+/// benchmark runner must serialize per-pipeline access before fanning out.
 struct FluidAudioParakeetPipeline: ParakeetTranscribing {
     let manager: AsrManager
 
@@ -93,13 +99,30 @@ public struct ParakeetEngine: Engine {
     static let segmentGapSeconds: TimeInterval = 0.8
 
     public init() {
-        self.init(pipelineFactory: { _ in
+        self.init(pipelineFactory: { model in
             // Models download on first use (same posture as WhisperKit); the
             // pinned FluidAudio release manages weights + auto-recovery.
-            let models = try await AsrModels.downloadAndLoad(version: .v3)
+            // The grid's model key maps explicitly to a FluidAudio version —
+            // a new grid row without a mapping fails loud instead of
+            // silently loading v3 weights for it (#53 item 5).
+            guard let version = Self.modelVersions[model] else {
+                throw TranscriptionError(
+                    backend: BackendID.fluidParakeet.rawValue,
+                    message: "no FluidAudio model version mapped for grid model '\(model)'",
+                    underlying: nil)
+            }
+            // #52 (spec weight-pinning): download and verify BEFORE load —
+            // drifted weights must never reach CoreML compilation.
+            let modelsDir = try await AsrModels.download(version: version)
+            try WeightVerifier.verifyBundled(repo: "parakeet-tdt-0.6b-v3")
+            let models = try await AsrModels.load(from: modelsDir, version: version)
             return FluidAudioParakeetPipeline(manager: AsrManager(config: .default, models: models))
         })
     }
+
+    /// Grid model key → FluidAudio version (kept next to the factory so a
+    /// grid addition and its mapping land in one diff).
+    static let modelVersions: [String: AsrModelVersion] = ["0.6b-v3": .v3]
 
     /// Internal seam (#9): tests inject a spy keyed by model name.
     init(
@@ -165,9 +188,36 @@ public struct ParakeetEngine: Engine {
                 .init(start: 0, end: output.duration, text: text, confidence: output.confidence)
             ]
         }
-        guard let timings = output.tokenTimings, !timings.isEmpty else {
+        guard let rawTimings = output.tokenTimings, !rawTimings.isEmpty else {
             return fullTextSegment()
         }
+        // Seam defense (#53 item 2): a misbehaving pipeline may emit
+        // negative, past-duration, out-of-order, or inverted (end < start)
+        // timings. Partially in-range pairs are clamped into 0...duration
+        // and re-ordered; but an inverted RAW pair, or one that clamps to a
+        // zero-length point entirely outside the audio, means the batch as a
+        // whole cannot be trusted — dropping just those tokens would drop
+        // their TEXT, so the whole batch falls back to the full-text single
+        // segment instead. Text is never lost either way.
+        let upperBound = max(output.duration, 0)
+        var sanitized: [(index: Int, timing: ParakeetOutput.Timing)] = []
+        for (index, t) in rawTimings.enumerated() {
+            guard t.endTime >= t.startTime else { return fullTextSegment() }
+            let start = min(max(t.startTime, 0), upperBound)
+            let end = min(max(t.endTime, 0), upperBound)
+            // A non-degenerate raw pair collapsing to a point means it lay
+            // entirely outside 0...duration — the batch contradicts the
+            // audio's own duration.
+            if end == start && t.endTime > t.startTime { return fullTextSegment() }
+            sanitized.append((index, .init(token: t.token, startTime: start, endTime: end)))
+        }
+        // Explicit (startTime, original index) tie-break: emission order is
+        // preserved for simultaneous tokens without assuming sort stability
+        // (Ranking.swift documents the same discipline).
+        let timings = sanitized
+            .sorted { ($0.timing.startTime, $0.index) < ($1.timing.startTime, $1.index) }
+            .map(\.timing)
+        guard !timings.isEmpty else { return fullTextSegment() }
 
         var segments: [RawTranscription.RawSegment] = []
         var groupTokens: [ParakeetOutput.Timing] = []

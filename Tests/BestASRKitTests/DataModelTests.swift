@@ -59,7 +59,10 @@ struct DataModelTests {
         // #35 (spec asr-engine "Common engine interface"): exactly the backends
         // with a bundled runtime — appended at the tail so store enumeration
         // order stays stable (design D2).
-        #expect(BackendID.allCases == [.whisperKit, .whisperCpp, .fluidParakeet, .mlxAudio])
+        #expect(BackendID.allCases == [
+            .whisperKit, .whisperCpp, .fluidParakeet, .fluidParaformer, .fluidSenseVoice,
+            .mlxAudio,
+        ])
         #expect(BackendID.fluidParakeet.rawValue == "fluid-parakeet")
         // Codable round-trip through the raw value (store records use strings).
         let decoded = try JSONDecoder().decode(

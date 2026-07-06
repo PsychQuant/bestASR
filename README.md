@@ -65,6 +65,14 @@ Backends:
   hard timeout), adapter failures are loud and attributed, and external
   realtime factors honestly include the full process lifetime (spawn +
   model load) — a structural cost of the isolation model.
+  SwiftPM `exact` pin anchors FluidAudio's downloader code, and downloaded
+  weights are digest-verified against the repo's pinned manifest
+  (`Sources/BestASRKit/Supply/weights-manifest.json`) before first use —
+  pinned drift fails loudly; a not-yet-pinned model warns and proceeds
+  (TOFU window). Upgrading FluidAudio re-pins via `scripts/pin-weights.sh`
+  (the manifest diff is the audit trail). An unfiltered `bestasr benchmark`
+  will download the Parakeet weights (~hundreds of MB) on first run — scope
+  with `--backends` to skip it.
 - The model grid additionally carries a **reference catalog** of 15
   MLX-native STT families (Parakeet, Qwen3-ASR, Moonshine, Canary, MMS,
   Voxtral, …) with verified HuggingFace repos and pinned revisions — visible
