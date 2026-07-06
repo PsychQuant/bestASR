@@ -8,54 +8,34 @@ TBD - created by archiving change 'bestasr-mvp'. Update Purpose after archive.
 
 ### Requirement: Common engine interface
 
-Every backend SHALL implement the common engine interface with `is_available() -> bool`, `transcribe(audio_path, options) -> Transcript`, and `estimate_requirements(model_name) -> ModelRequirements`. Transcribe options SHALL carry the model, the quantization variant, the optional language, and an optional context prompt. When a context prompt is present, the engine SHALL forward it to its backend's prompt mechanism (the WhisperKit decode-options prompt path; the whisper-cli prompt flag); when absent, no prompt SHALL be passed. The supported backend implementations SHALL be `whisperkit` (CoreML/ANE path) and `whisper.cpp` (GGUF quantized path).
+Every ASR backend SHALL implement the common `Engine` interface (`id`, `isAvailable`, `transcribeRaw`), and `BackendID` SHALL enumerate exactly the backends with a bundled runtime: `whisperkit`, `whisper.cpp`, and `fluid-parakeet`.
 
-#### Scenario: Each backend exposes the interface
+#### Scenario: Three backends enumerate
 
-- **WHEN** any supported backend is instantiated
-- **THEN** it provides `is_available`, `transcribe`, and `estimate_requirements` with the specified signatures
+- **WHEN** `BackendID.allCases` is consulted (e.g. by `list-backends`)
+- **THEN** it yields `whisperkit`, `whisper.cpp`, and `fluid-parakeet`, each constructible as an engine
 
-#### Scenario: Quantization is part of transcribe options
+#### Scenario: Non-Whisper engine inherits the normalization seam
 
-- **WHEN** an engine is asked to transcribe with a quantization variant its backend supports
-- **THEN** the engine loads the model matching that quantization variant
-
-#### Scenario: Context prompt is forwarded to the backend
-
-- **WHEN** an engine is asked to transcribe with options carrying a context prompt
-- **THEN** the prompt reaches the backend's prompt mechanism for that run
-
-#### Scenario: Absent prompt adds nothing to the invocation
-
-- **WHEN** an engine is asked to transcribe with options carrying no context prompt
-- **THEN** the backend invocation carries no prompt argument and behavior matches the pre-context feature
+- **WHEN** any input that is not 16 kHz mono is transcribed through `Engine.transcribe` with the fluid-parakeet backend
+- **THEN** the engine's `transcribeRaw` receives the normalized 16 kHz mono path (AudioNormalizer, #36), identical to the Whisper backends
 
 
 <!-- @trace
-source: context-calibration-and-marketplace
-updated: 2026-07-02
+source: add-parakeet-cross-family-engine
+updated: 2026-07-06
 code:
+  - Sources/BestASRKit/Engines/ParakeetEngine.swift
   - Sources/BestASRKit/Models/DataModels.swift
-  - Tests/BestASRKitTests/PluginTests.swift
-  - Sources/BestASRKit/Context/ContextSchema.swift
-  - plugins/bestasr/skills/context-ingest/SKILL.md
-  - Sources/BestASRKit/Context/PromptRenderer.swift
-  - Sources/bestasr/BestASRCommand.swift
-  - Tests/BestASRKitTests/ContextTests.swift
-  - plugins/bestasr/.claude-plugin/plugin.json
-  - README.md
-  - .claude-plugin/marketplace.json
-  - Tests/BestASRKitTests/DataModelTests.swift
+  - Sources/BestASRKit/Models/ModelGrid.swift
+  - Sources/BestASRKit/Models/ModelRegistry.swift
+  - Sources/BestASRKit/Router/Router.swift
   - Sources/BestASRKit/CommandCore.swift
-  - plugins/bestasr/skills/srt-proofread/SKILL.md
-  - Sources/BestASRKit/Engines/WhisperCppEngine.swift
-  - Sources/BestASRKit/Benchmark/BenchmarkReport.swift
-  - Tests/BestASRKitTests/BenchmarkTests.swift
-  - Sources/BestASRKit/Engines/WhisperKitEngine.swift
-  - Tests/BestASRKitTests/BackendEngineTests.swift
-  - Sources/BestASRKit/Context/ContextLoader.swift
-  - Sources/BestASRKit/Benchmark/BenchmarkRunner.swift
-  - Tests/BestASRKitTests/CLITests.swift
+  - Sources/bestasr/BestASRCommand.swift
+  - Tests/BestASRKitTests/ParakeetEngineTests.swift
+  - Tests/BestASRKitTests/RouterTests.swift
+  - README.md
+  - CHANGELOG.md
 -->
 
 ---

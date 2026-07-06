@@ -8,65 +8,34 @@ TBD - created by archiving change 'mlx-audio-backend-and-bcnf-store'. Update Pur
 
 ### Requirement: Full-family catalog
 
-The model grid SHALL enumerate the runnable backends' models as catalog rows and SHALL additionally retain the 15 mlx-audio STT families as a **reference catalog** — rows carrying languages, estimated memory, optional HF repo id with pinned revision, and a historical priority tier. Reference rows are not runnable (no engine is bundled for them) and exist for lookup and potential future reinstatement.
+The model grid SHALL carry the full-family catalog — the 15-family mlx-audio reference rows untouched — plus live rows for the `fluid-parakeet` backend (parakeet family, sizes as shipped by the pinned FluidAudio release) that enumerate as benchmark candidates.
 
-#### Scenario: grid completeness
+#### Scenario: Live and reference parakeet rows coexist distinguishably
 
-- **WHEN** the grid is loaded
-- **THEN** it contains rows for all 15 mlx-audio families (reference) plus the WhisperKit and whisper.cpp models, totalling at least 30 rows
+- **WHEN** the grid is queried for the parakeet family
+- **THEN** it returns both the live `fluid-parakeet` row(s) and the reference `mlx-audio` row, distinguishable by backend id
 
-#### Scenario: reference rows are visible but not runnable
+#### Scenario: Reference catalog integrity is preserved
 
-- **WHEN** the model listing renders
-- **THEN** the mlx-audio section is labeled as a reference catalog whose backend is not bundled
-- **AND** benchmark enumeration produces no candidates from reference rows
+- **WHEN** the grid seeds the store after this change
+- **THEN** all 15 mlx-audio reference families remain present with their pinned HF repo/revision metadata, and none enumerate as candidates
 
 
 <!-- @trace
-source: remove-mlx-audio-backend
-updated: 2026-07-04
+source: add-parakeet-cross-family-engine
+updated: 2026-07-06
 code:
-  - Tests/BestASRKitTests/DiarizationTests.swift
-  - Sources/BestASRKit/Engines/mlx_worker.py
-  - Sources/BestASRKit/Diarize/SpeakerIdentifier.swift
-  - plugins/bestasr/.claude-plugin/plugin.json
-  - Tests/BestASRKitTests/RouterTests.swift
-  - Package.swift
-  - docs/design-brief.md
-  - plugins/bestasr/skills/context-ingest/SKILL.md
-  - Sources/BestASRKit/Engines/MLXAudioEngine.swift
-  - CHANGELOG.md
-  - README.md
-  - Sources/BestASRKit/CommandCore.swift
-  - Sources/BestASRKit/Diarize/SpeakerAssigner.swift
-  - Tests/BestASRKitTests/DataModelTests.swift
-  - Package.resolved
-  - Sources/BestASRKit/Diarize/SpeakerEnroller.swift
-  - Tests/BestASRKitTests/ModelGridTests.swift
-  - Tests/BestASRKitTests/PipelineWiringTests.swift
-  - Sources/BestASRKit/Context/ContextLoader.swift
-  - Sources/BestASRKit/Engines/MLXWorkerProtocol.swift
-  - scripts/validate-diarization.sh
-  - Sources/BestASRKit/Store/StoreTables.swift
-  - Sources/BestASRKit/Detect/DynamicHostState.swift
-  - Sources/BestASRKit/Models/ModelRegistry.swift
-  - Sources/BestASRKit/Models/ModelGrid.swift
-  - Sources/BestASRKit/Router/Ranking.swift
-  - Sources/BestASRKit/Benchmark/BenchmarkRunner.swift
-  - Sources/BestASRKit/Store/BenchmarkStore.swift
-  - scripts/fetch-corpora.sh
-  - Tests/BestASRKitTests/MLXAudioEngineTests.swift
-  - Tests/BestASRKitTests/EffortProfileTests.swift
-  - CLAUDE.md
-  - Tests/BestASRKitTests/CLITests.swift
-  - Sources/BestASRKit/Diarize/DiarizationEngine.swift
-  - Sources/bestasr/BestASRCommand.swift
-  - Sources/BestASRKit/Router/Router.swift
-  - .claude-plugin/marketplace.json
+  - Sources/BestASRKit/Engines/ParakeetEngine.swift
   - Sources/BestASRKit/Models/DataModels.swift
-  - Sources/BestASRKit/Output/TranscriptWriter.swift
-  - Tests/BestASRKitTests/BenchmarkTests.swift
-  - Tests/BestASRKitTests/BenchmarkStoreTests.swift
+  - Sources/BestASRKit/Models/ModelGrid.swift
+  - Sources/BestASRKit/Models/ModelRegistry.swift
+  - Sources/BestASRKit/Router/Router.swift
+  - Sources/BestASRKit/CommandCore.swift
+  - Sources/bestasr/BestASRCommand.swift
+  - Tests/BestASRKitTests/ParakeetEngineTests.swift
+  - Tests/BestASRKitTests/RouterTests.swift
+  - README.md
+  - CHANGELOG.md
 -->
 
 ---
