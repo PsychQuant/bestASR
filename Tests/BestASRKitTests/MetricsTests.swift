@@ -82,11 +82,38 @@ struct SRTParserTests {
 
     @Test func `Overlong colon prefixes are never treated as speaker labels`() throws {
         // A >40-char recurring prefix is prose (e.g. repeated chorus line
-        // ending in a colon), not a speaker name.
+        // ending in a colon), not a speaker name — and exactly 40 is still
+        // a name (boundary locked both sides, #55 verify C4).
         let long = String(repeating: "a", count: 41)
         let srt = "1\n00:00:00,000 --> 00:00:01,000\n\(long): one\n\n2\n00:00:01,000 --> 00:00:02,000\n\(long): two"
         let cues = try SRTParser.parse(srt)
         #expect(SRTParser.referenceText(from: cues) == "\(long): one \(long): two")
+
+        let name40 = String(repeating: "b", count: 40)
+        let srt40 = "1\n00:00:00,000 --> 00:00:01,000\n\(name40): one\n\n2\n00:00:01,000 --> 00:00:02,000\n\(name40): two"
+        #expect(SRTParser.referenceText(from: try SRTParser.parse(srt40)) == "one two")
+    }
+
+    @Test func `Combined slash names strip when recurring and stay when one-off`() throws {
+        // #55 verify L2 — the real Jobs & Gates shape: slash-combined labels
+        // ("Walt Mossberg/Rob Kelly" x3 strips; "Walt Mossberg/Kara Swisher"
+        // x1 remains, the accepted D1 edge).
+        let srt = """
+            1
+            00:00:00,000 --> 00:00:01,000
+            Walt Mossberg/Rob Kelly: welcome everyone
+
+            2
+            00:00:01,000 --> 00:00:02,000
+            Walt Mossberg/Rob Kelly: glad you came
+
+            3
+            00:00:02,000 --> 00:00:03,000
+            Walt Mossberg/Kara Swisher: one-off joint line
+            """
+        let cues = try SRTParser.parse(srt)
+        #expect(SRTParser.referenceText(from: cues)
+            == "welcome everyone glad you came Walt Mossberg/Kara Swisher: one-off joint line")
     }
 
     @Test func `Malformed SRT without any timecode is rejected`() {

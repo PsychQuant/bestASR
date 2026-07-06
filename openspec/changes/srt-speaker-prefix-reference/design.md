@@ -11,7 +11,7 @@
 
 ### D1 — repeated-prefix heuristic，不加 CLI flag
 
-前綴判定規則：cue 文字匹配 `^<prefix>: `（prefix ≤40 字元、不含 colon）者收集其 prefix；**同一 prefix 出現 ≥2 次**即判定為 speaker 標籤，該集合內的前綴全數剝除。單次出現者（正文引言「Note: ...」）保留。理由：speaker 標籤的本質特徵就是重複（對談至少兩人各說多句）；flag 會把判斷推給使用者且 corpus add 無現成參數面。Deletion test：拿掉 heuristic → Jobs & Gates reference 含 700+ 個名字 token、WER 灌高——非 pass-through。
+前綴判定規則：cue 文字匹配 `^<prefix>: `（prefix ≤40 字元、不含 colon）者收集其 prefix；**同一 prefix 出現 ≥2 次**即判定為 speaker 標籤，該集合內的前綴全數剝除。單次出現者（正文引言「Note: ...」）保留。理由：speaker 標籤的本質特徵就是重複（對談至少兩人各說多句）；flag 會把判斷推給使用者且 corpus add 無現成參數面。Deletion test：拿掉 heuristic → Jobs & Gates reference 含 ~540 個名字 token（269 前綴 × ~2 詞）、WER 灌高——非 pass-through。
 
 ### D2 — 剝除落在 referenceText 萃取層，cue 結構不動
 
@@ -23,7 +23,8 @@
 
 ## Risks / Trade-offs
 
-- ≥2 次門檻下，只說過一句話的說話人前綴會殘留——本語料三人皆多句無此問題；極端 case 殘留一個前綴的 WER 影響遠小於全滅，可接受
+- ≥2 次門檻下，只出現一次的說話人前綴會殘留——本語料實有 6 位說話人＋2 個合稱標籤（269 cues 全帶前綴），其中 `Walt Mossberg/Kara Swisher` 恰出現 1 次故殘留（~3 tokens vs 數千詞 reference，影響可忽略，可接受）
+- 誤剝面：≤40 字元的「重複正文冒號短語」（如逐字稿慣用 `Chorus: `、詞表 `Term: `）會被當 speaker 標籤剝除——影響面遠小於全滅 speaker-labeled 語料的效益，接受此 trade-off
 - 名字含 colon（如 "Dr: Smith"）不在 prefix 形狀內——SRT speaker 慣例不含此形，忽略
 
 ## Migration Plan

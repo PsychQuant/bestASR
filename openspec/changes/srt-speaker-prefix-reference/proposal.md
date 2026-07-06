@@ -28,5 +28,5 @@
 
 - Affected specs: benchmark
 - Affected code:
-  - Modified: Sources/BestASRKit/Benchmark/SRTParser.swift, Tests/BestASRKitTests/BenchmarkTests.swift（或 SRTParser 測試所在檔）
+  - Modified: Sources/BestASRKit/Benchmark/SRTParser.swift, Tests/BestASRKitTests/MetricsTests.swift（SRTParserTests）
   - New: (none)
