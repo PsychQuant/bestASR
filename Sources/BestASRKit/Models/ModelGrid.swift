@@ -23,6 +23,20 @@ public enum ModelGrid {
 
     public static let rows: [ModelRow] = existingBackendRows + fluidParakeetRows + chineseFamilyRows + mlxAudioRows
 
+    /// Resolve a model ADDRESS to its row (#65): mlx-audio rows are
+    /// addressed `family/size` (sizes collide across families — canary 1b vs
+    /// mms 1b); every other backend addresses by bare size.
+    public static func row(backend: String, modelAddress: String) -> ModelRow? {
+        if let slash = modelAddress.firstIndex(of: "/") {
+            let family = String(modelAddress[..<slash])
+            let size = String(modelAddress[modelAddress.index(after: slash)...])
+            return rows.first {
+                $0.backend == backend && $0.family == family && $0.size == size
+            }
+        }
+        return rows.first { $0.backend == backend && $0.size == modelAddress }
+    }
+
     /// Live rows for the fluid-parakeet backend (#35, spec model-grid
     /// "Full-family catalog"): the first non-Whisper family with a bundled
     /// engine. Distinct from the mlx-audio parakeet REFERENCE row — same

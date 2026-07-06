@@ -56,9 +56,7 @@ public struct ExternalProcessEngine: Engine {
         if let language = options.language {
             arguments += ["--language", language]
         }
-        let row = ModelGrid.rows.first {
-            $0.backend == id.rawValue && $0.size == options.model
-        }
+        let row = ModelGrid.row(backend: id.rawValue, modelAddress: options.model)
         if let repo = row?.hfRepo {
             arguments += ["--hf-repo", repo]
         }

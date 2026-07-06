@@ -140,9 +140,14 @@ public struct BenchmarkRunner {
                 {
                     continue
                 }
+                // mlx-audio candidates are addressed family/size (#65 —
+                // bare sizes collide across families and trapped the report's
+                // keyed dictionaries: canary 1b vs mms 1b).
+                let address = backend.rawValue == ModelGrid.backendMLXAudio
+                    ? "\(row.family)/\(row.size)" : row.size
                 candidates.append(
                     BenchmarkCandidate(
-                        backend: backend, model: row.size, quantization: row.quantization))
+                        backend: backend, model: address, quantization: row.quantization))
             }
         }
         return Enumeration(candidates: candidates, notes: notes)
