@@ -48,7 +48,7 @@ public struct CommandCore: Sendable {
 
     /// The production wiring: real engines, real detection, real store.
     public static func live() -> CommandCore {
-        CommandCore(engines: [WhisperKitEngine(), WhisperCppEngine(), ParakeetEngine()])
+        CommandCore(engines: [WhisperKitEngine(), WhisperCppEngine(), ParakeetEngine(), ChineseFamilyEngine.paraformer(), ChineseFamilyEngine.sensevoice()])
     }
 
     /// Store-projected records for the router (design D7).
@@ -529,24 +529,33 @@ public struct CommandCore: Sendable {
 
     public func listModels() -> String {
         var lines: [String] = []
+        let whisperBackends = [ModelGrid.backendWhisperKit, ModelGrid.backendWhisperCpp]
         for (size, _) in ModelGrid.whisperSizes {
-            // Backends with no row for this size are skipped (#35: whisper
-            // sizes never render an empty fluid-parakeet column and vice versa).
-            let quants = BackendID.allCases.compactMap { backend -> String? in
+            // Whisper sizes list whisper-family backends only — a same-named
+            // size on another family (sensevoice "small", #50 verify H1) must
+            // not masquerade as a whisper variant.
+            let quants = whisperBackends.compactMap { backend -> String? in
                 let variants = ModelGrid.rows.filter {
-                    $0.backend == backend.rawValue && $0.size == size
+                    $0.backend == backend && $0.size == size
                 }.map(\.quantization)
                 guard !variants.isEmpty else { return nil }
-                return "\(backend.rawValue): \(variants.joined(separator: "/"))"
+                return "\(backend): \(variants.joined(separator: "/"))"
             }
             lines.append(
                 "\(size.padding(toLength: 16, withPad: " ", startingAt: 0)) (\(quants.joined(separator: " · ")))")
         }
-        // Live non-Whisper families (#35, spec model-grid "Full-family catalog").
-        for row in ModelGrid.rows(backend: ModelGrid.backendFluidParakeet, priorityCeiling: nil) {
-            lines.append(
-                "\(row.size.padding(toLength: 16, withPad: " ", startingAt: 0)) "
-                    + "(\(row.backend): \(row.quantization))")
+        // Live non-Whisper families (#35/#50, spec model-grid "Full-family
+        // catalog") — every bundled non-whisper backend renders its own rows.
+        let liveFamilies = [
+            ModelGrid.backendFluidParakeet, ModelGrid.backendFluidParaformer,
+            ModelGrid.backendFluidSenseVoice,
+        ]
+        for backend in liveFamilies {
+            for row in ModelGrid.rows(backend: backend, priorityCeiling: nil) {
+                lines.append(
+                    "\(row.size.padding(toLength: 16, withPad: " ", startingAt: 0)) "
+                        + "(\(row.backend): \(row.quantization)\(row.verified ? "" : " · unverified"))")
+            }
         }
         lines.append("")
         lines.append("mlx-audio reference catalog (backend not bundled; * = verified repo+pin):")

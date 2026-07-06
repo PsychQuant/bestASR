@@ -13,13 +13,15 @@ public enum ModelGrid {
     public static let backendWhisperCpp = "whisper.cpp"
     public static let backendMLXAudio = "mlx-audio"
     public static let backendFluidParakeet = "fluid-parakeet"
+    public static let backendFluidParaformer = "fluid-paraformer"
+    public static let backendFluidSenseVoice = "fluid-sensevoice"
 
     static let whisperSizes: [(size: String, memoryGB: Double)] = [
         ("tiny", 1.0), ("base", 1.5), ("small", 2.5),
         ("medium", 5.0), ("large-v3-turbo", 6.0), ("large-v3", 10.0),
     ]
 
-    public static let rows: [ModelRow] = existingBackendRows + fluidParakeetRows + mlxAudioRows
+    public static let rows: [ModelRow] = existingBackendRows + fluidParakeetRows + chineseFamilyRows + mlxAudioRows
 
     /// Live rows for the fluid-parakeet backend (#35, spec model-grid
     /// "Full-family catalog"): the first non-Whisper family with a bundled
@@ -35,6 +37,31 @@ public enum ModelGrid {
             backend: backendFluidParakeet, family: "parakeet", size: "0.6b-v3",
             quantization: "default", hfRepo: "FluidInference/parakeet-tdt-0.6b-v3-coreml",
             languages: ["multi"], estMemoryGB: 2.0, priority: 1, verified: true)
+    ]
+
+    /// Live rows for the Chinese families (#50, spec model-grid "Full-family
+    /// catalog"), states set by the zh-TW live measurement (task 3.1,
+    /// 2026-07-06, cv-zhtw suite):
+    ///
+    /// - sensevoice small: mean CER 0.1941 vs whisperkit large-v3-turbo
+    ///   0.1791 on the same corpora — near-parity with a far larger model at
+    ///   ~6x realtime and ~1.1 GB peak. Verified, priority 1. Output script
+    ///   is Simplified (metric comparison folds Han, #34 D7; delivery-script
+    ///   preference is a separate concern).
+    /// - paraformer large-zh: FluidAudio 0.15.4 emits un-detokenized BPE
+    ///   subwords ("n@@个s@@…的的的…", CER 1.67-2.07) — unusable until the
+    ///   upstream decode bug is fixed. Wiring kept, priority 2 so the default
+    ///   benchmark sweep never pays its download; no repo id on an
+    ///   unverified row (invariant).
+    static let chineseFamilyRows: [ModelRow] = [
+        ModelRow(
+            backend: backendFluidParaformer, family: "paraformer", size: "large-zh",
+            quantization: "default",
+            languages: ["zh"], estMemoryGB: 2.5, priority: 2, verified: false),
+        ModelRow(
+            backend: backendFluidSenseVoice, family: "sensevoice", size: "small",
+            quantization: "default", hfRepo: "FluidInference/sensevoice-small-coreml",
+            languages: ["multi"], estMemoryGB: 1.5, priority: 1, verified: true),
     ]
 
     /// Existing backends: live-validated all session — verified, priority 1.

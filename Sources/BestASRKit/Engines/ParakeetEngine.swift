@@ -111,7 +111,11 @@ public struct ParakeetEngine: Engine {
                     message: "no FluidAudio model version mapped for grid model '\(model)'",
                     underlying: nil)
             }
-            let models = try await AsrModels.downloadAndLoad(version: version)
+            // #52 (spec weight-pinning): download and verify BEFORE load —
+            // drifted weights must never reach CoreML compilation.
+            let modelsDir = try await AsrModels.download(version: version)
+            try WeightVerifier.verifyBundled(repo: "parakeet-tdt-0.6b-v3")
+            let models = try await AsrModels.load(from: modelsDir, version: version)
             return FluidAudioParakeetPipeline(manager: AsrManager(config: .default, models: models))
         })
     }
