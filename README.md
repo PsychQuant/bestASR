@@ -56,6 +56,15 @@ Backends:
   revision-pinned by bestASR. An unfiltered `bestasr benchmark` will download
   the Parakeet weights (~hundreds of MB) on first run — scope with
   `--backends` to skip it.
+- **fluid-sensevoice** is the Chinese-family answer (#50): SenseVoice small
+  (FluidAudio-bundled, zero new dependencies, automatic language detection)
+  measured mean CER 0.1941 on the zh-TW suite vs 0.1791 for whisperkit
+  large-v3-turbo — near-parity with a far larger model at ~6x realtime and
+  ~1.1 GB peak. Note: its output script is Simplified; CER comparison folds
+  Han variants (#34) so ranking is fair, but delivered transcripts keep the
+  model's script. **fluid-paraformer** is wired but shelved at priority 2:
+  FluidAudio 0.15.4's Paraformer decode emits un-detokenized BPE subwords
+  (CER >160%) — it re-enters the pool when the upstream bug is fixed.
 - The model grid additionally carries a **reference catalog** of 15
   MLX-native STT families (Parakeet, Qwen3-ASR, Moonshine, Canary, MMS,
   Voxtral, …) with verified HuggingFace repos and pinned revisions — visible

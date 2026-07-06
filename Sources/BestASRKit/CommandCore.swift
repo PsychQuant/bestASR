@@ -48,7 +48,7 @@ public struct CommandCore: Sendable {
 
     /// The production wiring: real engines, real detection, real store.
     public static func live() -> CommandCore {
-        CommandCore(engines: [WhisperKitEngine(), WhisperCppEngine(), ParakeetEngine()])
+        CommandCore(engines: [WhisperKitEngine(), WhisperCppEngine(), ParakeetEngine(), ChineseFamilyEngine.paraformer(), ChineseFamilyEngine.sensevoice()])
     }
 
     /// Store-projected records for the router (design D7).

@@ -43,7 +43,7 @@ public enum Router {
         // the measured tier ranks across families; the cold-start prior below
         // still walks its whisper chain, so an unmeasured family is never
         // proposed without evidence.
-        let availableOrdered: [BackendID] = [.whisperKit, .whisperCpp, .fluidParakeet].filter {
+        let availableOrdered: [BackendID] = [.whisperKit, .whisperCpp, .fluidParakeet, .fluidParaformer, .fluidSenseVoice].filter {
             availability[$0] == true
         }
         guard !availableOrdered.isEmpty else {

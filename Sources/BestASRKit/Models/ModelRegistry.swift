@@ -32,6 +32,8 @@ public enum ModelRegistry {
                 .filter {
                     $0.backend == ModelGrid.backendWhisperKit
                         || $0.backend == ModelGrid.backendFluidParakeet
+                        || $0.backend == ModelGrid.backendFluidParaformer
+                        || $0.backend == ModelGrid.backendFluidSenseVoice
                 }
                 .map { ($0.size, $0.estMemoryGB) },
             uniquingKeysWith: max)
@@ -80,9 +82,13 @@ public enum ModelRegistry {
     /// sizes plus live non-Whisper rows (#35). Reference rows (mlx-audio)
     /// stay excluded: no bundled backend can run them.
     public static func isRunnableModel(_ name: String) -> Bool {
-        isSupportedModel(name)
+        let liveNonWhisper: Set<String> = [
+            ModelGrid.backendFluidParakeet, ModelGrid.backendFluidParaformer,
+            ModelGrid.backendFluidSenseVoice,
+        ]
+        return isSupportedModel(name)
             || ModelGrid.rows.contains {
-                $0.backend == ModelGrid.backendFluidParakeet && $0.size == name
+                liveNonWhisper.contains($0.backend) && $0.size == name
             }
     }
 
