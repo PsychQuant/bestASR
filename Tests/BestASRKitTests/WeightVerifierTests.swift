@@ -72,10 +72,11 @@ struct WeightVerifierTests {
 
     @Test func `The bundled manifest resource loads and pins the live model set`() throws {
         let manifest = try WeightVerifier.bundledManifest()
-        // First pin covers the three FluidAudio repos in use today (#52).
+        // The contract covers the repos the engine seams verify (#52); the
+        // manifest MAY carry extra repos (the pin script scans the whole
+        // cache) — those are inert without a seam referencing them.
         #expect(manifest.keys.contains("parakeet-tdt-0.6b-v3"))
         #expect(manifest.keys.contains("speaker-diarization"))
-        #expect(manifest.keys.contains("silero-vad-coreml"))
         #expect(manifest.values.allSatisfy { !$0.isEmpty })
     }
 }

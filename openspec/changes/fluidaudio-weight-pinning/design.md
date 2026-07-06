@@ -15,7 +15,7 @@ manifest 未收錄的 model：印警告（含 pin 指引）繼續——否則新
 
 ### D2 — verifier 落在 bestASR wrapper 層（3 seams），不 fork FluidAudio
 
-下載 API 是 FluidAudio 的，驗證是 bestASR 的政策——政策疊在 seam 上（下載完成後、模型使用前），不動 vendored code。3 個 seam 都在 factory/lazy-init 路徑，每 process 首次 load 驗一次（非每次 transcribe）。
+下載 API 是 FluidAudio 的，驗證是 bestASR 的政策——政策疊在 seam 上（下載完成後、模型使用前），不動 vendored code。3 個 seam 都在 factory/lazy-init 路徑，每 process 首次 load 驗一次（非每次 transcribe）。Parakeet 用分離 API（`download` → verify → `load(from:)`）——漂移權重到不了 CoreML 編譯；DiarizerModels 無分離 API → load 後、處理任何音訊前驗（保護後續 process，明載限制）。VAD repo **不驗**——`DiarizerModels` 只下載 speaker-diarization（segmentation+embedding），本機 `silero-vad-coreml` 目錄是舊版殘留（0.15.4 的 folderName 已 strip `-coreml`），pin 它會死鎖 fresh install。
 
 ### D3 — manifest 為 JSON resource：`{repo: {relativePath: sha256}}`
 
