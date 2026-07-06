@@ -56,6 +56,15 @@ Backends:
   revision-pinned by bestASR. An unfiltered `bestasr benchmark` will download
   the Parakeet weights (~hundreds of MB) on first run — scope with
   `--backends` to skip it.
+- **External engines (#51)**: any executable speaking the versioned JSON
+  protocol can join the pool — register it in `~/.bestasr/engines.json` and
+  its catalog rows become runnable candidates. The bundled mlx-audio adapter
+  (`adapters/mlx-audio/setup.sh` — own venv under `~/.bestasr/adapters/`,
+  zero Python in bestASR itself) unlocks the 15-family reference catalog
+  below. Containment: one process per call (argv spawn, never a shell,
+  hard timeout), adapter failures are loud and attributed, and external
+  realtime factors honestly include the full process lifetime (spawn +
+  model load) — a structural cost of the isolation model.
 - The model grid additionally carries a **reference catalog** of 15
   MLX-native STT families (Parakeet, Qwen3-ASR, Moonshine, Canary, MMS,
   Voxtral, …) with verified HuggingFace repos and pinned revisions — visible
