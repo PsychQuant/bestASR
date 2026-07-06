@@ -97,6 +97,9 @@ public struct ParakeetEngine: Engine {
             // Models download on first use (same posture as WhisperKit); the
             // pinned FluidAudio release manages weights + auto-recovery.
             let models = try await AsrModels.downloadAndLoad(version: .v3)
+            // #52 (spec weight-pinning): fail loudly on pinned-weight drift
+            // before the model serves a single transcription.
+            try WeightVerifier.verifyBundled(repo: "parakeet-tdt-0.6b-v3")
             return FluidAudioParakeetPipeline(manager: AsrManager(config: .default, models: models))
         })
     }

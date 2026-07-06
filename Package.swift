@@ -21,6 +21,7 @@ let package = Package(
                 .product(name: "WhisperKit", package: "WhisperKit"),
                 .product(name: "FluidAudio", package: "FluidAudio"),
             ],
+            resources: [.copy("Supply/weights-manifest.json")],
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
         .executableTarget(

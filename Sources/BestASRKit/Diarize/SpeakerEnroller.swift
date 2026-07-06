@@ -15,6 +15,9 @@ public struct SpeakerEnroller: Sendable {
     public func embedding(for audioPath: String) async throws -> [Float]? {
         do {
             let models = try await DiarizerModels.downloadIfNeeded()
+            // #52 (spec weight-pinning): diarizer weights span two repos.
+            try WeightVerifier.verifyBundled(repo: "speaker-diarization")
+            try WeightVerifier.verifyBundled(repo: "silero-vad-coreml")
             let diarizer = DiarizerManager()
             diarizer.initialize(models: models)
             let samples = try AudioConverter()
