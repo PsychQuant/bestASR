@@ -95,8 +95,6 @@ public enum ModelRegistry {
                 liveNonWhisper.contains($0.backend) && $0.size == name
             }
     }
-            }
-    }
 
     /// Static memory estimate for cold-start feasibility (spec asr-engine:
     /// Estimate model requirements). Unknown model names are a caller bug.

@@ -259,8 +259,10 @@ struct ListCommandTests {
         // user registry enables them, so this machine-dependent tail is
         // asserted by capability, not by exact list.
         let ids = CommandCore.live().engines.map(\.id)
-        #expect(ids.prefix(3) == [.whisperKit, .whisperCpp, .fluidParakeet])
-        for extra in ids.dropFirst(3) {
+        #expect(ids.prefix(5) == [
+            .whisperKit, .whisperCpp, .fluidParakeet, .fluidParaformer, .fluidSenseVoice,
+        ])
+        for extra in ids.dropFirst(5) {
             #expect(ExternalEngineRegistry.externalCapable.contains(extra))
         }
     }
