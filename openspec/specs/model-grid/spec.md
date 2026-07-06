@@ -8,7 +8,7 @@ TBD - created by archiving change 'mlx-audio-backend-and-bcnf-store'. Update Pur
 
 ### Requirement: Full-family catalog
 
-The model grid SHALL carry the full-family catalog — the 15-family mlx-audio reference rows untouched — plus live rows for the `fluid-parakeet` backend (parakeet family, sizes as shipped by the pinned FluidAudio release) that enumerate as benchmark candidates.
+The model grid SHALL carry the full-family catalog — the 15-family mlx-audio reference rows untouched — plus live rows for the FluidAudio-backed backends (`fluid-parakeet` parakeet family, `fluid-paraformer` paraformer family, `fluid-sensevoice` sensevoice family, sizes as shipped by the pinned FluidAudio release). Priority-1 live rows enumerate as default benchmark candidates; a live row may sit at a lower tier when its family is wired but not yet usable (e.g. an upstream decode bug), keeping it out of the default sweep. The mlx-audio reference rows carry verified HuggingFace repos with pinned revisions; they become runnable candidates only while a registered external adapter (#51, spec external-engine-protocol) makes the `mlx-audio` backend available — otherwise they stay reference-only.
 
 #### Scenario: Live and reference parakeet rows coexist distinguishably
 
@@ -20,28 +20,36 @@ The model grid SHALL carry the full-family catalog — the 15-family mlx-audio r
 - **WHEN** the grid seeds the store after this change
 - **THEN** all 15 mlx-audio reference families remain present with their pinned HF repo/revision metadata, and none enumerate as candidates
 
+#### Scenario: Chinese-family live rows are listed
+
+- **WHEN** the grid is filtered to live-engine backends with no priority ceiling
+- **THEN** the `fluid-paraformer` and `fluid-sensevoice` rows appear alongside the whisper and parakeet rows
+
 
 <!-- @trace
-source: add-parakeet-cross-family-engine
+source: chinese-asr-families + external-process-engine
 updated: 2026-07-06
 code:
-  - Sources/BestASRKit/Engines/ParakeetEngine.swift
+  - CHANGELOG.md
+  - README.md
+  - Sources/BestASRKit/Benchmark/BenchmarkRunner.swift
+  - Sources/BestASRKit/CommandCore.swift
+  - Sources/BestASRKit/Engines/ChineseFamilyEngine.swift
+  - Sources/BestASRKit/Engines/ExternalProcessEngine.swift
   - Sources/BestASRKit/Models/DataModels.swift
   - Sources/BestASRKit/Models/ModelGrid.swift
   - Sources/BestASRKit/Models/ModelRegistry.swift
   - Sources/BestASRKit/Router/Router.swift
-  - Sources/BestASRKit/CommandCore.swift
-  - Sources/bestasr/BestASRCommand.swift
-  - Tests/BestASRKitTests/ParakeetEngineTests.swift
-  - Tests/BestASRKitTests/RouterTests.swift
-  - README.md
-  - CHANGELOG.md
+  - Tests/BestASRKitTests/ChineseEnginesTests.swift
+  - Tests/BestASRKitTests/ExternalEngineTests.swift
+  - adapters/mlx-audio/bestasr-mlx-adapter.py
+  - adapters/mlx-audio/setup.sh
 -->
 
 ---
 ### Requirement: Priority tiers gate the default sweep
 
-Grid rows SHALL carry priority 1, 2, or 3. For runnable backends every current row is priority 1 and enumerates by default; for the mlx-audio reference catalog the tier is retained as historical metadata (the original first-run/representative/deferred selection) and has no enumeration effect.
+Grid rows SHALL carry priority 1, 2, or 3. For runnable backends, rows default to priority 1 and enumerate by default — but a wired-yet-unusable family MAY be shelved at priority 2 so the default sweep never pays its download (#50: paraformer, upstream decode bug); for the mlx-audio reference catalog the tier is retained as historical metadata (the original first-run/representative/deferred selection) and has no enumeration effect. Once an external adapter registers the `mlx-audio` backend (#51), the same priority gate applies to its rows — the default sweep covers priority-1 entries and `--all-grid` widens to the rest.
 
 #### Scenario: default sweep
 
@@ -51,50 +59,23 @@ Grid rows SHALL carry priority 1, 2, or 3. For runnable backends every current r
 
 
 <!-- @trace
-source: remove-mlx-audio-backend
-updated: 2026-07-04
+source: chinese-asr-families + external-process-engine
+updated: 2026-07-06
 code:
-  - Tests/BestASRKitTests/DiarizationTests.swift
-  - Sources/BestASRKit/Engines/mlx_worker.py
-  - Sources/BestASRKit/Diarize/SpeakerIdentifier.swift
-  - plugins/bestasr/.claude-plugin/plugin.json
-  - Tests/BestASRKitTests/RouterTests.swift
-  - Package.swift
-  - docs/design-brief.md
-  - plugins/bestasr/skills/context-ingest/SKILL.md
-  - Sources/BestASRKit/Engines/MLXAudioEngine.swift
   - CHANGELOG.md
   - README.md
-  - Sources/BestASRKit/CommandCore.swift
-  - Sources/BestASRKit/Diarize/SpeakerAssigner.swift
-  - Tests/BestASRKitTests/DataModelTests.swift
-  - Package.resolved
-  - Sources/BestASRKit/Diarize/SpeakerEnroller.swift
-  - Tests/BestASRKitTests/ModelGridTests.swift
-  - Tests/BestASRKitTests/PipelineWiringTests.swift
-  - Sources/BestASRKit/Context/ContextLoader.swift
-  - Sources/BestASRKit/Engines/MLXWorkerProtocol.swift
-  - scripts/validate-diarization.sh
-  - Sources/BestASRKit/Store/StoreTables.swift
-  - Sources/BestASRKit/Detect/DynamicHostState.swift
-  - Sources/BestASRKit/Models/ModelRegistry.swift
-  - Sources/BestASRKit/Models/ModelGrid.swift
-  - Sources/BestASRKit/Router/Ranking.swift
   - Sources/BestASRKit/Benchmark/BenchmarkRunner.swift
-  - Sources/BestASRKit/Store/BenchmarkStore.swift
-  - scripts/fetch-corpora.sh
-  - Tests/BestASRKitTests/MLXAudioEngineTests.swift
-  - Tests/BestASRKitTests/EffortProfileTests.swift
-  - CLAUDE.md
-  - Tests/BestASRKitTests/CLITests.swift
-  - Sources/BestASRKit/Diarize/DiarizationEngine.swift
-  - Sources/bestasr/BestASRCommand.swift
-  - Sources/BestASRKit/Router/Router.swift
-  - .claude-plugin/marketplace.json
+  - Sources/BestASRKit/CommandCore.swift
+  - Sources/BestASRKit/Engines/ChineseFamilyEngine.swift
+  - Sources/BestASRKit/Engines/ExternalProcessEngine.swift
   - Sources/BestASRKit/Models/DataModels.swift
-  - Sources/BestASRKit/Output/TranscriptWriter.swift
-  - Tests/BestASRKitTests/BenchmarkTests.swift
-  - Tests/BestASRKitTests/BenchmarkStoreTests.swift
+  - Sources/BestASRKit/Models/ModelGrid.swift
+  - Sources/BestASRKit/Models/ModelRegistry.swift
+  - Sources/BestASRKit/Router/Router.swift
+  - Tests/BestASRKitTests/ChineseEnginesTests.swift
+  - Tests/BestASRKitTests/ExternalEngineTests.swift
+  - adapters/mlx-audio/bestasr-mlx-adapter.py
+  - adapters/mlx-audio/setup.sh
 -->
 
 ---

@@ -574,7 +574,7 @@ tests:
 ---
 ### Requirement: Rank candidates by measured benchmark data
 
-The router SHALL rank candidates by measured benchmark data across every backend that has a bundled engine — including `fluid-parakeet` — regardless of model family. Reference-only catalog rows (backends without a bundled engine) SHALL remain excluded from enumeration.
+The router SHALL rank candidates by measured benchmark data across every runnable backend — bundled engines and registered external engines alike — regardless of model family. Catalog rows whose backend has neither a bundled engine nor a registered, available external adapter SHALL remain excluded from enumeration (reference-only, unchanged from #20); registering an adapter (#51) is what upgrades those rows to candidates.
 
 #### Scenario: Cross-family candidate wins on merit
 
@@ -586,25 +586,30 @@ The router SHALL rank candidates by measured benchmark data across every backend
 - **WHEN** the requested language has no (or poor) measured results for fluid-parakeet but strong Whisper results
 - **THEN** the router ranks the Whisper candidate first — family diversity never overrides measured evidence
 
-#### Scenario: Reference rows still never enumerate
+#### Scenario: Unregistered reference rows still never enumerate
 
-- **WHEN** candidates are enumerated
-- **THEN** mlx-audio reference rows remain excluded (no bundled engine), unchanged from #20
+- **WHEN** candidates are enumerated on a machine with no external-engine registry entry for mlx-audio
+- **THEN** mlx-audio reference rows remain excluded, unchanged from #20
+
+#### Scenario: A registered external backend enumerates its rows
+
+- **WHEN** the registry enables `mlx-audio` with an existing executable
+- **THEN** mlx-audio catalog rows enumerate as candidates and rank purely on measured evidence (the cold-start prior still never proposes an unmeasured family)
 
 
 <!-- @trace
-source: add-parakeet-cross-family-engine
+source: external-process-engine
 updated: 2026-07-06
 code:
-  - Sources/BestASRKit/Engines/ParakeetEngine.swift
+  - Sources/BestASRKit/Engines/ExternalProcessEngine.swift
   - Sources/BestASRKit/Models/DataModels.swift
-  - Sources/BestASRKit/Models/ModelGrid.swift
   - Sources/BestASRKit/Models/ModelRegistry.swift
   - Sources/BestASRKit/Router/Router.swift
+  - Sources/BestASRKit/Benchmark/BenchmarkRunner.swift
   - Sources/BestASRKit/CommandCore.swift
-  - Sources/bestasr/BestASRCommand.swift
-  - Tests/BestASRKitTests/ParakeetEngineTests.swift
-  - Tests/BestASRKitTests/RouterTests.swift
+  - adapters/mlx-audio/bestasr-mlx-adapter.py
+  - adapters/mlx-audio/setup.sh
+  - Tests/BestASRKitTests/ExternalEngineTests.swift
   - README.md
   - CHANGELOG.md
 -->
