@@ -81,7 +81,13 @@ public enum Router {
 
         if let top = Ranking.rank(usable, profile: profile).first {
             let record = top.record
-            let backend = BackendID(rawValue: record.backend) ?? .whisperKit
+            guard let backend = BackendID(rawValue: record.backend) else {
+                // `usable` already filtered unknown backends — this is
+                // unreachable; failing loud beats silently mis-attributing
+                // the record to whisperkit (#53 item 5).
+                throw BestASRError.runtime(
+                    "internal: ranked record carries unknown backend '\(record.backend)'")
+            }
             let percent = String(format: "%.1f", record.errorRate * 100)
             let speed = String(format: "%.1f", record.timesRealtime)
             reasons.append(
