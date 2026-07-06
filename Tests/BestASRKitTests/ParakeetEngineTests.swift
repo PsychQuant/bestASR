@@ -105,6 +105,52 @@ struct ParakeetEngineTests {
         #expect(raw.segments[0].end == 2.0)
     }
 
+    @Test func `Hostile timings are clamped and ordered, never crashing the mapper`() async throws {
+        // #53 item 2: out-of-order, negative, and past-duration timings from
+        // a misbehaving pipeline are defended at the seam — sorted, clamped
+        // to 0...duration — and text is never dropped.
+        let engine = ParakeetEngine(pipelineFactory: { _ in
+            SpyPipeline { _, _ in
+                ParakeetOutput(
+                    text: "b a c",
+                    confidence: 0.9,
+                    duration: 3.0,
+                    tokenTimings: [
+                        .init(token: " a", startTime: 1.0, endTime: 1.4),  // out of order
+                        .init(token: "b", startTime: -0.5, endTime: 0.4),  // negative start
+                        .init(token: " c", startTime: 2.9, endTime: 9.0),  // end past duration
+                    ]
+                )
+            }
+        })
+        let raw = try await engine.transcribeRaw(audioPath: "clip.wav", options: options)
+        #expect(raw.segments.allSatisfy { $0.start >= 0 && $0.end <= 3.0 && $0.start <= $0.end })
+        let joined = raw.segments.map(\.text).joined()
+        #expect(joined.contains("b") && joined.contains("a") && joined.contains("c"))
+        #expect(raw.segments.first?.text.hasPrefix("b") == true)  // order restored
+    }
+
+    @Test func `All-invalid timings fall back to the full text`() async throws {
+        // end < start on every pair → no valid timing survives → full-text
+        // fallback, never an empty transcript.
+        let engine = ParakeetEngine(pipelineFactory: { _ in
+            SpyPipeline { _, _ in
+                ParakeetOutput(
+                    text: "survives intact",
+                    confidence: 0.9,
+                    duration: 2.0,
+                    tokenTimings: [
+                        .init(token: "x", startTime: 1.5, endTime: 0.5),
+                        .init(token: "y", startTime: 1.9, endTime: 1.0),
+                    ]
+                )
+            }
+        })
+        let raw = try await engine.transcribeRaw(audioPath: "clip.wav", options: options)
+        try #require(raw.segments.count == 1)
+        #expect(raw.segments[0].text == "survives intact")
+    }
+
     @Test func `Missing token timings degrade to a single full-text segment`() async throws {
         let engine = ParakeetEngine(pipelineFactory: { _ in
             SpyPipeline { _, _ in

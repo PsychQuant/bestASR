@@ -64,6 +64,12 @@ protocol ParakeetTranscribing: Sendable {
 
 /// Production adapter: owns the loaded AsrManager. A fresh TdtDecoderState
 /// per call keeps files independent (stateless per transcription).
+///
+/// Concurrency (#53 item 3): FluidAudio's AsrManager is not documented as
+/// thread-safe, and actor-izing it is upstream's call. bestASR's CLI drives
+/// every transcription sequentially (one engine call at a time per process),
+/// which is the safety assumption this adapter relies on — a future parallel
+/// benchmark runner must serialize per-pipeline access before fanning out.
 struct FluidAudioParakeetPipeline: ParakeetTranscribing {
     let manager: AsrManager
 
@@ -93,13 +99,26 @@ public struct ParakeetEngine: Engine {
     static let segmentGapSeconds: TimeInterval = 0.8
 
     public init() {
-        self.init(pipelineFactory: { _ in
+        self.init(pipelineFactory: { model in
             // Models download on first use (same posture as WhisperKit); the
             // pinned FluidAudio release manages weights + auto-recovery.
-            let models = try await AsrModels.downloadAndLoad(version: .v3)
+            // The grid's model key maps explicitly to a FluidAudio version —
+            // a new grid row without a mapping fails loud instead of
+            // silently loading v3 weights for it (#53 item 5).
+            guard let version = Self.modelVersions[model] else {
+                throw TranscriptionError(
+                    backend: BackendID.fluidParakeet.rawValue,
+                    message: "no FluidAudio model version mapped for grid model '\(model)'",
+                    underlying: nil)
+            }
+            let models = try await AsrModels.downloadAndLoad(version: version)
             return FluidAudioParakeetPipeline(manager: AsrManager(config: .default, models: models))
         })
     }
+
+    /// Grid model key → FluidAudio version (kept next to the factory so a
+    /// grid addition and its mapping land in one diff).
+    static let modelVersions: [String: AsrModelVersion] = ["0.6b-v3": .v3]
 
     /// Internal seam (#9): tests inject a spy keyed by model name.
     init(
@@ -165,9 +184,24 @@ public struct ParakeetEngine: Engine {
                 .init(start: 0, end: output.duration, text: text, confidence: output.confidence)
             ]
         }
-        guard let timings = output.tokenTimings, !timings.isEmpty else {
+        guard let rawTimings = output.tokenTimings, !rawTimings.isEmpty else {
             return fullTextSegment()
         }
+        // Seam defense (#53 item 2): a misbehaving pipeline may emit
+        // negative, past-duration, out-of-order, or inverted (end < start)
+        // timings. Clamp into 0...duration, drop inverted pairs, restore
+        // order — and if nothing valid survives, the full-text fallback
+        // below still guarantees no text is ever dropped.
+        let upperBound = max(output.duration, 0)
+        let timings =
+            rawTimings.compactMap { t -> ParakeetOutput.Timing? in
+                let start = min(max(t.startTime, 0), upperBound)
+                let end = min(max(t.endTime, 0), upperBound)
+                guard end >= start else { return nil }
+                return .init(token: t.token, startTime: start, endTime: end)
+            }
+            .sorted { $0.startTime < $1.startTime }
+        guard !timings.isEmpty else { return fullTextSegment() }
 
         var segments: [RawTranscription.RawSegment] = []
         var groupTokens: [ParakeetOutput.Timing] = []
