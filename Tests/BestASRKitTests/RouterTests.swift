@@ -112,6 +112,83 @@ struct RouterCrossFamilyTests {
         #expect(rec.reason.contains { $0.contains("unverified") })
     }
 
+    @Test func `A single flattering measurement never outranks the aggregate`() throws {
+        // #64: tiny has one 0.0 record on a short corpus but a bad mean over
+        // its records; large-v3-turbo is broadly measured at ~0.09. The
+        // candidate mean must rank, not the single best record.
+        let records = [
+            Fixtures.record(backend: .whisperKit, model: "tiny",
+                            language: "en", metricKind: .wer,
+                            errorRate: 0.0, timesRealtime: 120),
+            Fixtures.record(backend: .whisperKit, model: "tiny",
+                            language: "en", metricKind: .wer,
+                            errorRate: 0.35, timesRealtime: 120),
+            Fixtures.record(backend: .whisperKit, model: "tiny",
+                            language: "en", metricKind: .wer,
+                            errorRate: 0.40, timesRealtime: 120),
+            Fixtures.record(backend: .whisperKit, model: "large-v3-turbo",
+                            language: "en", metricKind: .wer,
+                            errorRate: 0.09, timesRealtime: 7),
+            Fixtures.record(backend: .whisperKit, model: "large-v3-turbo",
+                            language: "en", metricKind: .wer,
+                            errorRate: 0.10, timesRealtime: 7),
+        ]
+        let rec = try Router.recommend(
+            host: Fixtures.m5Max, profile: .high, requestedLanguage: "en",
+            backendOverride: nil, modelOverride: nil,
+            records: records, availability: allThreeAvailable
+        )
+        #expect(rec.model == "large-v3-turbo")
+        #expect(rec.reason.contains { $0.contains("mean of") })  // aggregation disclosed
+    }
+
+    @Test func `A candidate below the quality floor is never autonomously recommended`() throws {
+        // #64: 93.5% CER at 273x realtime must not beat 19% CER at 6x.
+        let records = [
+            Fixtures.record(backend: .fluidParakeet, model: "0.6b-v3",
+                            language: "zh", errorRate: 0.935, timesRealtime: 273),
+            Fixtures.record(backend: .fluidSenseVoice, model: "small",
+                            language: "zh", errorRate: 0.194, timesRealtime: 6),
+        ]
+        let rec = try Router.recommend(
+            host: Fixtures.m5Max, profile: .medium, requestedLanguage: "zh",
+            backendOverride: nil, modelOverride: nil,
+            records: records,
+            availability: [.whisperKit: true, .whisperCpp: true, .fluidParakeet: true,
+                           .fluidSenseVoice: true]
+        )
+        #expect(rec.backend == .fluidSenseVoice)
+    }
+
+    @Test func `The floor never strands the router`() throws {
+        // All measured candidates above the floor -> cold-start prior.
+        let records = [
+            Fixtures.record(backend: .fluidParakeet, model: "0.6b-v3",
+                            language: "zh", errorRate: 0.935, timesRealtime: 273)
+        ]
+        let rec = try Router.recommend(
+            host: Fixtures.m5Max, profile: .medium, requestedLanguage: "zh",
+            backendOverride: nil, modelOverride: nil,
+            records: records, availability: allThreeAvailable
+        )
+        #expect(rec.dataSource == .coldStartPrior)
+    }
+
+    @Test func `An explicit backend lock bypasses the floor with a warning`() throws {
+        let records = [
+            Fixtures.record(backend: .fluidParakeet, model: "0.6b-v3",
+                            language: "zh", errorRate: 0.935, timesRealtime: 273)
+        ]
+        let rec = try Router.recommend(
+            host: Fixtures.m5Max, profile: .medium, requestedLanguage: "zh",
+            backendOverride: "fluid-parakeet", modelOverride: nil,
+            records: records, availability: allThreeAvailable
+        )
+        #expect(rec.backend == .fluidParakeet)
+        #expect(rec.dataSource == .measured)
+        #expect(rec.reason.contains { $0.contains("quality floor") || $0.contains("0.5") })
+    }
+
     @Test func `A measured-but-worse parakeet zh record never outranks whisper`() throws {
         // Codex finding (#35 verify): the zh fairness case with BOTH families
         // measured — family diversity must not override measured evidence.

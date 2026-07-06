@@ -84,7 +84,29 @@ public enum Router {
                 && (modelOverride == nil || record.model == modelOverride)
         }
 
-        if let top = Ranking.rank(usable, profile: profile).first {
+        // #64 (spec asr-routing): aggregate per candidate before ranking —
+        // error rate / realtime factor become equal-weight means over the
+        // candidate's usable records, so one flattering short-corpus record
+        // can never outrank a broadly measured candidate.
+        let aggregated = Self.aggregate(usable)
+        // Quality floor: mean error rate above 0.5 has negative practical
+        // value and is excluded from AUTONOMOUS ranking. A locked backend is
+        // the user's will — it bypasses the floor with a warning; with no
+        // lock an emptied pool falls through to the cold-start prior below.
+        var pool = aggregated.filter { $0.record.errorRate <= Self.qualityFloor }
+        if pool.isEmpty && !aggregated.isEmpty && lockedBackend != nil {
+            pool = aggregated
+            reasons.append(
+                "quality floor bypassed: '\(lockedBackend!.rawValue)' is explicitly "
+                    + "locked but its mean error rate exceeds \(Self.qualityFloor) — "
+                    + "output quality is not established")
+        }
+        let runsByKey = Dictionary(
+            uniqueKeysWithValues: pool.map {
+                ("\($0.record.backend)|\($0.record.model)|\($0.record.quantization)", $0.runs)
+            })
+
+        if let top = Ranking.rank(pool.map(\.record), profile: profile).first {
             let record = top.record
             guard let backend = BackendID(rawValue: record.backend) else {
                 // `usable` already filtered unknown backends — this is
@@ -95,9 +117,16 @@ public enum Router {
             }
             let percent = String(format: "%.1f", record.errorRate * 100)
             let speed = String(format: "%.1f", record.timesRealtime)
+            let runs = runsByKey["\(record.backend)|\(record.model)|\(record.quantization)"] ?? 1
+            if runs == 1 {
+                warnings.append(
+                    "winner is backed by a single measurement — benchmark more corpora "
+                        + "to firm up this ranking (#64)")
+            }
             reasons.append(
                 "measured on this machine: \(record.metricKind.rawValue.uppercased()) "
-                    + "\(percent)%, \(speed)x realtime (\(record.model), \(record.quantization))"
+                    + "\(percent)%, \(speed)x realtime "
+                    + "(\(record.model), \(record.quantization), mean of \(runs) run(s))"
             )
             reasons.append(
                 "ranked #1 of \(usable.count) benchmarked candidate(s) under the "
@@ -193,5 +222,32 @@ public enum Router {
             reason: reasons,
             warnings: warnings
         )
+    }
+
+    /// #64 (spec asr-routing): equal-weight per-record mean per candidate
+    /// (backend, model, quantization). The synthesized record carries the
+    /// means with the latest record as the field template; `runs` feeds the
+    /// aggregation disclosure in the reasons.
+    static let qualityFloor = 0.5
+
+    static func aggregate(_ records: [BenchmarkRecord]) -> [(record: BenchmarkRecord, runs: Int)] {
+        let groups = Dictionary(grouping: records) {
+            "\($0.backend)|\($0.model)|\($0.quantization)"
+        }
+        return groups.values.map { group in
+            let latest = group.max { $0.measuredAt < $1.measuredAt }!
+            let meanError = group.map(\.errorRate).reduce(0, +) / Double(group.count)
+            let meanTimesRealtime =
+                group.map(\.timesRealtime).reduce(0, +) / Double(group.count)
+            let record = BenchmarkRecord(
+                backend: latest.backend, model: latest.model,
+                quantization: latest.quantization, language: latest.language,
+                metricKind: latest.metricKind, errorRate: meanError,
+                rtf: meanTimesRealtime > 0 ? 1.0 / meanTimesRealtime : 0,
+                peakMemoryGB: latest.peakMemoryGB, audioDuration: latest.audioDuration,
+                measuredAt: latest.measuredAt, chip: latest.chip,
+                macosVersion: latest.macosVersion, appVersion: latest.appVersion)
+            return (record, group.count)
+        }
     }
 }
