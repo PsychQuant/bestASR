@@ -497,9 +497,19 @@ public struct CommandCore: Sendable {
         // PRIMARY KEY honest for non-whisper families (#16 verify DA).
         for measured in outcome.measured {
             let record = measured.record
-            let seededRow = Self.seededRow(
-                in: ModelGrid.rows, backend: record.backend,
-                size: record.model, quantization: record.quantization)
+            // record.model is an ADDRESS for mlx-audio (family/size, #65) —
+            // resolve through the same helper as the read side, or the
+            // persisted modelId mangles to 'whisper|family/size' and the
+            // revision pin is lost (verify F1).
+            let seededRow = ModelGrid.row(
+                backend: record.backend, modelAddress: record.model)
+                .flatMap { row in
+                    ModelGrid.rows.first {
+                        $0.backend == row.backend && $0.family == row.family
+                            && $0.size == row.size
+                            && $0.quantization == record.quantization
+                    }
+                }
             let modelId = seededRow?.modelId ?? ModelRow.id(
                 backend: record.backend, family: "whisper", size: record.model,
                 quantization: record.quantization)

@@ -23,6 +23,23 @@ public enum ModelGrid {
 
     public static let rows: [ModelRow] = existingBackendRows + fluidParakeetRows + chineseFamilyRows + mlxAudioRows
 
+    /// Resolve a model ADDRESS to its row (#65): mlx-audio rows are
+    /// addressed `family/size` (sizes collide across families — canary 1b vs
+    /// mms 1b); every other backend addresses by bare size.
+    public static func row(backend: String, modelAddress: String) -> ModelRow? {
+        if let slash = modelAddress.firstIndex(of: "/") {
+            let family = String(modelAddress[..<slash])
+            let size = String(modelAddress[modelAddress.index(after: slash)...])
+            return rows.first {
+                $0.backend == backend && $0.family == family && $0.size == size
+            }
+        }
+        // Bare-size fallback: ambiguous for mlx (canary 1b shadows mms 1b —
+        // first row wins); every primary path uses family/size for mlx, so
+        // this branch effectively serves the whisper-style backends (F3).
+        return rows.first { $0.backend == backend && $0.size == modelAddress }
+    }
+
     /// Live rows for the fluid-parakeet backend (#35, spec model-grid
     /// "Full-family catalog"): the first non-Whisper family with a bundled
     /// engine. Distinct from the mlx-audio parakeet REFERENCE row — same
@@ -108,30 +125,35 @@ public enum ModelGrid {
                  quantization: "4bit", hfRepo: nil,
                  languages: ["multi"], estMemoryGB: 2.0, priority: 1, verified: false),
         ModelRow(backend: backendMLXAudio, family: "moonshine", size: "base",
-                 quantization: "default", hfRepo: nil,
-                 languages: ["en"], estMemoryGB: 0.4, priority: 1, verified: false),
+                 quantization: "default", hfRepo: "UsefulSensors/moonshine-base",
+                 hfRevision: "7a73d8d55ac0ba2ef3ae761593f6784b51f96dcf",
+                 languages: ["en"], estMemoryGB: 0.4, priority: 1, verified: true),
         // ── priority 2: one representative per remaining family
         ModelRow(backend: backendMLXAudio, family: "distil-whisper", size: "large-v3",
                  quantization: "default", hfRepo: nil,
                  languages: ["en"], estMemoryGB: 1.6, priority: 2, verified: false),
         ModelRow(backend: backendMLXAudio, family: "canary", size: "1b",
-                 quantization: "default", hfRepo: nil,
-                 languages: ["multi"], estMemoryGB: 1.4, priority: 2, verified: false),
+                 quantization: "default", hfRepo: "Mediform/canary-1b-v2-mlx-q8",
+                 hfRevision: "0b6b32ee10f30c89e3ead7249bb636445e3019ee",
+                 languages: ["multi"], estMemoryGB: 1.4, priority: 2, verified: true),
         ModelRow(backend: backendMLXAudio, family: "mms", size: "1b",
                  quantization: "default", hfRepo: nil,
                  languages: ["multi"], estMemoryGB: 1.6, priority: 2, verified: false),
         ModelRow(backend: backendMLXAudio, family: "granite-speech", size: "2b",
-                 quantization: "4bit", hfRepo: nil,
-                 languages: ["multi"], estMemoryGB: 1.6, priority: 2, verified: false),
+                 quantization: "4bit", hfRepo: "mlx-community/granite-speech-4.1-2b-nar-mlx",
+                 hfRevision: "6acb7892068dd30227f20aba6eb7c4b0ae5c7e7c",
+                 languages: ["multi"], estMemoryGB: 1.6, priority: 2, verified: true),
         ModelRow(backend: backendMLXAudio, family: "nemotron-asr", size: "streaming",
-                 quantization: "default", hfRepo: nil,
-                 languages: ["multi"], estMemoryGB: 2.0, priority: 2, verified: false),
+                 quantization: "default", hfRepo: "mlx-community/nemotron-3.5-asr-streaming-0.6b",
+                 hfRevision: "e550040c0478027ed679b2b6b0d055502c103663",
+                 languages: ["multi"], estMemoryGB: 2.0, priority: 2, verified: true),
         ModelRow(backend: backendMLXAudio, family: "voxtral", size: "mini-3b",
                  quantization: "4bit", hfRepo: nil,
                  languages: ["multi"], estMemoryGB: 2.2, priority: 2, verified: false),
         ModelRow(backend: backendMLXAudio, family: "qwen2-audio", size: "7b",
-                 quantization: "4bit", hfRepo: nil,
-                 languages: ["multi"], estMemoryGB: 4.5, priority: 2, verified: false),
+                 quantization: "4bit", hfRepo: "mlx-community/Qwen2-Audio-7B-Instruct-4bit",
+                 hfRevision: "c65570002626f41b4dc08b7b54f42f99f3e82e7f",
+                 languages: ["multi"], estMemoryGB: 4.5, priority: 2, verified: true),
         ModelRow(backend: backendMLXAudio, family: "mega-asr", size: "default",
                  quantization: "default", hfRepo: nil,
                  languages: ["multi"], estMemoryGB: 2.0, priority: 2, verified: false),
@@ -140,14 +162,16 @@ public enum ModelGrid {
                  languages: ["multi"], estMemoryGB: 1.0, priority: 2, verified: false),
         // ── priority 3: deferred / large
         ModelRow(backend: backendMLXAudio, family: "vibevoice-asr", size: "9b",
-                 quantization: "4bit", hfRepo: nil,
-                 languages: ["multi"], estMemoryGB: 5.5, priority: 3, verified: false),
+                 quantization: "4bit", hfRepo: "mlx-community/VibeVoice-ASR-4bit",
+                 hfRevision: "a1a15cb6c7b70f76b588af7e12f6fab34d5ab654",
+                 languages: ["multi"], estMemoryGB: 5.5, priority: 3, verified: true),
         ModelRow(backend: backendMLXAudio, family: "voxtral", size: "small-24b",
                  quantization: "4bit", hfRepo: nil,
                  languages: ["multi"], estMemoryGB: 13.0, priority: 3, verified: false),
         ModelRow(backend: backendMLXAudio, family: "voxtral-realtime", size: "4b",
-                 quantization: "4bit", hfRepo: nil,
-                 languages: ["multi"], estMemoryGB: 2.6, priority: 3, verified: false),
+                 quantization: "4bit", hfRepo: "mlx-community/Voxtral-Mini-4B-Realtime-2602-4bit",
+                 hfRevision: "fdebf7b2af834a1db4b8a3c99ab7480b333adf9e",
+                 languages: ["multi"], estMemoryGB: 2.6, priority: 3, verified: true),
     ]
 
     /// Grid query used by benchmark enumeration (spec: Priority tiers gate the

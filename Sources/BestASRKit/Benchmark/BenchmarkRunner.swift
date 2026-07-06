@@ -108,7 +108,7 @@ public struct BenchmarkRunner {
         // (the mlx-audio reference catalog never enumerates, spec model-grid).
         let gridNames = Set(ModelGrid.rows
             .filter { row in engineBackends.contains(row.backend) }
-            .map(\.size))
+            .flatMap { ["\($0.family)/\($0.size)".lowercased(), $0.size] })
         if let modelFilter {
             for name in modelFilter where !gridNames.contains(name.lowercased()) {
                 throw BestASRError.usage(
@@ -135,14 +135,25 @@ public struct BenchmarkRunner {
             // spec benchmark: Reference rows never enumerate).
             let ceiling: Int? = allGrid ? nil : 1
             for row in ModelGrid.rows(backend: backend.rawValue, priorityCeiling: ceiling) {
+                // --models accepts the bare size AND the family/size address
+                // that list-models prints (#65 verify F2 — the two must agree).
+                let rowAddress = "\(row.family)/\(row.size)".lowercased()
                 if let modelFilter,
-                    !modelFilter.contains(where: { $0.lowercased() == row.size })
+                    !modelFilter.contains(where: {
+                        let f = $0.lowercased()
+                        return f == row.size || f == rowAddress
+                    })
                 {
                     continue
                 }
+                // mlx-audio candidates are addressed family/size (#65 —
+                // bare sizes collide across families and trapped the report's
+                // keyed dictionaries: canary 1b vs mms 1b).
+                let address = backend.rawValue == ModelGrid.backendMLXAudio
+                    ? "\(row.family)/\(row.size)" : row.size
                 candidates.append(
                     BenchmarkCandidate(
-                        backend: backend, model: row.size, quantization: row.quantization))
+                        backend: backend, model: address, quantization: row.quantization))
             }
         }
         return Enumeration(candidates: candidates, notes: notes)

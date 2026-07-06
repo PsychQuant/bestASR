@@ -61,9 +61,14 @@ public enum ModelRegistry {
     public static func quantizations(for backend: BackendID, model: String) -> [String] {
         // Projected from the model grid (the single catalog, #14): unknown
         // models yield no rows — same drift guard as before, one source now.
-        ModelGrid.rows
-            .filter { $0.backend == backend.rawValue && $0.size == model }
-            .map(\.quantization)
+        if let row = ModelGrid.row(backend: backend.rawValue, modelAddress: model) {
+            // Address-resolved (mlx family/size or bare size): the grid keys
+            // quantization per row.
+            return ModelGrid.rows
+                .filter { $0.backend == row.backend && $0.family == row.family && $0.size == row.size }
+                .map(\.quantization)
+        }
+        return []
     }
 
     /// The quantization the cold-start prior assumes — the first (preferred)
@@ -90,10 +95,18 @@ public enum ModelRegistry {
         // A registered external adapter upgrades its catalog rows to
         // runnable (#51, spec asr-routing) — the caller passes availability.
         if includeExternal { liveNonWhisper.insert(ModelGrid.backendMLXAudio) }
-        return isSupportedModel(name)
-            || ModelGrid.rows.contains {
-                liveNonWhisper.contains($0.backend) && $0.size == name
-            }
+        if isSupportedModel(name) { return true }
+        // mlx-audio models are addressed family/size (#65) — resolve the
+        // address instead of matching bare sizes (canary 1b vs mms 1b).
+        if includeExternal,
+            let row = ModelGrid.row(
+                backend: ModelGrid.backendMLXAudio, modelAddress: name),
+            row.hfRepo != nil {
+            return true
+        }
+        return ModelGrid.rows.contains {
+            liveNonWhisper.contains($0.backend) && $0.size == name
+        }
     }
 
     /// Static memory estimate for cold-start feasibility (spec asr-engine:
