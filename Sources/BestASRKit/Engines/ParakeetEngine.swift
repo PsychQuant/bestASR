@@ -189,18 +189,30 @@ public struct ParakeetEngine: Engine {
         }
         // Seam defense (#53 item 2): a misbehaving pipeline may emit
         // negative, past-duration, out-of-order, or inverted (end < start)
-        // timings. Clamp into 0...duration, drop inverted pairs, restore
-        // order — and if nothing valid survives, the full-text fallback
-        // below still guarantees no text is ever dropped.
+        // timings. Partially in-range pairs are clamped into 0...duration
+        // and re-ordered; but an inverted RAW pair, or one that clamps to a
+        // zero-length point entirely outside the audio, means the batch as a
+        // whole cannot be trusted — dropping just those tokens would drop
+        // their TEXT, so the whole batch falls back to the full-text single
+        // segment instead. Text is never lost either way.
         let upperBound = max(output.duration, 0)
-        let timings =
-            rawTimings.compactMap { t -> ParakeetOutput.Timing? in
-                let start = min(max(t.startTime, 0), upperBound)
-                let end = min(max(t.endTime, 0), upperBound)
-                guard end >= start else { return nil }
-                return .init(token: t.token, startTime: start, endTime: end)
-            }
-            .sorted { $0.startTime < $1.startTime }
+        var sanitized: [(index: Int, timing: ParakeetOutput.Timing)] = []
+        for (index, t) in rawTimings.enumerated() {
+            guard t.endTime >= t.startTime else { return fullTextSegment() }
+            let start = min(max(t.startTime, 0), upperBound)
+            let end = min(max(t.endTime, 0), upperBound)
+            // A non-degenerate raw pair collapsing to a point means it lay
+            // entirely outside 0...duration — the batch contradicts the
+            // audio's own duration.
+            if end == start && t.endTime > t.startTime { return fullTextSegment() }
+            sanitized.append((index, .init(token: t.token, startTime: start, endTime: end)))
+        }
+        // Explicit (startTime, original index) tie-break: emission order is
+        // preserved for simultaneous tokens without assuming sort stability
+        // (Ranking.swift documents the same discipline).
+        let timings = sanitized
+            .sorted { ($0.timing.startTime, $0.index) < ($1.timing.startTime, $1.index) }
+            .map(\.timing)
         guard !timings.isEmpty else { return fullTextSegment() }
 
         var segments: [RawTranscription.RawSegment] = []

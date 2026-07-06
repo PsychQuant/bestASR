@@ -151,6 +151,28 @@ struct ParakeetEngineTests {
         #expect(raw.segments[0].text == "survives intact")
     }
 
+    @Test func `One inverted pair distrusts the whole batch, keeping all text`() async throws {
+        // Dropping just the inverted token would drop its TEXT — the seam
+        // must instead distrust the batch and fall back to the full text.
+        let engine = ParakeetEngine(pipelineFactory: { _ in
+            SpyPipeline { _, _ in
+                ParakeetOutput(
+                    text: "alpha beta gamma",
+                    confidence: 0.9,
+                    duration: 3.0,
+                    tokenTimings: [
+                        .init(token: "alpha", startTime: 0.0, endTime: 0.5),
+                        .init(token: " beta", startTime: 1.5, endTime: 0.9),  // inverted
+                        .init(token: " gamma", startTime: 2.0, endTime: 2.5),
+                    ]
+                )
+            }
+        })
+        let raw = try await engine.transcribeRaw(audioPath: "clip.wav", options: options)
+        try #require(raw.segments.count == 1)
+        #expect(raw.segments[0].text == "alpha beta gamma")
+    }
+
     @Test func `Missing token timings degrade to a single full-text segment`() async throws {
         let engine = ParakeetEngine(pipelineFactory: { _ in
             SpyPipeline { _, _ in
