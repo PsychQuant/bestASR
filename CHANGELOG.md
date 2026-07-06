@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Fixed
+- Routing no longer recommends pathological candidates (#64): measured records now aggregate per candidate (equal-weight mean error rate / realtime factor) before ranking, a mean error rate above 0.5 is excluded from autonomous recommendation (explicit backend locks bypass with a warning), and single-measurement winners carry a coverage warning.
+
 ### Added
 - External-process engine protocol (#51): versioned JSON over argv spawn, `~/.bestasr/engines.json` registry, and a bundled mlx-audio adapter (own venv) that upgrades the 15-family reference catalog to runnable candidates. One process per call, hard timeout, loud attributed failures; external RTF includes full process lifetime.
 - Chinese ASR families (#50): `fluid-sensevoice` (SenseVoice small — zh-TW mean CER 0.1941, near whisper-large parity at ~6x realtime) and `fluid-paraformer` (wired, shelved at priority 2 — FluidAudio 0.15.4 decode bug emits raw BPE subwords). Zero new dependencies; text-only families yield a single full-duration segment.
