@@ -352,7 +352,7 @@ tests:
 ---
 ### Requirement: transcribe command with options
 
-`bestasr transcribe <audio>` SHALL transcribe the input and write the result in the requested format, honoring `--profile`, `--backend`, `--model`, `--language`, `--format`, `--output`, `--context-dir`, and `--diarize`. When `--format` is omitted it SHALL default to `txt`; when `--output` is omitted the output path SHALL derive from the input file base name and the format extension; when `--context-dir` is omitted the context directory SHALL resolve per the context-calibration three-layer precedence. The command SHALL honor `--diarize`, enabling cue-level speaker diarization per the diarization capability: SRT and VTT cues gain a `[SPEAKER_N] ` text prefix, JSON segments gain a `speaker` field, and txt switches to `SPEAKER_N: ` prefixed lines; without `--diarize` every format's output is unchanged. `--profile` accepts the ordinal ladder `low` / `medium` / `high` / `xhigh` / `max` and defaults to `auto`: `auto` SHALL resolve to `medium`, or to `low` when the machine reports pressure (thermal state serious/critical, or Low Power Mode), and the resolution SHALL be disclosed in the explain reasons. An explicitly passed ordinal SHALL never be altered by machine pressure. A legacy profile value (`fast`, `balanced`, `accurate`) SHALL fail with an error that names its ordinal replacement.
+`bestasr transcribe <audio>` SHALL transcribe the input and write the result in the requested format, honoring `--profile`, `--backend`, `--model`, `--language`, `--format`, `--output`, `--context-dir`, and `--diarize`. When `--format` is omitted it SHALL default to `txt`; when `--output` is omitted the output path SHALL derive from the input file base name and the format extension; when `--context-dir` is omitted the context directory SHALL resolve per the context-calibration three-layer precedence. The command SHALL honor `--diarize`, enabling cue-level speaker diarization per the diarization capability: SRT and VTT cues gain a `Speaker N: ` text prefix (the human-readable display form of the internal `SPEAKER_N` ordinal; enrolled real names render as `Name: `), JSON segments gain a `speaker` field carrying the internal label, and txt switches to the same `Speaker N: ` prefixed lines; without `--diarize` every format's output is unchanged. `--profile` accepts the ordinal ladder `low` / `medium` / `high` / `xhigh` / `max` and defaults to `auto`: `auto` SHALL resolve to `medium`, or to `low` when the machine reports pressure (thermal state serious/critical, or Low Power Mode), and the resolution SHALL be disclosed in the explain reasons. An explicitly passed ordinal SHALL never be altered by machine pressure. A legacy profile value (`fast`, `balanced`, `accurate`) SHALL fail with an error that names its ordinal replacement.
 
 #### Scenario: transcribe writes requested format
 
@@ -387,51 +387,20 @@ tests:
 
 #### Scenario: diarized SRT carries speaker prefixes
 
-- **WHEN** `bestasr transcribe meeting.wav --format srt --diarize` runs on multi-speaker audio
-- **THEN** the written SRT's cues carry `[SPEAKER_N] ` prefixes with at least two distinct labels across the document
-
----
-### Requirement: explain mode surfaces reasoning
-
-When `--explain` is passed to `transcribe`, the CLI SHALL additionally output the recommendation `reason` and `warnings`, and — when a context directory was resolved — the context usage disclosure (resolved directory, injected values, truncated items, ignored files). Diagnostic reasoning SHALL NOT contaminate the transcript output file.
-
-#### Scenario: explain prints reasons alongside transcription
-
-- **WHEN** the user runs `bestasr transcribe input.mp3 --explain`
-- **THEN** the recommendation reasons and any warnings are printed to the user
-- **AND** the written transcript file contains only the transcript
-
-#### Scenario: explain includes the context disclosure when context was used
-
-- **WHEN** the user runs `bestasr transcribe input.mp3 --explain` with a resolved context directory
-- **THEN** the explain output includes the resolved directory, the injected values, any truncated items, and any ignored files
+- **WHEN** `bestasr transcribe talk.wav --diarize --format srt` runs and diarization assigns the first segment to the internal label `SPEAKER_1`
+- **THEN** the cue text reads `Speaker 1: <text>` (human-readable display form — no brackets), an enrolled name renders as `Alice: <text>`, and without `--diarize` the SRT is unchanged
 
 
 <!-- @trace
-source: context-calibration-and-marketplace
-updated: 2026-07-02
+source: speaker-label-display-format
+updated: 2026-07-06
 code:
-  - Sources/BestASRKit/Models/DataModels.swift
-  - Tests/BestASRKitTests/PluginTests.swift
-  - Sources/BestASRKit/Context/ContextSchema.swift
-  - plugins/bestasr/skills/context-ingest/SKILL.md
-  - Sources/BestASRKit/Context/PromptRenderer.swift
-  - Sources/bestasr/BestASRCommand.swift
-  - Tests/BestASRKitTests/ContextTests.swift
-  - plugins/bestasr/.claude-plugin/plugin.json
+  - Sources/BestASRKit/Output/TranscriptWriter.swift
+  - Tests/BestASRKitTests/DiarizationTests.swift
+  - scripts/validate-diarization.sh
+  - plugins/bestasr/skills/transcript/SKILL.md
   - README.md
-  - .claude-plugin/marketplace.json
-  - Tests/BestASRKitTests/DataModelTests.swift
-  - Sources/BestASRKit/CommandCore.swift
-  - plugins/bestasr/skills/srt-proofread/SKILL.md
-  - Sources/BestASRKit/Engines/WhisperCppEngine.swift
-  - Sources/BestASRKit/Benchmark/BenchmarkReport.swift
-  - Tests/BestASRKitTests/BenchmarkTests.swift
-  - Sources/BestASRKit/Engines/WhisperKitEngine.swift
-  - Tests/BestASRKitTests/BackendEngineTests.swift
-  - Sources/BestASRKit/Context/ContextLoader.swift
-  - Sources/BestASRKit/Benchmark/BenchmarkRunner.swift
-  - Tests/BestASRKitTests/CLITests.swift
+  - CHANGELOG.md
 -->
 
 ---
