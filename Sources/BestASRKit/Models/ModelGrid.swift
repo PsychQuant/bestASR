@@ -34,6 +34,9 @@ public enum ModelGrid {
                 $0.backend == backend && $0.family == family && $0.size == size
             }
         }
+        // Bare-size fallback: ambiguous for mlx (canary 1b shadows mms 1b —
+        // first row wins); every primary path uses family/size for mlx, so
+        // this branch effectively serves the whisper-style backends (F3).
         return rows.first { $0.backend == backend && $0.size == modelAddress }
     }
 

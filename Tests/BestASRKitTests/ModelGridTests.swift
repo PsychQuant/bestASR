@@ -86,4 +86,21 @@ struct ModelGridTests {
         }
         #expect(cppLarge.map(\.quantization) == ["q5_0"])
     }
+
+    @Test func `An mlx family-size address resolves to the pinned row round-trip`() {
+        // #65 verify F5: the address the runner emits (and projection
+        // produces) must resolve back to the SAME pinned row — the persist
+        // path depends on it (F1 regression lock).
+        let row = ModelGrid.row(backend: ModelGrid.backendMLXAudio, modelAddress: "canary/1b")
+        #expect(row?.family == "canary")
+        #expect(row?.hfRepo != nil)
+        #expect(row?.hfRevision != nil)
+        // Bare colliding size resolves to SOME row (documented first-wins) —
+        // never nil, never a crash.
+        #expect(ModelGrid.row(backend: ModelGrid.backendMLXAudio, modelAddress: "1b") != nil)
+        // The persisted modelId built from the resolved row keeps the family.
+        if let row {
+            #expect(row.modelId == "mlx-audio|canary|1b|default")
+        }
+    }
 }
