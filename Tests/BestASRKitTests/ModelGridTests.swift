@@ -53,12 +53,18 @@ struct ModelGridTests {
         #expect(widened.contains { $0.priority == 3 })
     }
 
-    @Test func `Unverified rows carry no repo id to fabricate URLs from`() {
-        // Spec scenario: unverified row guidance never prints a guessed URL.
-        for row in ModelGrid.rows where !row.verified {
-            #expect(row.hfRepo == nil, "\(row.modelId) is unverified but has a repo id")
+    @Test func `Repo ids are never guessed — a pinned revision proves the probe`() {
+        // #20's intent, revised by #65: the grid must never print a GUESSED
+        // URL. The proof of a real probe is the revision pin — any row
+        // carrying hfRepo MUST carry hfRevision (probed, pinned, auditable);
+        // `verified` stays a pure measurement flag (a probed-but-unmeasured
+        // row is legal: repo pinned, verified false until benchmarked).
+        for row in ModelGrid.rows where row.hfRepo != nil {
+            #expect(
+                row.hfRevision != nil || row.backend != ModelGrid.backendMLXAudio,
+                "\(row.modelId) has a repo id without a revision pin")
         }
-        // And verified priority-1 rows do have live-probed repos.
+        // And verified priority-1 mlx rows do have live-probed repos.
         let verified = ModelGrid.rows(backend: ModelGrid.backendMLXAudio, priorityCeiling: 1)
             .filter(\.verified)
         #expect(!verified.isEmpty)
