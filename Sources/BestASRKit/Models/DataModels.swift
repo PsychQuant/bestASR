@@ -16,6 +16,7 @@ public enum BackendID: String, Codable, CaseIterable, Sendable {
     case fluidParakeet = "fluid-parakeet"
     case fluidParaformer = "fluid-paraformer"
     case fluidSenseVoice = "fluid-sensevoice"
+    case mlxAudio = "mlx-audio"
 }
 
 // MARK: - Detection

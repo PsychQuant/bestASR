@@ -48,7 +48,19 @@ public struct CommandCore: Sendable {
 
     /// The production wiring: real engines, real detection, real store.
     public static func live() -> CommandCore {
-        CommandCore(engines: [WhisperKitEngine(), WhisperCppEngine(), ParakeetEngine(), ChineseFamilyEngine.paraformer(), ChineseFamilyEngine.sensevoice()])
+        {
+        // Registered external adapters (#51, spec external-engine-protocol)
+        // join the pool next to the bundled engines; with no registry config
+        // this is exactly the bundled set.
+        var engines: [any Engine] = [
+            WhisperKitEngine(), WhisperCppEngine(), ParakeetEngine(),
+            ChineseFamilyEngine.paraformer(), ChineseFamilyEngine.sensevoice(),
+        ]
+        for entry in ExternalEngineRegistry().engines {
+            engines.append(ExternalProcessEngine(id: entry.id, command: entry.command))
+        }
+        return CommandCore(engines: engines)
+    }()
     }
 
     /// Store-projected records for the router (design D7).
@@ -558,7 +570,11 @@ public struct CommandCore: Sendable {
             }
         }
         lines.append("")
-        lines.append("mlx-audio reference catalog (backend not bundled; * = verified repo+pin):")
+        let mlxRegistered = engines.contains { $0.id == .mlxAudio }
+        lines.append(
+            mlxRegistered
+                ? "mlx-audio catalog (external adapter registered — runnable; * = verified repo+pin):"
+                : "mlx-audio reference catalog (backend not bundled; * = verified repo+pin):")
         for row in ModelGrid.rows(backend: ModelGrid.backendMLXAudio, priorityCeiling: nil)
             .sorted(by: { ($0.priority, $0.family) < ($1.priority, $1.family) })
         {

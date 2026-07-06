@@ -253,12 +253,18 @@ struct ListCommandTests {
         #expect(output.contains("q5_0"))  // medium/large-tier row
     }
 
-    @Test func `Production wiring bundles all three engines`() {
-        // #35 (spec asr-engine "Common engine interface"): live() carries one
-        // engine per BackendID case — a new case without live wiring would
-        // never enumerate for routing or benchmark.
+    @Test func `Production wiring bundles every non-external engine`() {
+        // #35/#51 (spec asr-engine + external-engine-protocol): live() always
+        // carries the bundled engines; external backends join only when the
+        // user registry enables them, so this machine-dependent tail is
+        // asserted by capability, not by exact list.
         let ids = CommandCore.live().engines.map(\.id)
-        #expect(ids == BackendID.allCases)
+        #expect(ids.prefix(5) == [
+            .whisperKit, .whisperCpp, .fluidParakeet, .fluidParaformer, .fluidSenseVoice,
+        ])
+        for extra in ids.dropFirst(5) {
+            #expect(ExternalEngineRegistry.externalCapable.contains(extra))
+        }
     }
 
     @Test func `list-models shows the live parakeet row alongside whisper sizes`() throws {

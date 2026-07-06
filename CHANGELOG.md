@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### Added
+- External-process engine protocol (#51): versioned JSON over argv spawn, `~/.bestasr/engines.json` registry, and a bundled mlx-audio adapter (own venv) that upgrades the 15-family reference catalog to runnable candidates. One process per call, hard timeout, loud attributed failures; external RTF includes full process lifetime.
 - Chinese ASR families (#50): `fluid-sensevoice` (SenseVoice small — zh-TW mean CER 0.1941, near whisper-large parity at ~6x realtime) and `fluid-paraformer` (wired, shelved at priority 2 — FluidAudio 0.15.4 decode bug emits raw BPE subwords). Zero new dependencies; text-only families yield a single full-duration segment.
 - FluidAudio model weights are now digest-pinned: `WeightVerifier` checks every downloaded file against `weights-manifest.json` before first use (pinned mismatch fails loudly; unpinned models warn — TOFU). `scripts/pin-weights.sh` regenerates the manifest. (#52)
 - Benchmark SRT references now strip recurring speaker-label prefixes (`Name: `) when deriving ground-truth text, so speaker-labeled transcripts (e.g. panel recordings) no longer inflate WER; one-off colon phrases stay verbatim. First long-form conversational English corpus (Jobs & Gates D5 2007, 81 min) registered via `corpus add`. (#55)

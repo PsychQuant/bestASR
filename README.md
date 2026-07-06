@@ -51,6 +51,20 @@ Backends:
   on demand). It enters `bestasr benchmark`'s measurement matrix and wins
   routing only on measured merit — for languages it covers poorly (e.g. zh)
   the whisper candidates keep winning naturally. Supply-chain note: the
+  SwiftPM `exact` pin anchors FluidAudio's downloader code; the remote model
+  artifacts themselves are trusted via FluidAudio's resolver (HF `main`), not
+  revision-pinned by bestASR. An unfiltered `bestasr benchmark` will download
+  the Parakeet weights (~hundreds of MB) on first run — scope with
+  `--backends` to skip it.
+- **External engines (#51)**: any executable speaking the versioned JSON
+  protocol can join the pool — register it in `~/.bestasr/engines.json` and
+  its catalog rows become runnable candidates. The bundled mlx-audio adapter
+  (`adapters/mlx-audio/setup.sh` — own venv under `~/.bestasr/adapters/`,
+  zero Python in bestASR itself) unlocks the 15-family reference catalog
+  below. Containment: one process per call (argv spawn, never a shell,
+  hard timeout), adapter failures are loud and attributed, and external
+  realtime factors honestly include the full process lifetime (spawn +
+  model load) — a structural cost of the isolation model.
   SwiftPM `exact` pin anchors FluidAudio's downloader code, and downloaded
   weights are digest-verified against the repo's pinned manifest
   (`Sources/BestASRKit/Supply/weights-manifest.json`) before first use —
