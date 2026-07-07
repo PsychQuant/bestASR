@@ -46,20 +46,30 @@ public enum AudioNormalizer {
     /// engine keeps its established error surface (the CLI fail-louds
     /// unreadable files earlier via AudioProber). Anything else streams
     /// through a single AVAudioConverter into a temporary 16 kHz mono wav.
-    public static func normalize(audioPath: String) throws -> NormalizedAudio {
+    public static func normalize(
+        audioPath: String,
+        converter: ((AVAudioFile, URL) throws -> Void)? = nil
+    ) throws -> NormalizedAudio {
         let url = URL(fileURLWithPath: audioPath)
         guard let source = try? AVAudioFile(forReading: url) else {
             return NormalizedAudio(path: audioPath, isTemporary: false)
         }
         let format = source.fileFormat
-        if format.sampleRate == targetSampleRate, format.channelCount == targetChannelCount {
+        // Passthrough needs the CONTAINER right too (#42): whisper.cpp only
+        // eats WAV, so a 16k mono compressed file (mp3/m4a) must still be
+        // rewritten as LinearPCM even though rate/channels already match.
+        let isLinearPCM =
+            format.formatDescription.audioStreamBasicDescription?.mFormatID
+                == kAudioFormatLinearPCM
+        if isLinearPCM, format.sampleRate == targetSampleRate,
+            format.channelCount == targetChannelCount {
             return NormalizedAudio(path: audioPath, isTemporary: false)
         }
 
         let destination = FileManager.default.temporaryDirectory
             .appendingPathComponent("bestasr-normalized-\(UUID().uuidString).wav")
         do {
-            try convert(source, to: destination)
+            try (converter ?? Self.convert)(source, destination)
         } catch {
             try? FileManager.default.removeItem(at: destination)
             throw error
