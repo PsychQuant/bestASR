@@ -46,23 +46,40 @@ public enum AudioNormalizer {
     /// engine keeps its established error surface (the CLI fail-louds
     /// unreadable files earlier via AudioProber). Anything else streams
     /// through a single AVAudioConverter into a temporary 16 kHz mono wav.
-    public static func normalize(audioPath: String) throws -> NormalizedAudio {
+    public static func normalize(
+        audioPath: String,
+        converter: ((AVAudioFile, URL) throws -> Void)? = nil
+    ) throws -> NormalizedAudio {
         let url = URL(fileURLWithPath: audioPath)
         guard let source = try? AVAudioFile(forReading: url) else {
             return NormalizedAudio(path: audioPath, isTemporary: false)
         }
         let format = source.fileFormat
-        if format.sampleRate == targetSampleRate, format.channelCount == targetChannelCount {
+        // Passthrough needs the CONTAINER right too (#42): whisper.cpp only
+        // eats RIFF/WAV, so both the container (RIFF magic — LinearPCM in a
+        // .caf/.aiff would slip an encoding-only check, verify HIGH) and the
+        // encoding must match before rate/channels are even consulted.
+        let isLinearPCM =
+            format.formatDescription.audioStreamBasicDescription?.mFormatID
+                == kAudioFormatLinearPCM
+        if isLinearPCM, Self.hasWAVContainer(url: url),
+            format.sampleRate == targetSampleRate,
+            format.channelCount == targetChannelCount {
             return NormalizedAudio(path: audioPath, isTemporary: false)
         }
 
         let destination = FileManager.default.temporaryDirectory
             .appendingPathComponent("bestasr-normalized-\(UUID().uuidString).wav")
         do {
-            try convert(source, to: destination)
+            try (converter ?? Self.convert)(source, destination)
         } catch {
             try? FileManager.default.removeItem(at: destination)
-            throw error
+            // Preserve the fail-loud diagnostic at the engine boundary
+            // (verify LOW): a plain Error from an injected converter would
+            // otherwise surface as a generic Cocoa string.
+            if error is LocalizedError { throw error }
+            throw BestASRError.runtime(
+                "audio normalization failed for \(audioPath): \(error)")
         }
         return NormalizedAudio(path: destination.path, isTemporary: true)
     }
@@ -217,4 +234,15 @@ public enum AudioNormalizer {
             }
         }
     }
+    /// True when the file is a RIFF/WAVE container — the only container
+    /// whisper-cli parses. Reads the 12-byte header; anything unreadable
+    /// fails toward conversion (which always yields a valid WAV).
+    static func hasWAVContainer(url: URL) -> Bool {
+        guard let handle = try? FileHandle(forReadingFrom: url),
+            let header = try? handle.read(upToCount: 12), header.count == 12
+        else { return false }
+        return header.prefix(4) == Data("RIFF".utf8)
+            && header.subdata(in: 8..<12) == Data("WAVE".utf8)
+    }
+
 }

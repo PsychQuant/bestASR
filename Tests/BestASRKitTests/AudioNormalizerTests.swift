@@ -138,4 +138,82 @@ struct AudioNormalizerTests {
         let transcript = try await engine.transcribe(audioPath: path, options: options)
         #expect(transcript.text == path)
     }
+
+    @Test func `A 16k mono compressed container is still normalized to WAV`() throws {
+        // #42: the passthrough test must include the CONTAINER — whisper.cpp
+        // only eats WAV, so a 16k mono m4a passing through unchanged fails
+        // downstream even though rate/channels match.
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let m4a = dir.appendingPathComponent("clip.m4a")
+        // Scope the writer so AVAudioFile finalizes the container before
+        // normalize() reads it back.
+        do {
+            let format = AVAudioFormat(standardFormatWithSampleRate: 16000, channels: 1)!
+            let file = try AVAudioFile(
+                forWriting: m4a,
+                settings: [
+                    AVFormatIDKey: kAudioFormatMPEG4AAC,
+                    AVSampleRateKey: 16000,
+                    AVNumberOfChannelsKey: 1,
+                ])
+            let frames = AVAudioFrameCount(16000)
+            let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frames)!
+            buffer.frameLength = frames
+            try file.write(from: buffer)
+        }
+
+        let normalized = try AudioNormalizer.normalize(audioPath: m4a.path)
+        defer { normalized.cleanup() }
+        #expect(normalized.isTemporary)  // converted, not passed through
+        #expect(normalized.path.hasSuffix(".wav"))
+    }
+
+    @Test func `A 16k mono PCM in a non-WAV container (caf) is still normalized`() throws {
+        // #42 verify HIGH: LinearPCM is an ENCODING property — a .caf holds
+        // LinearPCM too, but whisper-cli parses only RIFF/WAV. Container
+        // must be WAV for passthrough.
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let caf = dir.appendingPathComponent("clip.caf")
+        do {
+            let format = AVAudioFormat(standardFormatWithSampleRate: 16000, channels: 1)!
+            let file = try AVAudioFile(
+                forWriting: caf,
+                settings: [
+                    AVFormatIDKey: kAudioFormatLinearPCM,
+                    AVSampleRateKey: 16000,
+                    AVNumberOfChannelsKey: 1,
+                ])
+            let frames = AVAudioFrameCount(16000)
+            let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frames)!
+            buffer.frameLength = frames
+            try file.write(from: buffer)
+        }
+        let normalized = try AudioNormalizer.normalize(audioPath: caf.path)
+        defer { normalized.cleanup() }
+        #expect(normalized.isTemporary)
+        #expect(normalized.path.hasSuffix(".wav"))
+    }
+
+    @Test func `A 16k mono WAV still passes through untouched`() throws {
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let wav = try makeWavFile(in: dir)
+        let normalized = try AudioNormalizer.normalize(audioPath: wav)
+        #expect(!normalized.isTemporary)
+        #expect(normalized.path == wav)
+    }
+
+    @Test func `A converter failure surfaces as a thrown error, never a silent passthrough`() throws {
+        // #42 gap 2: the fail-loud chain finally has an injectable seam.
+        struct Boom: Error {}
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let wav = try makeWavFile(in: dir, name: "hi.wav", sampleRate: 44100, channels: 2)
+        #expect(throws: (any Error).self) {
+            _ = try AudioNormalizer.normalize(audioPath: wav, converter: { _, _ in throw Boom() })
+        }
+    }
+
 }
