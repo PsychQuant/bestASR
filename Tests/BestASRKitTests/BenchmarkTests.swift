@@ -312,3 +312,60 @@ struct ContextDeltaBenchmarkTests {
         #expect(!report.contains("DELTA"))
     }
 }
+
+
+/// #41: the benchmark pre-normalizes ONCE and feeds every pass the same
+/// normalized file — RTF measures model inference, not AVAudioConverter.
+struct BenchmarkNormalizationTests {
+    final class PathCollector: @unchecked Sendable {
+        private let lock = NSLock()
+        private var paths: [String] = []
+        func record(_ p: String) {
+            lock.lock()
+            defer { lock.unlock() }
+            paths.append(p)
+        }
+        var all: [String] {
+            lock.lock()
+            defer { lock.unlock() }
+            return paths
+        }
+    }
+
+    @Test func `All benchmark passes share one pre-normalized file`() async throws {
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        // 44.1k stereo — must be normalized before reaching the backend.
+        let source = try makeWavFile(
+            in: dir, seconds: 2, name: "hi.wav", sampleRate: 44100, channels: 2)
+
+        let collector = PathCollector()
+        let engine = MockEngine(
+            id: .whisperKit, available: true,
+            raw: { path, _ in
+                collector.record(path)
+                return RawTranscription(
+                    segments: [.init(start: 0, end: 2, text: "hello world")],
+                    language: "en", duration: 2)
+            })
+        let runner = BenchmarkRunner(
+            engines: [engine], host: Fixtures.m5Max, probe: FakeClock(step: 1.0).probe())
+        let audio = AudioInfo(
+            path: source, duration: 2, format: "wav", sampleRate: 44100, channels: 2)
+        let outcome = await runner.run(
+            candidates: [
+                BenchmarkCandidate(backend: .whisperKit, model: "tiny", quantization: "default")
+            ],
+            notes: [], audio: audio, referenceText: "hello world",
+            metricKind: .wer, language: "en", contextPrompt: "hint")
+
+        #expect(outcome.failures.isEmpty)
+        let seen = Set(collector.all)
+        #expect(collector.all.count == 3)  // warm-up + timed + context
+        #expect(seen.count == 1, "every pass must reuse ONE normalized file, saw \(seen)")
+        let shared = seen.first ?? ""
+        #expect(shared != source, "a 44.1k stereo source must not reach the backend raw")
+        // The shared temp is cleaned up after the run.
+        #expect(!FileManager.default.fileExists(atPath: shared))
+    }
+}
