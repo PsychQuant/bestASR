@@ -122,6 +122,15 @@ exists — not a hardcoded model name. Without measurements the top tiers fall
 back to the same biggest-that-fits cold-start prior (ordinals can only
 differ once there is data to weigh — run the benchmark).
 
+**RTF semantics**: benchmark RTF measures *model inference* — the input is
+pre-normalized (16 kHz mono WAV) once per run and shared by the warm-up,
+timed, and context passes, so conversion cost never inflates RTF and the
+same backend's numbers stay comparable across corpus formats. (External
+adapters still pay their spawn/load inside RTF — that cost is inherent to
+the backend, not the input.) Records measured on ≤0.10.x folded conversion
+cost into RTF for non-16k-mono corpora — re-run the benchmark if that
+distinction matters to your ranking (the drift is ~1e-3 in practice).
+
 Because `auto` reads live machine state, `recommend` / `transcribe` with no
 `--profile` can resolve differently on a throttled machine (it says so in
 `--explain`). If you need a byte-stable result for automation, pass an

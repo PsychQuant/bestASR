@@ -37,7 +37,16 @@ public enum AudioNormalizer {
 
         public func cleanup() {
             guard isTemporary else { return }
-            try? FileManager.default.removeItem(atPath: path)
+            guard FileManager.default.fileExists(atPath: path) else { return }
+            do {
+                try FileManager.default.removeItem(atPath: path)
+            } catch {
+                // Fail loud (#43): a swallowed delete error leaves a 160MB-class
+                // residue with no trace — the sweep will reap it eventually,
+                // but the operator deserves to know now.
+                FileHandle.standardError.write(Data(
+                    "warning: could not remove temp file \(path): \(error)\n".utf8))
+            }
         }
     }
 
@@ -67,6 +76,10 @@ public enum AudioNormalizer {
             format.channelCount == targetChannelCount {
             return NormalizedAudio(path: audioPath, isTemporary: false)
         }
+
+        // Reap residues from crashed runs (#43): defer-based cleanup cannot
+        // run on SIGKILL/OOM, so stale temp WAVs accumulate monotonically.
+        Self.sweepStaleTemporaries()
 
         let destination = FileManager.default.temporaryDirectory
             .appendingPathComponent("bestasr-normalized-\(UUID().uuidString).wav")
@@ -243,6 +256,31 @@ public enum AudioNormalizer {
         else { return false }
         return header.prefix(4) == Data("RIFF".utf8)
             && header.subdata(in: 8..<12) == Data("WAVE".utf8)
+    }
+
+    /// Removes `bestasr-normalized-*.wav` files older than `olderThan`
+    /// seconds (default 24h — conservatively beyond any legitimate
+    /// transcription's temp lifetime). Only our own naming pattern is
+    /// touched; sweep failures are non-fatal (best-effort hygiene).
+    public static func sweepStaleTemporaries(
+        in dir: URL = FileManager.default.temporaryDirectory,
+        olderThan: TimeInterval = 24 * 3600
+    ) {
+        let fm = FileManager.default
+        guard let entries = try? fm.contentsOfDirectory(
+            at: dir, includingPropertiesForKeys: [.contentModificationDateKey],
+            options: .skipsHiddenFiles)
+        else { return }
+        let cutoff = Date(timeIntervalSinceNow: -olderThan)
+        for entry in entries {
+            let name = entry.lastPathComponent
+            guard name.hasPrefix("bestasr-normalized-"), name.hasSuffix(".wav") else { continue }
+            guard let modified = (try? entry.resourceValues(
+                    forKeys: [.contentModificationDateKey]))?.contentModificationDate,
+                modified < cutoff
+            else { continue }
+            try? fm.removeItem(at: entry)
+        }
     }
 
 }

@@ -188,6 +188,30 @@ public struct BenchmarkRunner {
             )
         }
 
+        // Pre-normalize ONCE (#41): benchmark RTF measures MODEL INFERENCE,
+        // not input conversion — folding AVAudioConverter cost into the timed
+        // pass would make the same backend's RTF drift with corpus format and
+        // pollute routing comparisons. Sharing one normalized file also kills
+        // the triple re-conversion across warm-up/timed/context passes. The
+        // engines' own normalize step then passes the 16k mono WAV through
+        // untouched.
+        let normalizedAudio: AudioNormalizer.NormalizedAudio
+        do {
+            normalizedAudio = try AudioNormalizer.normalize(audioPath: audio.path)
+        } catch {
+            return BenchmarkOutcome(
+                measured: [],
+                failures: candidates.map {
+                    BenchmarkFailure(
+                        candidate: $0, reason: "audio normalization failed: \(error)")
+                },
+                notes: initialNotes,
+                metricKind: metricKind,
+                language: language
+            )
+        }
+        defer { normalizedAudio.cleanup() }
+
         for candidate in candidates {
             guard let engine = engines.first(where: { $0.id == candidate.backend }) else {
                 failures.append(
@@ -214,12 +238,12 @@ public struct BenchmarkRunner {
 
                 // Warm-up run: downloads/loads the model; excluded from RTF.
                 let warmStart = probe.now()
-                _ = try await engine.transcribe(audioPath: audio.path, options: options)
+                _ = try await engine.transcribe(audioPath: normalizedAudio.path, options: options)
                 let warmupSeconds = probe.now() - warmStart
 
                 // Timed run.
                 let start = probe.now()
-                let transcript = try await engine.transcribe(audioPath: audio.path, options: options)
+                let transcript = try await engine.transcribe(audioPath: normalizedAudio.path, options: options)
                 let elapsed = probe.now() - start
                 let peakMemoryGB = max(probe.memoryGB() - memoryBefore, 0)
 
@@ -240,7 +264,7 @@ public struct BenchmarkRunner {
                         deterministicDecode: deterministicDecode
                     )
                     if let contextTranscript = try? await engine.transcribe(
-                        audioPath: audio.path, options: contextOptions)
+                        audioPath: normalizedAudio.path, options: contextOptions)
                     {
                         contextErrorRate = ErrorRate.compute(
                             hypothesis: contextTranscript.text,
