@@ -242,6 +242,17 @@ struct ParakeetEngineTests {
         #expect(raw.segments.contains { $0.end > 0 })
     }
 
+    @Test func `Zero duration with no fallback available stays zero without trapping`() async throws {
+        let engine = ParakeetEngine(pipelineFactory: { _ in
+            SpyPipeline(result: { _, _ in ParakeetOutput(
+                text: "hello", confidence: 0.9, duration: 0, tokenTimings: nil) })
+        })
+        let raw = try await engine.transcribeRaw(
+            audioPath: "missing.wav",
+            options: TranscribeOptions(model: "0.6b-v3", quantization: "default"))
+        #expect(raw.duration == 0)  // honest zero — nothing to invent
+    }
+
     @Test func `Zero duration with no timings falls back to the probed audio length`() async throws {
         let dir = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: dir) }

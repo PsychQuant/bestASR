@@ -176,9 +176,13 @@ public struct ParakeetEngine: Engine {
         // back to the timings' own extent, then to the probed audio length.
         var repaired = output
         if repaired.duration <= 0 {
-            let fallback = repaired.tokenTimings?.map(\.endTime).max()
-                ?? (try? AudioProber.probe(path: audioPath, requestedLanguage: nil)
-                    .duration).flatMap { $0 }
+            // Probe FIRST (#69 verify MEDIUM): the probed wall-clock length is
+            // independent of the pipeline, so a single malformed timing (huge
+            // endTime) can never become its own #53 clamp bound. Timings-max
+            // is only the last resort when the file cannot be probed.
+            let probed = (try? AudioProber.probe(path: audioPath, requestedLanguage: nil)
+                .duration).flatMap { $0 }
+            let fallback = probed ?? repaired.tokenTimings?.map(\.endTime).max()
             if let fallback, fallback > 0 {
                 repaired = ParakeetOutput(
                     text: repaired.text, confidence: repaired.confidence,
