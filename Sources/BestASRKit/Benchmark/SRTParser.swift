@@ -131,6 +131,10 @@ public enum SRTParser {
     /// one-off colon phrase is body text and stays. Cue texts themselves are
     /// untouched (design D2 — stripping happens at derivation only).
     public static func referenceText(from cues: [SRTCue]) -> String {
+        // Rolling-caption collapse is applied HERE so every reference
+        // derivation gets it (#33) — detection is conservative, so normal
+        // subtitles are untouched.
+        let cues = collapseRollingCaptions(cues)
         let recurring = recurringSpeakerPrefixes(in: cues)
         guard !recurring.isEmpty else {
             return cues.map(\.text).joined(separator: " ")

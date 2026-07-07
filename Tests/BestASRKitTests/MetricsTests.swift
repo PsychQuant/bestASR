@@ -298,7 +298,10 @@ struct SRTRobustnessTests {
         """
         let cues = try SRTParser.parse(srt)
         let collapsed = SRTParser.collapseRollingCaptions(cues)
-        let text = SRTParser.referenceText(from: collapsed)
+        #expect(collapsed.count == 3)  // 5 raw cues -> 3 real content cues
+        // referenceText applies the collapse itself — ingestion is protected
+        // without callers knowing about rolling captions.
+        let text = SRTParser.referenceText(from: cues)
         #expect(text == "hello world this is new text and a third line")
     }
 
