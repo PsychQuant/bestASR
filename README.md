@@ -52,6 +52,26 @@ backend availability table as a smoke test. Manual equivalent:
 on first use (large-v3-turbo ≈ 1.5 GB — one-time, then cached). Start with
 `bestasr diagnose` (no download) to see what your machine would run.
 
+### Install for AI agents (Claude Code)
+
+This repo doubles as a Claude Code plugin marketplace. The plugin ships the
+agent workflows (`transcript` — any source → SRT; `context-ingest` — docs →
+context.json; `srt-proofread` — three-axis proofreading with immutable
+timecodes); the CLI does the actual ASR, so both layers get installed:
+
+```bash
+claude plugin marketplace add PsychQuant/bestASR
+claude plugin install bestasr@bestasr
+# the skills drive the bestasr CLI — install it once (agents can run this too):
+git clone https://github.com/PsychQuant/bestASR.git && cd bestASR && bash scripts/install.sh
+```
+
+After that, asking Claude "transcribe this YouTube link for me" routes
+through the transcript skill → yt-dlp → `bestasr` automatically. One
+project, three consumption surfaces: **CLI** (terminal / scripts), **agent
+skills** (this plugin), and the benchmark store both share — an MCP server
+surface is tracked as future work.
+
 ## Quick start
 
 ```bash

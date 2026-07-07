@@ -12,7 +12,7 @@
     {
       "name": "bestasr",
       "source": "./plugins/bestasr",
-      "description": "Agent workflows for bestASR: distill documents into context.json (context-ingest) and proofread SRT transcripts against context with immutable timecodes (srt-proofread)."
+      "description": "Agent workflows for bestASR: transcribe any source to SRT (transcript), distill documents into context.json (context-ingest), and proofread SRT transcripts against context with immutable timecodes (srt-proofread). The skills drive the bestasr CLI (install via scripts/install.sh)."
     }
   ]
 }
