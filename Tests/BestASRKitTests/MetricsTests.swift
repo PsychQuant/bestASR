@@ -305,6 +305,47 @@ struct SRTRobustnessTests {
         #expect(text == "hello world this is new text and a third line")
     }
 
+    @Test func `Legitimate repetition without ghost cues is never collapsed`() throws {
+        // #33 verify MEDIUM: chorus lyrics / applause markers repeat across
+        // adjacent cues but have NO ~10ms ghost cues — the ground truth must
+        // keep every legitimate repetition.
+        let srt = """
+        1
+        00:00:00,000 --> 00:00:02,000
+        na na na
+
+        2
+        00:00:02,000 --> 00:00:04,000
+        na na na
+
+        3
+        00:00:04,000 --> 00:00:06,000
+        na na na
+
+        4
+        00:00:06,000 --> 00:00:08,000
+        hey now
+        """
+        let cues = try SRTParser.parse(srt)
+        let text = SRTParser.referenceText(from: cues)
+        #expect(text == "na na na na na na na na na hey now")
+    }
+
+    @Test func `A numeric lyric line in an index-less compact SRT is kept`() throws {
+        // #33 verify LOW: only a number matching the expected NEXT index is
+        // stripped — "42" as cue text must survive.
+        let srt = """
+        00:00:00,000 --> 00:00:02,000
+        the answer is
+        42
+        00:00:02,000 --> 00:00:04,000
+        next line
+        """
+        let cues = try SRTParser.parse(srt)
+        #expect(cues[0].text == "the answer is 42")
+        #expect(cues[1].text == "next line")
+    }
+
     @Test func `A normal SRT is untouched by rolling collapse`() throws {
         let srt = """
         1

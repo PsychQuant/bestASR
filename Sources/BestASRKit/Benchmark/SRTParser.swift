@@ -55,8 +55,14 @@ public enum SRTParser {
         for (k, markLine) in marks.enumerated() {
             guard let match = lines[markLine].firstMatch(of: timecodeLine) else { continue }
             // Text runs to the next cue, minus that cue's numeric index line.
+            // A trailing number only counts as the NEXT cue's index when it
+            // matches the expected sequence (#33 verify LOW: an index-less
+            // compact SRT whose last text line is a number — lyric "42" —
+            // must not be eaten).
             var textEnd = k + 1 < marks.count ? marks[k + 1] : lines.count
-            if k + 1 < marks.count, textEnd - 1 > markLine, Int(lines[textEnd - 1]) != nil {
+            if k + 1 < marks.count, textEnd - 1 > markLine,
+                let trailing = Int(lines[textEnd - 1]),
+                trailing == cues.count + 2 {
                 textEnd -= 1
             }
             let textLines = lines[(markLine + 1)..<textEnd].filter { !$0.isEmpty }
@@ -100,6 +106,15 @@ public enum SRTParser {
             return !tail.isEmpty && tail == head
         }.count
         guard overlapping * 100 >= (cues.count - 1) * 30 else { return cues }
+        // Second signal (#33 verify MEDIUM): line overlap alone false-triggers
+        // on legitimate repetition (chorus lyrics, applause markers) and would
+        // silently rewrite the ground truth. Real YouTube rolling captions
+        // also interleave ~10ms ghost cues — require that signature too.
+        let ghosts = cues.filter { $0.end - $0.start < 0.05 }.count
+        guard ghosts * 100 >= cues.count * 10 else { return cues }
+        FileHandle.standardError.write(Data(
+            ("note: rolling-caption SRT detected (\(cues.count) raw cues, "
+                + "\(ghosts) ghost cues) — collapsing to unique content\n").utf8))
 
         var survivors: [(cue: SRTCue, fresh: [String])] = []
         var previousLines: Set<String> = []
