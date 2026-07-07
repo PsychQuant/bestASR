@@ -54,36 +54,43 @@ on first use (large-v3-turbo ≈ 1.5 GB — one-time, then cached). Start with
 
 ### Install for AI agents (Claude Code)
 
-This repo doubles as a Claude Code plugin marketplace. The plugin ships the
-agent workflows (`transcript` — any source → SRT; `context-ingest` — docs →
-context.json; `srt-proofread` — three-axis proofreading with immutable
-timecodes); the CLI does the actual ASR, so both layers get installed:
+This repo doubles as a Claude Code plugin marketplace. Installing the plugin
+gives an agent **both** surfaces at once — the **MCP server** (`bestasr-mcp`,
+a notarized binary auto-downloaded on first use) and the workflow **skills**
+(`transcript` — any source → SRT; `context-ingest` — docs → context.json;
+`srt-proofread` — three-axis proofreading with immutable timecodes):
 
 ```bash
 claude plugin marketplace add PsychQuant/bestASR
-claude plugin install bestasr@bestasr
-# the skills drive the bestasr CLI — install it once (agents can run this too):
+claude plugin install bestasr@bestasr        # MCP tools + skills, ready to use
+```
+
+The MCP server links the engine directly, so the model stays warm across calls
+(first transcribe loads it; the second returns in ~0.1 s). Tools: transcribe /
+recommend / list_backends / list_models / corpus_add.
+
+The workflow skills shell out to the `bestasr` **CLI** for the actual ASR, so
+install it once too (agents can run this):
+
+```bash
 git clone https://github.com/PsychQuant/bestASR.git && cd bestASR && bash scripts/install.sh
 ```
 
-After that, asking Claude "transcribe this YouTube link for me" routes
-through the transcript skill → yt-dlp → `bestasr` automatically.
+After that, asking Claude "transcribe this YouTube link for me" routes through
+the transcript skill → yt-dlp → `bestasr` automatically.
 
-**MCP server** (any MCP client — Claude Desktop, Claude Code, other agent
-runtimes): `bestasr-mcp` speaks MCP over stdio and links the engine
-directly, so the model stays warm across calls (first transcribe loads the
-model; the second returns in ~0.1 s). Five tools: transcribe / recommend /
-list_backends / list_models / corpus_add.
+**MCP server outside the plugin** (Claude Desktop, other MCP clients): register
+the binary directly. Build it with `bash scripts/install.sh` (installs
+`bestasr-mcp` to `~/bin`), then:
 
 ```bash
-swift build -c release --product bestasr-mcp   # or: bash scripts/install.sh
-claude mcp add bestasr -- ~/path/to/bestasr-mcp
-# Claude Desktop: add the binary path under mcpServers in the app config
+claude mcp add bestasr -- ~/bin/bestasr-mcp
+# Claude Desktop: add ~/bin/bestasr-mcp under mcpServers in the app config
 ```
 
 One project, three consumption surfaces sharing one benchmark store:
 **CLI** (terminal / scripts), **agent skills** (this plugin), and the
-**MCP server**.
+**MCP server** (bundled in the plugin, or standalone).
 
 ## Quick start
 
