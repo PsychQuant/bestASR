@@ -1,6 +1,6 @@
 ---
 name: srt-proofread
-description: 依 context 文件校對 bestASR（或任何 ASR）產出的 SRT 逐字稿——三軸對齊（講話的人/時間點/內容）、時間碼絕不改動、有 context 依據才改字、輸出校正後 SRT + per-cue diff。當使用者提到「校對 SRT」「校對逐字稿」「proofread transcript」「用 context 修正字幕」時使用。
+description: context pipeline 最後一步（轉錄後）：依同一份 context.json（context biasing / top-down 的知識來源，context-ingest 產出）校對 bestASR（或任何 ASR）產出的 SRT 逐字稿——三軸對齊（講話的人/時間點/內容）、時間碼絕不改動、有 context 依據才改字、輸出校正後 SRT + per-cue diff。當使用者提到「校對 SRT」「校對逐字稿」「proofread transcript」「用 context 修正字幕」「人名/術語聽錯」時使用。
 ---
 
 # srt-proofread — 三軸對齊的 SRT 校對

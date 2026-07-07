@@ -253,7 +253,22 @@ regression, a corpus change, or upstream model-artifact drift.
 
 ### Context calibration (make domain terms and names come out right)
 
-Put your documents into a context folder and bestASR biases the decoder toward
+*Also known as: **context biasing**, **top-down processing** (topdown),
+**prompt biasing**, 術語偏引, domain-vocabulary correction — if you searched
+for any of those, this is the feature.*
+
+Context is **one end-to-end pipeline**, not three separate tools — one
+`context.json` flows through all three stages:
+
+| Stage | Tool | What it does |
+|-------|------|--------------|
+| before | `context-ingest` skill | distill your documents (pdf/docx/…) into `context.json` |
+| during | `bestasr transcribe` | biases decoding toward your vocabulary (auto-resolves the context dir) |
+| after | `srt-proofread` skill | proofreads the SRT against the SAME context (names/terms, timecodes immutable) |
+
+`--explain` (on `transcribe` / `benchmark`) shows exactly which values were
+injected during transcription. Put your
+documents into a context folder and bestASR biases the decoder toward
 your vocabulary — and an agent can proofread the result:
 
 ```bash
