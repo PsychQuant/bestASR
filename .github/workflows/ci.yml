@@ -1,0 +1,27 @@
+# Light CI (#47): build + full test suite on Apple Silicon.
+#
+# Deliberately NOT the regression gate — the accuracy goldens are seeded on
+# (and machine-scoped to) the maintainer's hardware, and the gate needs a
+# ~1.5 GB reference model. The gate runs at release time via
+# scripts/release.sh; this workflow just keeps every PR compiling and green.
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: macos-15  # arm64; Xcode built-in toolchain (swiftly 6.2.4 crashes release builds — see README Requirements)
+    steps:
+      - uses: actions/checkout@v4
+      - name: Swift version
+        run: swift --version
+      - name: Build
+        run: swift build
+      - name: Test
+        run: swift test
