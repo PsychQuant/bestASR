@@ -27,6 +27,13 @@ recommendations**, **stable fallback**, and **clear explanations**.
 
 - Apple Silicon Mac (arm64) — Intel Macs and Rosetta are not supported
 - macOS 14 (Sonoma) or later
+- Swift 6.3+ (the Xcode built-in toolchain works). **Known issue**: the
+  swiftly-managed swift-6.2.4-RELEASE toolchain crashes the compiler
+  (signal 6, SIL specialization in the swift-transformers dependency)
+  on `swift build -c release`; debug builds and tests are unaffected.
+  If `which swift` points at `~/.swiftly/`, either select a 6.3+
+  toolchain or build with the Xcode default:
+  `env PATH="/usr/bin:$PATH" swift build -c release`
 
 ## Install
 
