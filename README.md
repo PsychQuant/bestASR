@@ -162,6 +162,18 @@ set — English, **Traditional Chinese** (Common Voice zh-TW, CC-0), and
 Japanese (FLEURS), ~20-30 utterances per language in 3-5 medium corpora, every
 byte digest-pinned. "Chinese" in this project means Traditional Chinese —
 Taiwanese Mandarin; Simplified is not part of the corpus set)
+**Corpus representativeness** — know what the standard set does and does not
+measure: the zh standard corpora are Common Voice zh-TW *read single
+sentences* — a broad-coverage canary that catches regressions, not a stand-in
+for long-form, domain-heavy audio (lectures, interviews, technical
+vocabulary). Rankings can differ on long-form input (chunking, proper nouns,
+speaker turns are axes short clips never exercise; the English set has an
+81-minute real conversation for exactly this reason). If your use case is
+narrow-domain, add your own recordings as a domain track: pick a 5–10 minute
+segment, hand-correct a reference SRT, and `bestasr corpus add` it — corpora
+are machine-local (only digests and measurements enter the store), so private
+recordings never leave your machine.
+
 — results land in the BCNF store at `~/.bestasr/store/` (four JSONL tables;
 measurements are append-only, routing reads the latest per model × corpus ×
 machine). The ground truth is a standard `.srt` subtitle file. Accuracy is scored as
