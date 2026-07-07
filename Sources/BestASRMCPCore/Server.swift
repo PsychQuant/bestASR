@@ -10,6 +10,9 @@ import MCP
 public actor BestASRMCPServer {
     let core: CommandCore
     let server: Server
+    /// Serializes `transcribe` so concurrent MCP requests can't overlap the
+    /// single-model engine (verify findings F1/F2). Read-only tools bypass it.
+    let transcribeGate = SingleFlight()
 
     public init(core: CommandCore = .live()) {
         self.core = core
@@ -185,6 +188,10 @@ public actor BestASRMCPServer {
             let message: String
             if let t = error as? TranscriptionError {
                 message = "[\(t.backend)] \(t.message)"
+            } else if let described = (error as? LocalizedError)?.errorDescription {
+                // BestASRError et al. carry a human message via errorDescription;
+                // rendering the raw enum case (`usage("…")`) leaks the wrapper (F6).
+                message = described
             } else {
                 message = String(describing: error)
             }
@@ -195,6 +202,8 @@ public actor BestASRMCPServer {
     func dispatch(name: String, arguments args: [String: Value]) async throws -> String {
         switch name {
         case "transcribe":
+            // Parse synchronously OUTSIDE the gate: a malformed call fails fast
+            // and in parallel — only real transcriptions queue (F1/F2).
             let audioPath = try requiredString("audio_path", in: args)
             let selection = SelectionRequest(
                 profileName: args["profile"]?.stringValue ?? "auto",
@@ -204,19 +213,47 @@ public actor BestASRMCPServer {
                 contextDir: args["context_dir"]?.stringValue
             )
             let format = args["format"]?.stringValue ?? "txt"
+            let outputWasProvided = args["output_path"]?.stringValue != nil
             let output = args["output_path"]?.stringValue
                 ?? FileManager.default.temporaryDirectory
                     .appendingPathComponent("bestasr-mcp-\(UUID().uuidString).\(format)").path
-            let outcome = try await core.transcribe(
-                audioPath: audioPath,
-                selection: selection,
-                formatName: format,
-                outputPath: output,
-                diarize: args["diarize"]?.boolValue ?? false
-            )
-            let content = (try? String(contentsOfFile: outcome.outputPath, encoding: .utf8)) ?? ""
-            return content + "\n---\n" + outcome.explanation
-                + "\ntranscript file: \(outcome.outputPath)"
+            let diarize = args["diarize"]?.boolValue ?? false
+            let core = self.core
+            // Single-flight: the engine keeps ONE model resident and runs one
+            // transcription per pipeline; overlapping transcribes would evict
+            // each other's in-flight model or reenter a shared pipeline (F1/F2).
+            return try await transcribeGate.run {
+                let outcome = try await core.transcribe(
+                    audioPath: audioPath,
+                    selection: selection,
+                    formatName: format,
+                    outputPath: output,
+                    diarize: diarize
+                )
+                // Clean up only the temp file WE created (output_path omitted);
+                // a caller-supplied path is theirs to keep (F3). Runs after
+                // read-back, and on the error path too — so no leak either way.
+                defer {
+                    if !outputWasProvided {
+                        try? FileManager.default.removeItem(atPath: outcome.outputPath)
+                    }
+                }
+                // A produced-but-unreadable transcript is a loud runtime failure,
+                // not an empty success (F4 / spec: errors are never swallowed).
+                guard
+                    let content = try? String(contentsOfFile: outcome.outputPath, encoding: .utf8)
+                else {
+                    throw BestASRError.runtime(
+                        "transcript written to \(outcome.outputPath) but could not be read back")
+                }
+                var reply = content + "\n---\n" + outcome.explanation
+                // Only report a file path when the caller asked for one; the temp
+                // is deleted above, so pointing at it would dangle.
+                if outputWasProvided {
+                    reply += "\ntranscript file: \(outcome.outputPath)"
+                }
+                return reply
+            }
 
         case "recommend":
             let audioPath = try requiredString("audio_path", in: args)

@@ -59,4 +59,46 @@ struct MCPServerTests {
         let second = await server.execute(name: "list_models", arguments: [:])
         #expect(second.isError == false)
     }
+
+    /// verify findings F1/F2: transcribe MUST be single-flight so concurrent MCP
+    /// requests can't overlap the single-model engine. Guards the SingleFlight
+    /// gate directly — actor reentrancy defeated the naive "actor serializes it"
+    /// assumption, so the gate is the real invariant to lock in.
+    @Test func `SingleFlight runs operations strictly one at a time`() async {
+        let gate = SingleFlight()
+        let tracker = ConcurrencyTracker()
+        await withTaskGroup(of: Void.self) { group in
+            for _ in 0..<16 {
+                group.addTask {
+                    try? await gate.run {
+                        await tracker.enter()
+                        // Yield repeatedly: if serialization were broken, a
+                        // second operation would interleave here and bump the
+                        // observed concurrency above 1.
+                        for _ in 0..<8 { await Task.yield() }
+                        await tracker.leave()
+                    }
+                }
+            }
+        }
+        #expect(await tracker.maxConcurrent == 1)
+        #expect(await tracker.completed == 16)
+    }
+}
+
+/// Records the peak number of operations running at once.
+actor ConcurrencyTracker {
+    private var current = 0
+    private(set) var maxConcurrent = 0
+    private(set) var completed = 0
+
+    func enter() {
+        current += 1
+        maxConcurrent = max(maxConcurrent, current)
+    }
+
+    func leave() {
+        current -= 1
+        completed += 1
+    }
 }
