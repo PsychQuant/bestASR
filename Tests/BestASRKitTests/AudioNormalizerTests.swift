@@ -239,14 +239,34 @@ struct AudioNormalizerTests {
         #expect(FileManager.default.fileExists(atPath: foreign.path))  // never touch non-ours
     }
 
-    @Test func `cleanup on an already-removed file does not crash`() throws {
+    @Test func `cleanup on an already-removed file is a silent no-op`() throws {
         let dir = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: dir) }
         let ghost = dir.appendingPathComponent("bestasr-normalized-GONE.wav")
         FileManager.default.createFile(atPath: ghost.path, contents: nil)
         let normalized = AudioNormalizer.NormalizedAudio(path: ghost.path, isTemporary: true)
         try FileManager.default.removeItem(at: ghost)
-        normalized.cleanup()  // must fail loud on stderr, never trap
+        normalized.cleanup()  // already gone is not a failure — early return, no warning
+    }
+
+    @Test func `cleanup failure on an existing file warns instead of trapping`() throws {
+        // Cluster-verify MEDIUM: drive the ACTUAL catch branch — the file
+        // exists but removeItem throws (read-only parent directory).
+        let dir = try makeTempDir()
+        let parent = dir.appendingPathComponent("locked")
+        try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
+        let stuck = parent.appendingPathComponent("bestasr-normalized-STUCK.wav")
+        FileManager.default.createFile(atPath: stuck.path, contents: Data("x".utf8))
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o555], ofItemAtPath: parent.path)
+        defer {
+            try? FileManager.default.setAttributes(
+                [.posixPermissions: 0o755], ofItemAtPath: parent.path)
+            try? FileManager.default.removeItem(at: dir)
+        }
+        let normalized = AudioNormalizer.NormalizedAudio(path: stuck.path, isTemporary: true)
+        normalized.cleanup()  // must warn on stderr, never trap
+        #expect(FileManager.default.fileExists(atPath: stuck.path))  // delete really failed
     }
 
 
@@ -256,14 +276,20 @@ struct AudioNormalizerTests {
     // 0-frame reads vs throw"):
     //   WAV:  AVAudioFile.length tracks the ACTUAL byte count, not the header
     //         declaration — the overstated-length case cannot arise.
-    //   m4a (moov at end): open succeeds, length stays at the FULL declared
-    //         value, and the FIRST read throws (-50) — the fail-loud read-error
-    //         branch inside convert() catches it. No benign-EOF whitelist is
-    //         warranted: a throwing read on a compressed container means a
-    //         damaged file, never a normal EOF.
-    //   m4a (faststart): open itself throws → normalize() passes through by
-    //         design (AudioProber upstream owns the fail-loud for unreadable
-    //         inputs on every CLI path).
+    //   m4a with moov intact (AVAudioFile writes moov FIRST, mdat last —
+    //         verified by atom offsets): truncation removes mdat, open still
+    //         succeeds, length stays at the FULL declared value, and the FIRST
+    //         read throws (-50) — the fail-loud read-error branch inside
+    //         convert() catches it. No benign-EOF whitelist is warranted: a
+    //         throwing read on a compressed container means a damaged file,
+    //         never a normal EOF.
+    //   m4a with moov damaged/missing: open itself throws → normalize()
+    //         passes through by design (AudioProber upstream owns the
+    //         fail-loud for unreadable inputs on every CLI path).
+    // NOTE: the truncated-m4a test depends on the platform writer placing
+    // mdat last (implementation detail, not API contract). If a future OS
+    // interleaves mdat, open() would fail → passthrough → the #expect(throws:)
+    // fails, flagging that this characterization needs re-probing.
 
     @Test func `A truncated WAV reports its actual frame count, not the header declaration`() throws {
         let dir = try makeTempDir()
