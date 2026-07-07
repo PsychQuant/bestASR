@@ -216,4 +216,37 @@ struct AudioNormalizerTests {
         }
     }
 
+
+    @Test func `Stale normalized temp files are swept, fresh ones survive`() throws {
+        // #43: defer-based cleanup cannot run on SIGKILL/OOM — 160MB-class
+        // residues accumulate monotonically without a sweep.
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let stale = dir.appendingPathComponent("bestasr-normalized-STALE.wav")
+        let fresh = dir.appendingPathComponent("bestasr-normalized-FRESH.wav")
+        let foreign = dir.appendingPathComponent("unrelated.wav")
+        for f in [stale, fresh, foreign] {
+            FileManager.default.createFile(atPath: f.path, contents: Data("x".utf8))
+        }
+        try FileManager.default.setAttributes(
+            [.modificationDate: Date(timeIntervalSinceNow: -25 * 3600)],
+            ofItemAtPath: stale.path)
+
+        AudioNormalizer.sweepStaleTemporaries(in: dir, olderThan: 24 * 3600)
+
+        #expect(!FileManager.default.fileExists(atPath: stale.path))
+        #expect(FileManager.default.fileExists(atPath: fresh.path))
+        #expect(FileManager.default.fileExists(atPath: foreign.path))  // never touch non-ours
+    }
+
+    @Test func `cleanup on an already-removed file does not crash`() throws {
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let ghost = dir.appendingPathComponent("bestasr-normalized-GONE.wav")
+        FileManager.default.createFile(atPath: ghost.path, contents: nil)
+        let normalized = AudioNormalizer.NormalizedAudio(path: ghost.path, isTemporary: true)
+        try FileManager.default.removeItem(at: ghost)
+        normalized.cleanup()  // must fail loud on stderr, never trap
+    }
+
 }
