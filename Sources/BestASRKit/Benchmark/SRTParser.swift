@@ -6,12 +6,16 @@ public struct SRTCue: Sendable, Equatable {
     public let start: Double
     public let end: Double
     public let text: String
+    /// The cue's original non-empty lines — rolling-caption detection (#33)
+    /// needs line boundaries that the space-joined `text` erases.
+    public let lines: [String]
 
-    public init(index: Int, start: Double, end: Double, text: String) {
+    public init(index: Int, start: Double, end: Double, text: String, lines: [String]? = nil) {
         self.index = index
         self.start = start
         self.end = end
         self.text = text
+        self.lines = lines ?? [text]
     }
 }
 
@@ -35,29 +39,35 @@ public enum SRTParser {
 
     public static func parse(_ content: String, sourceName: String = "<inline>") throws -> [SRTCue] {
         var cues: [SRTCue] = []
-        // Blocks are separated by blank lines; tolerate CRLF and BOM.
+        // Cues are anchored on TIMECODE LINES, not blank-line blocks (#33):
+        // YouTube ASR sometimes puts a blank line between the timecode and
+        // the text, and blank-line splitting silently DROPPED the orphaned
+        // text block from the reference. Tolerate CRLF and BOM.
         let cleaned = content.replacingOccurrences(of: "\u{FEFF}", with: "")
             .replacingOccurrences(of: "\r\n", with: "\n")
-        let blocks = cleaned.components(separatedBy: "\n\n")
+        let lines = cleaned.components(separatedBy: "\n")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+        var marks: [Int] = []
+        for (i, line) in lines.enumerated() where line.firstMatch(of: timecodeLine) != nil {
+            marks.append(i)
+        }
 
-        for block in blocks {
-            let lines = block.split(separator: "\n", omittingEmptySubsequences: true)
-                .map { $0.trimmingCharacters(in: .whitespaces) }
-            guard !lines.isEmpty else { continue }
-
-            // Locate the timecode line (usually line 2, after the index).
-            guard let timecodeAt = lines.firstIndex(where: { $0.firstMatch(of: timecodeLine) != nil }),
-                  let match = lines[timecodeAt].firstMatch(of: timecodeLine)
-            else { continue }
-
-            let index = timecodeAt > 0 ? Int(lines[timecodeAt - 1]) ?? cues.count + 1 : cues.count + 1
-            let text = lines[(timecodeAt + 1)...].joined(separator: " ")
+        for (k, markLine) in marks.enumerated() {
+            guard let match = lines[markLine].firstMatch(of: timecodeLine) else { continue }
+            // Text runs to the next cue, minus that cue's numeric index line.
+            var textEnd = k + 1 < marks.count ? marks[k + 1] : lines.count
+            if k + 1 < marks.count, textEnd - 1 > markLine, Int(lines[textEnd - 1]) != nil {
+                textEnd -= 1
+            }
+            let textLines = lines[(markLine + 1)..<textEnd].filter { !$0.isEmpty }
+            let index = markLine > 0 ? Int(lines[markLine - 1]) ?? cues.count + 1 : cues.count + 1
             cues.append(
                 SRTCue(
                     index: index,
                     start: seconds(match.1, match.2, match.3, match.4),
                     end: seconds(match.5, match.6, match.7, match.8),
-                    text: text
+                    text: textLines.joined(separator: " "),
+                    lines: Array(textLines)
                 )
             )
         }
@@ -69,6 +79,47 @@ public enum SRTParser {
             )
         }
         return cues
+    }
+
+
+    /// Collapses YouTube-ASR "rolling window" captions (#33): every cue
+    /// repeats the previous cue's last line before appending new content,
+    /// interleaved with ~10ms ghost cues that add nothing — raw cue count
+    /// runs ~2x the real content, which would double the reference text and
+    /// wreck WER. Detection is conservative: only when ≥30% of adjacent cue
+    /// pairs show the rolling overlap (next cue's first line == this cue's
+    /// last line) is the collapse applied; normal subtitles pass through
+    /// IDENTICALLY. Collapse keeps, per cue, only the lines not already seen
+    /// in the previous cue; cues left with nothing (ghosts) are dropped, and
+    /// each survivor's end time extends to the next survivor's start.
+    public static func collapseRollingCaptions(_ cues: [SRTCue]) -> [SRTCue] {
+        guard cues.count >= 3 else { return cues }
+        let pairs = zip(cues, cues.dropFirst())
+        let overlapping = pairs.filter { prev, next in
+            guard let tail = prev.lines.last, let head = next.lines.first else { return false }
+            return !tail.isEmpty && tail == head
+        }.count
+        guard overlapping * 100 >= (cues.count - 1) * 30 else { return cues }
+
+        var survivors: [(cue: SRTCue, fresh: [String])] = []
+        var previousLines: Set<String> = []
+        for cue in cues {
+            let fresh = cue.lines.filter { !previousLines.contains($0) }
+            previousLines = Set(cue.lines)
+            if !fresh.isEmpty {
+                survivors.append((cue, fresh))
+            }
+        }
+        return survivors.enumerated().map { i, entry in
+            let end = i + 1 < survivors.count ? survivors[i + 1].cue.start : entry.cue.end
+            return SRTCue(
+                index: i + 1,
+                start: entry.cue.start,
+                end: max(end, entry.cue.start),
+                text: entry.fresh.joined(separator: " "),
+                lines: entry.fresh
+            )
+        }
     }
 
     /// Ground-truth reference text: ordered cue texts joined by a space (word

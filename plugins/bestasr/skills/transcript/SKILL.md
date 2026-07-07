@@ -149,6 +149,22 @@ bestasr transcribe --format srt --output "./$(來源檔名).srt" --explain -- "$
 
 正規化不改動時間碼內容（時間軸忠實保留，同 srt-proofread 鐵律）。
 
+**YouTube 自動字幕（ASR SRT）的坑**（實戰歸納，詳見 bestASR repo issue 的
+robustness checklist）：
+
+- **滾動視窗去重**：YouTube ASR 的每個 cue 會重複前一 cue 的尾行再 append
+  新句，並夾雜 ~10ms 殘影 cue——raw cue 數約是真實內容 2 倍。餵給 bestASR
+  比對／校對前先去重（bestASR 的 SRT ingestion 已內建自動偵測 collapse；
+  自行處理時對每 cue 只留「不在前一 cue 內」的行）。
+- **不可用空行分段 parse**：cue 的時間碼行與文字行之間可能夾空行——用
+  「時間碼行」regex 定位 cue，不要 `split(/\n\s*\n/)`。
+- **timecode parity 驗證**：任何 SRT→SRT 的轉換／校對後，驗 output cue 數
+  == input cue 數、時間碼行逐行相同；不符即 fail，不靜默輸出。
+- **術語 glossary**：ASR 常聽錯領域術語（器材型號、人名、縮寫）；批次處理
+  同領域多部影片時帶同一份 glossary 統一 normalize。
+- **檔名特殊字元**：yt-dlp 會把標題的 `/` 換成 `⧸`（U+29F8）等全形替代——
+  當一般 Unicode 處理、argv 傳參（安全鐵律第 4/5 條已涵蓋）。
+
 ### 4. 交付與回報
 
 - 輸出 SRT 路徑（在 cwd 或使用者指定，**不在暫存目錄**）

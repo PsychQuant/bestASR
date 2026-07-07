@@ -246,4 +246,76 @@ struct ErrorRateTests {
         #expect(abs(byCer - 0.2) < 1e-9)
         #expect(abs(byWer - 0.25) < 1e-9)
     }
+
+// MARK: - #33 YouTube-ASR SRT robustness
+
+struct SRTRobustnessTests {
+    @Test func `A blank line inside a cue does not lose its text`() throws {
+        // caveat 2: YouTube sometimes puts a blank line between the timecode
+        // and the text. Blank-line block splitting orphans the text block and
+        // silently DROPS it from the reference.
+        let srt = """
+        1
+        00:00:00,299 --> 00:00:02,330
+
+        okay now it's time to start talking
+
+        2
+        00:00:02,500 --> 00:00:04,000
+        and this is the second cue
+        """
+        let cues = try SRTParser.parse(srt)
+        #expect(cues.count == 2)
+        #expect(cues[0].text == "okay now it's time to start talking")
+        #expect(cues[1].text == "and this is the second cue")
+    }
+
+    @Test func `Rolling-caption SRT collapses to unique content`() throws {
+        // caveat 1: YouTube ASR repeats the previous line in every cue and
+        // interleaves ~10ms ghost cues — raw cue count is ~2x real content.
+        let srt = """
+        1
+        00:00:00,000 --> 00:00:02,000
+        hello world
+
+        2
+        00:00:02,000 --> 00:00:02,010
+        hello world
+
+        3
+        00:00:02,010 --> 00:00:04,000
+        hello world
+        this is new text
+
+        4
+        00:00:04,000 --> 00:00:04,010
+        this is new text
+
+        5
+        00:00:04,010 --> 00:00:06,000
+        this is new text
+        and a third line
+        """
+        let cues = try SRTParser.parse(srt)
+        let collapsed = SRTParser.collapseRollingCaptions(cues)
+        let text = SRTParser.referenceText(from: collapsed)
+        #expect(text == "hello world this is new text and a third line")
+    }
+
+    @Test func `A normal SRT is untouched by rolling collapse`() throws {
+        let srt = """
+        1
+        00:00:00,000 --> 00:00:02,000
+        first cue
+
+        2
+        00:00:02,000 --> 00:00:04,000
+        second cue
+        """
+        let cues = try SRTParser.parse(srt)
+        let collapsed = SRTParser.collapseRollingCaptions(cues)
+        #expect(collapsed == cues)  // no rolling pattern -> identity
+    }
+}
+
 }
