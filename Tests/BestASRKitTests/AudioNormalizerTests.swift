@@ -249,4 +249,60 @@ struct AudioNormalizerTests {
         normalized.cleanup()  // must fail loud on stderr, never trap
     }
 
+
+    // MARK: - #40 truncated-container characterization (probe-arbitrated 2026-07-07)
+    //
+    // Live probes settled the #36 reviewer disagreement ("overstated length:
+    // 0-frame reads vs throw"):
+    //   WAV:  AVAudioFile.length tracks the ACTUAL byte count, not the header
+    //         declaration — the overstated-length case cannot arise.
+    //   m4a (moov at end): open succeeds, length stays at the FULL declared
+    //         value, and the FIRST read throws (-50) — the fail-loud read-error
+    //         branch inside convert() catches it. No benign-EOF whitelist is
+    //         warranted: a throwing read on a compressed container means a
+    //         damaged file, never a normal EOF.
+    //   m4a (faststart): open itself throws → normalize() passes through by
+    //         design (AudioProber upstream owns the fail-loud for unreadable
+    //         inputs on every CLI path).
+
+    @Test func `A truncated WAV reports its actual frame count, not the header declaration`() throws {
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let wav = try makeWavFile(in: dir, seconds: 10)
+        let data = try Data(contentsOf: URL(fileURLWithPath: wav))
+        let trunc = dir.appendingPathComponent("trunc.wav")
+        try data.prefix(data.count / 2).write(to: trunc)
+
+        let file = try AVAudioFile(forReading: trunc)
+        #expect(file.length < 160000 / 2 + 4096)  // tracks real bytes, not header
+    }
+
+    @Test func `A truncated m4a fails loud through the convert read-error branch`() throws {
+        // Also closes the #42 verify MEDIUM gap: this is a REAL file driving
+        // the fail-loud chain inside convert() — no injected converter.
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let m4a = dir.appendingPathComponent("full.m4a")
+        do {
+            let format = AVAudioFormat(standardFormatWithSampleRate: 16000, channels: 1)!
+            let file = try AVAudioFile(
+                forWriting: m4a,
+                settings: [
+                    AVFormatIDKey: kAudioFormatMPEG4AAC,
+                    AVSampleRateKey: 16000,
+                    AVNumberOfChannelsKey: 1,
+                ])
+            let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 160000)!
+            buffer.frameLength = 160000
+            try file.write(from: buffer)
+        }
+        let data = try Data(contentsOf: m4a)
+        let trunc = dir.appendingPathComponent("trunc.m4a")
+        try data.prefix(Int(Double(data.count) * 0.6)).write(to: trunc)
+
+        #expect(throws: (any Error).self) {
+            _ = try AudioNormalizer.normalize(audioPath: trunc.path)
+        }
+    }
+
 }
