@@ -61,6 +61,68 @@ PY
 )
 echo "regression gate: reference model = whisperkit/$MODEL, baseline = $BASELINE"
 
+# Model-artifact pin verification (#48): the corpora are digest-pinned
+# end-to-end; this closes the one remaining link. When baseline-meta carries
+# model_files_sha256 the local bundle MUST match — a mismatch is mechanical
+# proof of the "third cause" (model drift) and fails the gate BEFORE any
+# benchmark spends minutes producing a misleading accuracy diff. Unpinned
+# metas warn (TOFU): run scripts/pin-reference-model.sh to pin.
+META="${BESTASR_BASELINE_META:-$(dirname "$BASELINE")/baseline-meta.json}"
+CACHE_ROOT="${BESTASR_MODEL_CACHE_DIR:-$HOME/Documents/huggingface/models/argmaxinc/whisperkit-coreml}"
+MODEL_DIR="$CACHE_ROOT/openai_whisper-$(echo "$MODEL" | sed 's/-\([^-]*\)$/_\1/')"
+if [ -f "$META" ]; then
+  HAS_PIN=$(/usr/bin/python3 -c "import json,sys; print(1 if json.load(open(sys.argv[1])).get('model_files_sha256') else 0)" "$META")
+  if [ "$HAS_PIN" = "1" ]; then
+    if [ ! -d "$MODEL_DIR" ]; then
+      echo "x gate error: model bundle missing at $MODEL_DIR but baseline-meta pins it" >&2
+      echo "  download the reference model, or re-pin via scripts/pin-reference-model.sh" >&2
+      exit 1
+    fi
+    (cd "$MODEL_DIR" && find . -type f ! -name '.*' | sort | while IFS= read -r f; do
+      printf '%s\t%s\n' "${f#./}" "$(shasum -a 256 "$f" | cut -d' ' -f1)"
+    done) > "$TMP/model-digests.tsv"
+    # File, not pipe: `python3 -` reads its script from stdin (heredoc), so a
+    # piped data stream would be silently discarded.
+    /usr/bin/python3 - "$META" "$TMP/model-digests.tsv" <<'PY'
+import json, sys
+
+pinned = json.load(open(sys.argv[1]))["model_files_sha256"]
+actual = {}
+for line in open(sys.argv[2]):
+    line = line.rstrip("\n")
+    if line:
+        path, digest = line.split("\t")
+        actual[path] = digest
+problems = []
+for path, digest in sorted(pinned.items()):
+    if path not in actual:
+        problems.append(f"missing from bundle: {path}")
+    elif actual[path] != digest:
+        problems.append(
+            f"drift: {path} (pinned {digest[:12]}..., actual {actual[path][:12]}...)")
+extras = sorted(set(actual) - set(pinned))
+if problems:
+    print("x gate error: reference-model artifacts do not match the pinned digests:",
+          file=sys.stderr)
+    for p in problems:
+        print(f"    {p}", file=sys.stderr)
+    print("  This is MECHANICAL proof of model drift (the 'third cause').",
+          file=sys.stderr)
+    print("  If the upgrade is intentional: re-seed goldens, then re-pin via",
+          file=sys.stderr)
+    print("  scripts/pin-reference-model.sh.", file=sys.stderr)
+    sys.exit(1)
+if extras:
+    print(f"! note: {len(extras)} file(s) in the bundle are not pinned "
+          "(new upstream files?) — consider re-pinning", file=sys.stderr)
+print(f"model pin verified: {len(pinned)} files match baseline-meta")
+PY
+  else
+    echo "! warning: baseline-meta has no model_files_sha256 — model drift is only" >&2
+    echo "  inferable via revision anchors. Pin it: scripts/pin-reference-model.sh" >&2
+  fi
+fi
+
 # The standard set on disk must be fully covered by the baseline — a fetched
 # standard corpus with no golden would otherwise never be gated (#34 verify).
 # User-registered corpora (arbitrary names) are out of scope by pattern.
