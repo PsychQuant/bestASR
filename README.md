@@ -67,10 +67,23 @@ git clone https://github.com/PsychQuant/bestASR.git && cd bestASR && bash script
 ```
 
 After that, asking Claude "transcribe this YouTube link for me" routes
-through the transcript skill → yt-dlp → `bestasr` automatically. One
-project, three consumption surfaces: **CLI** (terminal / scripts), **agent
-skills** (this plugin), and the benchmark store both share — an MCP server
-surface is tracked as future work.
+through the transcript skill → yt-dlp → `bestasr` automatically.
+
+**MCP server** (any MCP client — Claude Desktop, Claude Code, other agent
+runtimes): `bestasr-mcp` speaks MCP over stdio and links the engine
+directly, so the model stays warm across calls (first transcribe loads the
+model; the second returns in ~0.1 s). Five tools: transcribe / recommend /
+list_backends / list_models / corpus_add.
+
+```bash
+swift build -c release --product bestasr-mcp   # or: bash scripts/install.sh
+claude mcp add bestasr -- ~/path/to/bestasr-mcp
+# Claude Desktop: add the binary path under mcpServers in the app config
+```
+
+One project, three consumption surfaces sharing one benchmark store:
+**CLI** (terminal / scripts), **agent skills** (this plugin), and the
+**MCP server**.
 
 ## Quick start
 

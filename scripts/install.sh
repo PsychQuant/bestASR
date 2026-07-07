@@ -47,6 +47,7 @@ mkdir -p "$PREFIX"
   exit 1
 }
 cp .build/release/bestasr "$PREFIX/bestasr"
+cp .build/release/bestasr-mcp "$PREFIX/bestasr-mcp"
 
 echo "== verifying =="
 "$PREFIX/bestasr" list-backends
