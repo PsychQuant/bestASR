@@ -40,52 +40,17 @@ recommendations**, **stable fallback**, and **clear explanations**.
 ```bash
 git clone https://github.com/PsychQuant/bestASR.git
 cd bestASR
-swift build -c release
-cp .build/release/bestasr /usr/local/bin/  # or anywhere on PATH
+bash scripts/install.sh        # builds + installs to ~/bin, verifies backends
 ```
 
-Backends:
+The script picks a known-good toolchain automatically (see Requirements),
+installs to `~/bin` (override with `PREFIX=/usr/local/bin`), and prints the
+backend availability table as a smoke test. Manual equivalent:
+`swift build -c release && cp .build/release/bestasr <somewhere-on-PATH>`.
 
-- **WhisperKit** is built in — models download on demand at first use.
-- **whisper.cpp** is optional: `brew install whisper-cpp`, then place GGML
-  model files under `~/.bestasr/models/whisper-cpp/` (the error message tells
-  you the exact file name and download URL when one is missing). Quantization
-  variants differ per model on HuggingFace — `bestasr list-models` shows the
-  hosted set (e.g. tiny/base/small ship `q5_1`, not `q5_0`).
-- **fluid-parakeet** is built in (#35) — the first non-Whisper family in the
-  competition pool, backed by FluidAudio's Parakeet TDT CoreML models
-  (`0.6b-v3`, multilingual with a European-language focus; weights download
-  on demand). It enters `bestasr benchmark`'s measurement matrix and wins
-  routing only on measured merit — for languages it covers poorly (e.g. zh)
-  the whisper candidates keep winning naturally. Supply-chain note: the
-  SwiftPM `exact` pin anchors FluidAudio's downloader code; the remote model
-  artifacts themselves are trusted via FluidAudio's resolver (HF `main`), not
-  revision-pinned by bestASR. An unfiltered `bestasr benchmark` will download
-  the Parakeet weights (~hundreds of MB) on first run — scope with
-  `--backends` to skip it.
-- **External engines (#51)**: any executable speaking the versioned JSON
-  protocol can join the pool — register it in `~/.bestasr/engines.json` and
-  its catalog rows become runnable candidates. The bundled mlx-audio adapter
-  (`adapters/mlx-audio/setup.sh` — own venv under `~/.bestasr/adapters/`,
-  zero Python in bestASR itself) unlocks the 15-family reference catalog
-  below. Containment: one process per call (argv spawn, never a shell,
-  hard timeout), adapter failures are loud and attributed, and external
-  realtime factors honestly include the full process lifetime (spawn +
-  model load) — a structural cost of the isolation model.
-  SwiftPM `exact` pin anchors FluidAudio's downloader code, and downloaded
-  weights are digest-verified against the repo's pinned manifest
-  (`Sources/BestASRKit/Supply/weights-manifest.json`) before first use —
-  pinned drift fails loudly; a not-yet-pinned model warns and proceeds
-  (TOFU window). Upgrading FluidAudio re-pins via `scripts/pin-weights.sh`
-  (the manifest diff is the audit trail). An unfiltered `bestasr benchmark`
-  will download the Parakeet weights (~hundreds of MB) on first run — scope
-  with `--backends` to skip it.
-- The model grid additionally carries a **reference catalog** of 15
-  MLX-native STT families (Parakeet, Qwen3-ASR, Moonshine, Canary, MMS,
-  Voxtral, …) with verified HuggingFace repos and pinned revisions — visible
-  in `bestasr list-models` for lookup. No engine is bundled for them (the
-  mlx-audio backend was evaluated and removed (#20); git history has the
-  full implementation if it's ever wanted back).
+**First run expectations**: `bestasr transcribe` downloads the chosen model
+on first use (large-v3-turbo ≈ 1.5 GB — one-time, then cached). Start with
+`bestasr diagnose` (no download) to see what your machine would run.
 
 ## Quick start
 
@@ -101,6 +66,49 @@ Engine), your measured benchmark store, **and the machine's current
 condition** — under thermal pressure or Low Power Mode, `auto` downshifts to
 a faster tier rather than grinding a hot machine through a huge model, and
 `--explain` tells you it did.
+
+
+## Backends
+
+- **WhisperKit** is built in — models download on demand at first use.
+- **whisper.cpp** is optional: `brew install whisper-cpp`, then place GGML
+  model files under `~/.bestasr/models/whisper-cpp/` (the error message tells
+  you the exact file name and download URL when one is missing). Quantization
+  variants differ per model on HuggingFace — `bestasr list-models` shows the
+  hosted set (e.g. tiny/base/small ship `q5_1`, not `q5_0`).
+- **fluid-parakeet** is built in (#35) — the first non-Whisper family in the
+  competition pool, backed by FluidAudio's Parakeet TDT CoreML models
+  (`0.6b-v3`, multilingual with a European-language focus; weights download
+  on demand). It enters `bestasr benchmark`'s measurement matrix and wins
+  routing only on measured merit — for languages it covers poorly (e.g. zh)
+  the whisper candidates keep winning naturally. Supply-chain note: the
+  SwiftPM `exact` pin anchors FluidAudio's downloader code, and downloaded
+  weights are digest-verified against the repo's pinned manifest before
+  first use (#52) — pinned drift fails loudly. An unfiltered
+  `bestasr benchmark` downloads the Parakeet weights (~hundreds of MB) on
+  first run — scope with `--backends` to skip it.
+- **fluid-sensevoice / fluid-paraformer** — the Chinese-family backends
+  (#50): SenseVoice-small is verified and enters the default sweep (zh CER
+  within ~7 points of whisper large-v3-turbo at ~6x its speed on the
+  standard corpora); Paraformer ships shelved at priority 2 (upstream decode
+  bug) and never enumerates by default.
+- **External engines (#51)**: any executable speaking the versioned JSON
+  protocol can join the pool — register it in `~/.bestasr/engines.json` and
+  its catalog rows become runnable candidates. The bundled mlx-audio adapter
+  (`adapters/mlx-audio/setup.sh` — own venv under `~/.bestasr/adapters/`,
+  zero Python in bestASR itself) unlocks the 15-family reference catalog
+  below. Containment: one process per call (argv spawn, never a shell,
+  hard timeout), adapter failures are loud and attributed, and external
+  realtime factors honestly include the full process lifetime (spawn +
+  model load) — a structural cost of the isolation model.
+- The model grid additionally carries the **mlx-audio catalog** — 15
+  MLX-native STT families (Canary, Granite, Voxtral, Moonshine, VibeVoice,
+  Qwen2-Audio, Nemotron, …). Seven families are measured and revision-pinned
+  on real corpora (#65): canary-1b / granite-2b / voxtral-realtime-4b sit in
+  the English front tier alongside whisper large-v3-turbo, and
+  vibevoice-asr-9b is the second-best zh model measured. They run through
+  the bundled mlx-audio adapter (see External engines above); families that
+  failed the probe are honestly marked unusable in `bestasr list-models`.
 
 ### Effort profiles
 
@@ -154,14 +162,17 @@ bestasr recommend clip2.wav --language zh
 bestasr transcribe clip2.wav --language zh --explain
 ```
 
-Register your ground truth once (`bestasr corpus add talk.wav talk.srt
---language zh`; speaker-labeled SRT references work as-is — recurring
-`Name: ` prefixes are stripped from the derived reference text so labels
-never count against the hypothesis; `scripts/fetch-corpora.sh` fetches the three-language standard
-set — English, **Traditional Chinese** (Common Voice zh-TW, CC-0), and
-Japanese (FLEURS), ~20-30 utterances per language in 3-5 medium corpora, every
-byte digest-pinned. "Chinese" in this project means Traditional Chinese —
-Taiwanese Mandarin; Simplified is not part of the corpus set)
+Register your ground truth once: `bestasr corpus add talk.wav talk.srt
+--language zh`. Speaker-labeled SRT references work as-is (recurring
+`Name: ` prefixes are stripped from the derived reference so labels never
+count against the hypothesis), and YouTube auto-caption SRT is handled
+(rolling-window duplicates are detected and collapsed). Or fetch the
+standard set: `scripts/fetch-corpora.sh` brings English, **Traditional
+Chinese** (Common Voice zh-TW, CC-0), and Japanese (FLEURS) — ~20-30
+utterances per language, every byte digest-pinned. "Chinese" in this
+project means Traditional Chinese — Taiwanese Mandarin; Simplified is not
+part of the corpus set.
+
 **Corpus representativeness** — know what the standard set does and does not
 measure: the zh standard corpora are Common Voice zh-TW *read single
 sentences* — a broad-coverage canary that catches regressions, not a stand-in
@@ -174,15 +185,14 @@ segment, hand-correct a reference SRT, and `bestasr corpus add` it — corpora
 are machine-local (only digests and measurements enter the store), so private
 recordings never leave your machine.
 
-— results land in the BCNF store at `~/.bestasr/store/` (four JSONL tables;
-measurements are append-only, routing reads the latest per model × corpus ×
-machine). The ground truth is a standard `.srt` subtitle file. Accuracy is scored as
-**CER** for languages without word spacing (zh / ja / ko) and **WER**
-otherwise; speed as measured times-realtime (model download/load excluded —
-WhisperKit pipelines load once per model and are reused, so its timed pass
-measures pure decode speed; whisper.cpp runs as a subprocess and its timed
-pass includes a small GGML load); results persist in
-`~/.bestasr/benchmarks.json` per machine.
+Results land in the machine-local BCNF store at `~/.bestasr/store/` (four
+JSONL tables; measurements are append-only, routing reads the mean per
+model × corpus × machine). Accuracy is scored as **CER** for languages
+without word spacing (zh / ja / ko) and **WER** otherwise; speed as measured
+times-realtime (model download/load excluded — WhisperKit pipelines load
+once per model and are reused; whisper.cpp runs as a subprocess and its
+timed pass includes a small GGML load; external adapters include their full
+process lifetime).
 
 ### The regression gate (accuracy never regresses)
 
@@ -350,7 +360,8 @@ behavior changes.
 | `bestasr corpus list` | Registered corpora |
 
 Shared selection flags: `--profile auto|low|medium|high|xhigh|max`,
-`--backend auto|whisperkit|whisper.cpp`, `--model`, `--language`.
+`--backend auto|whisperkit|whisper.cpp|fluid-parakeet|fluid-sensevoice|mlx-audio`,
+`--model`, `--language`.
 
 ## How it works
 
@@ -360,7 +371,8 @@ CLI → Detect (chip/memory/ANE, AVFoundation audio probing,
     → Route  (tier 1: rank measured benchmark records for this chip;
               tier 2: cold-start prior + memory downgrade — and it tells you
               to benchmark)
-    → Engine (WhisperKit · whisper.cpp, one normalized interface)
+    → Engine (WhisperKit · whisper.cpp · FluidAudio Parakeet/SenseVoice
+              · external adapters (mlx-audio), one normalized interface)
     → Output (txt / json / srt / vtt, optional speaker labels)
 ```
 
@@ -370,7 +382,7 @@ so honestly and point you at `bestasr benchmark`.
 ## Development
 
 ```bash
-swift test          # 200+ tests, no real models needed (engines are mocked)
+swift test          # 300+ tests, no real models needed (engines are mocked)
 swift build         # debug build
 ```
 
