@@ -19,6 +19,13 @@ jobs:
     runs-on: macos-15  # arm64; Xcode built-in toolchain (swiftly 6.2.4 crashes release builds — see README Requirements)
     steps:
       - uses: actions/checkout@v4
+      - name: Select newest Xcode on the image
+        # The tests use Swift 6.2 raw identifiers (backtick test names); the
+        # image's default Xcode ships an older Swift and fails to parse them.
+        run: |
+          NEWEST="$(ls -d /Applications/Xcode*.app | sort -V | tail -1)"
+          echo "selecting: $NEWEST"
+          sudo xcode-select -s "$NEWEST/Contents/Developer"
       - name: Swift version
         run: swift --version
       - name: Build
