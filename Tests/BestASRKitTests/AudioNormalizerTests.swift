@@ -169,6 +169,33 @@ struct AudioNormalizerTests {
         #expect(normalized.path.hasSuffix(".wav"))
     }
 
+    @Test func `A 16k mono PCM in a non-WAV container (caf) is still normalized`() throws {
+        // #42 verify HIGH: LinearPCM is an ENCODING property — a .caf holds
+        // LinearPCM too, but whisper-cli parses only RIFF/WAV. Container
+        // must be WAV for passthrough.
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let caf = dir.appendingPathComponent("clip.caf")
+        do {
+            let format = AVAudioFormat(standardFormatWithSampleRate: 16000, channels: 1)!
+            let file = try AVAudioFile(
+                forWriting: caf,
+                settings: [
+                    AVFormatIDKey: kAudioFormatLinearPCM,
+                    AVSampleRateKey: 16000,
+                    AVNumberOfChannelsKey: 1,
+                ])
+            let frames = AVAudioFrameCount(16000)
+            let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frames)!
+            buffer.frameLength = frames
+            try file.write(from: buffer)
+        }
+        let normalized = try AudioNormalizer.normalize(audioPath: caf.path)
+        defer { normalized.cleanup() }
+        #expect(normalized.isTemporary)
+        #expect(normalized.path.hasSuffix(".wav"))
+    }
+
     @Test func `A 16k mono WAV still passes through untouched`() throws {
         let dir = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: dir) }

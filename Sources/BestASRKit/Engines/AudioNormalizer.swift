@@ -56,12 +56,14 @@ public enum AudioNormalizer {
         }
         let format = source.fileFormat
         // Passthrough needs the CONTAINER right too (#42): whisper.cpp only
-        // eats WAV, so a 16k mono compressed file (mp3/m4a) must still be
-        // rewritten as LinearPCM even though rate/channels already match.
+        // eats RIFF/WAV, so both the container (RIFF magic — LinearPCM in a
+        // .caf/.aiff would slip an encoding-only check, verify HIGH) and the
+        // encoding must match before rate/channels are even consulted.
         let isLinearPCM =
             format.formatDescription.audioStreamBasicDescription?.mFormatID
                 == kAudioFormatLinearPCM
-        if isLinearPCM, format.sampleRate == targetSampleRate,
+        if isLinearPCM, Self.hasWAVContainer(url: url),
+            format.sampleRate == targetSampleRate,
             format.channelCount == targetChannelCount {
             return NormalizedAudio(path: audioPath, isTemporary: false)
         }
@@ -72,7 +74,12 @@ public enum AudioNormalizer {
             try (converter ?? Self.convert)(source, destination)
         } catch {
             try? FileManager.default.removeItem(at: destination)
-            throw error
+            // Preserve the fail-loud diagnostic at the engine boundary
+            // (verify LOW): a plain Error from an injected converter would
+            // otherwise surface as a generic Cocoa string.
+            if error is LocalizedError { throw error }
+            throw BestASRError.runtime(
+                "audio normalization failed for \(audioPath): \(error)")
         }
         return NormalizedAudio(path: destination.path, isTemporary: true)
     }
@@ -227,4 +234,15 @@ public enum AudioNormalizer {
             }
         }
     }
+    /// True when the file is a RIFF/WAVE container — the only container
+    /// whisper-cli parses. Reads the 12-byte header; anything unreadable
+    /// fails toward conversion (which always yields a valid WAV).
+    static func hasWAVContainer(url: URL) -> Bool {
+        guard let handle = try? FileHandle(forReadingFrom: url),
+            let header = try? handle.read(upToCount: 12), header.count == 12
+        else { return false }
+        return header.prefix(4) == Data("RIFF".utf8)
+            && header.subdata(in: 8..<12) == Data("WAVE".utf8)
+    }
+
 }
