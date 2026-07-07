@@ -223,4 +223,38 @@ struct ParakeetEngineTests {
         _ = try await engine.transcribeRaw(audioPath: "b.wav", options: options)
         #expect(await counter.value == 1)
     }
+
+    // MARK: - #69 duration=0 fallback (FluidAudio 0.15.4 returns duration 0)
+
+    @Test func `Zero upstream duration falls back to the timings' max end`() async throws {
+        let engine = ParakeetEngine(pipelineFactory: { _ in
+            SpyPipeline(result: { _, _ in ParakeetOutput(
+                text: "hello world", confidence: 0.9, duration: 0,
+                tokenTimings: [
+                    .init(token: "hello", startTime: 0.2, endTime: 1.1),
+                    .init(token: " world", startTime: 1.3, endTime: 2.4),
+                ]) })
+        })
+        let raw = try await engine.transcribeRaw(
+            audioPath: "missing.wav",
+            options: TranscribeOptions(model: "0.6b-v3", quantization: "default"))
+        #expect(raw.duration == 2.4)  // Optional == literal works  // timings survive, not clamped to a 0-point
+        #expect(raw.segments.contains { $0.end > 0 })
+    }
+
+    @Test func `Zero duration with no timings falls back to the probed audio length`() async throws {
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let wav = try makeWavFile(in: dir, seconds: 3)
+        let engine = ParakeetEngine(pipelineFactory: { _ in
+            SpyPipeline(result: { _, _ in ParakeetOutput(
+                text: "hello", confidence: 0.9, duration: 0, tokenTimings: nil) })
+        })
+        let raw = try await engine.transcribeRaw(
+            audioPath: wav,
+            options: TranscribeOptions(model: "0.6b-v3", quantization: "default"))
+        #expect(abs((raw.duration ?? 0) - 3.0) < 0.1)  // probed, not 0
+        #expect(raw.segments.first?.end ?? 0 > 0)  // SRT cue is no longer 0 --> 0
+    }
+
 }

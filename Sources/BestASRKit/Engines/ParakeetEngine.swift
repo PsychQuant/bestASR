@@ -169,10 +169,26 @@ public struct ParakeetEngine: Engine {
             )
         }
 
+        // Duration fallback (#69): FluidAudio 0.15.4 returns duration 0,
+        // which collapses the #53 sanitizer's upper bound to a zero point —
+        // every real timing gets distrusted and the SRT cue becomes
+        // 00:00:00 --> 00:00:00. Never trust the upstream field alone: fall
+        // back to the timings' own extent, then to the probed audio length.
+        var repaired = output
+        if repaired.duration <= 0 {
+            let fallback = repaired.tokenTimings?.map(\.endTime).max()
+                ?? (try? AudioProber.probe(path: audioPath, requestedLanguage: nil)
+                    .duration).flatMap { $0 }
+            if let fallback, fallback > 0 {
+                repaired = ParakeetOutput(
+                    text: repaired.text, confidence: repaired.confidence,
+                    duration: fallback, tokenTimings: repaired.tokenTimings)
+            }
+        }
         return RawTranscription(
-            segments: Self.segments(from: output),
+            segments: Self.segments(from: repaired),
             language: options.language,
-            duration: output.duration
+            duration: repaired.duration
         )
     }
 
