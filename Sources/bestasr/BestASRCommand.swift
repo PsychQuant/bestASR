@@ -141,7 +141,9 @@ struct Benchmark: AsyncParsableCommand {
     @Option(help: "Report-ranking profile: low | medium | high | xhigh | max")
     var profile: String = RouterProfile.medium.rawValue
 
-    @Option(help: "Context documents directory — adds a with-context pass and delta columns")
+    @Option(
+        help: "Context documents directory for context biasing (top-down / prompt biasing: domain vocabulary, names, terms) — adds a with-context pass and delta columns"
+    )
     var contextDir: String?
 
     @Flag(help: "Widen the sweep to every grid tier (default: priority-1 rows only)")
@@ -226,7 +228,9 @@ struct SelectionOptions: ParsableArguments {
     @Option(help: "Audio language code, or 'auto'")
     var language: String = "auto"
 
-    @Option(help: "Context documents directory (default: three-layer resolution)")
+    @Option(
+        help: "Context documents directory for context biasing (top-down / prompt biasing: bias decoding toward your domain vocabulary, names, and terms; default: three-layer resolution)"
+    )
     var contextDir: String?
 
     func resolved() -> SelectionRequest {

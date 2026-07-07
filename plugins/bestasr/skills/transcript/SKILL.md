@@ -1,6 +1,6 @@
 ---
 name: transcript
-description: 把任意來源轉成 SRT 逐字稿——貼 YouTube（或任何 yt-dlp 支援的影音站）網址、本地音／視訊檔路徑、或現成字幕檔，skill 抓下來並用 bestASR ASR 轉錄。沒給來源就主動問。當使用者說「幫我轉錄這個」「做逐字稿」「這個影片／音檔轉字幕」「這個 YouTube 轉逐字稿」「下載並轉錄」並附上一個來源時使用。注意：這是「下載音訊 + bestASR 自己 ASR 轉」，品質由 bestASR 模型決定；若使用者要的是「抓 YouTube 上已有的官方／自動字幕」而不是重新辨識，那是 yt-subtitle-downloader 的工作，不要用本 skill。
+description: 把任意來源轉成 SRT 逐字稿——貼 YouTube（或任何 yt-dlp 支援的影音站）網址、本地音／視訊檔路徑、或現成字幕檔，skill 抓下來並用 bestASR ASR 轉錄。同時是 context pipeline 的中樞：轉錄前主動偵測領域文件（建議 context-ingest）、轉錄中自動帶 context biasing（top-down 術語偏引）、轉錄後建議 srt-proofread 沿用同一份 context。沒給來源就主動問。當使用者說「幫我轉錄這個」「做逐字稿」「這個影片／音檔轉字幕」「這個 YouTube 轉逐字稿」「下載並轉錄」並附上一個來源時使用。注意：這是「下載音訊 + bestASR 自己 ASR 轉」，品質由 bestASR 模型決定；若使用者要的是「抓 YouTube 上已有的官方／自動字幕」而不是重新辨識，那是 yt-subtitle-downloader 的工作，不要用本 skill。
 ---
 
 # transcript — 任意來源 → SRT
@@ -170,6 +170,28 @@ robustness checklist）：
 - 輸出 SRT 路徑（在 cwd 或使用者指定，**不在暫存目錄**）
 - 音訊來源：回報用了哪個 backend/model（`--explain` 輸出）
 - 多來源：逐一列出每個來源 → 輸出檔
+
+## Context pipeline（轉錄前 → 中 → 後，同一份 context.json 貫穿）
+
+context biasing（＝top-down / prompt biasing：以領域知識偏引辨識，改善人名、
+術語、器材型號的聽寫）不是選配旁支——本 skill 是它的 orchestration 中樞。
+三步共用同一份 `context.json`，中間不需手動搬檔或重指路徑：
+
+1. **轉錄前——主動偵測**：拿到音訊來源後，先看兩件事：
+   - 既有 context：`--context-dir` 指定 > `./bestasr-context/` > `~/.bestasr/context/`
+     （bestASR 的三層解析，找到就自動用）
+   - **沒有 context 但音訊同目錄或 cwd 有領域文件**（pdf / docx / pptx / md /
+     txt 講義、投影片、術語表）→ 用 AskUserQuestion 提示：「發現這些文件，
+     要先蒸餾成 context 提升人名/術語辨識嗎？」使用者同意 → 跑
+     `context-ingest` skill 產 `context.json`，再進轉錄。
+2. **轉錄中——自動帶入**：有 context 時 `bestasr transcribe` 自動注入
+   （加 `--explain` 會逐詞列出注入了什麼——驗證 biasing 真的在作用的最短
+   路徑）。
+3. **轉錄後——建議校對**：產出 SRT 且有 context 時，提示「要用同一份
+   context 跑 `srt-proofread` 校對人名/術語嗎？」（三軸對齊、時間碼不動）。
+
+不打斷原則：偵測是「提示一次」不是堵路——使用者說不用就直接轉錄；
+批次多檔時只在第一檔問一次，答案沿用整批。
 
 ## 銜接其他 bestASR skill
 

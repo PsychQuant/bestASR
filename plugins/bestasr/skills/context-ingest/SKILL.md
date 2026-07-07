@@ -1,6 +1,6 @@
 ---
 name: context-ingest
-description: 把任意格式的領域文件（pdf/docx/txt/md/圖片…）蒸餾成 bestASR 的 context.json（terms/names/phrases），寫入 context 資料夾供轉錄時的 prompt biasing 與事後校對使用。當使用者提到「整理 context」「把文件變成 context」「準備 ASR 術語」「ingest 文件」「更新 bestasr context」時使用。
+description: context pipeline 第一步（轉錄前）：把任意格式的領域文件（pdf/docx/txt/md/圖片…）蒸餾成 bestASR 的 context.json（terms/names/phrases），寫入 context 資料夾供轉錄時的 context biasing（top-down / prompt biasing：以領域知識偏引辨識）與事後校對（srt-proofread）共用。當使用者提到「整理 context」「把文件變成 context」「準備 ASR 術語」「ingest 文件」「更新 bestasr context」「top-down」「context biasing」「術語偏引」「讓專有名詞/人名辨識正確」時使用。
 ---
 
 # context-ingest — 文件 → context.json
