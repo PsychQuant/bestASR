@@ -65,4 +65,18 @@ struct JobRegistryTests {
         #expect(await reg.status("no-such-job") == nil)
         #expect(await reg.awaitResult("no-such-job", cap: .milliseconds(10)) == .unknown)
     }
+
+    /// verify HIGH-1: the registry must be actually bounded, not just lazily
+    /// evicted on access. A completed job that is never re-accessed must still be
+    /// dropped — otherwise the common path (poll to done, stop) leaks the full
+    /// transcript until process exit. Uses `count` so the assertion does not
+    /// itself access the job (which would trigger lazy eviction and mask the leak).
+    @Test func `A completed job is swept on the next start, not only lazily on access`() async {
+        let reg = JobRegistry(retention: 0.2)
+        _ = await reg.start { "leaked payload" }
+        try? await Task.sleep(for: .milliseconds(500))  // completes + window elapses
+        #expect(await reg.count == 1)  // still resident — never re-accessed, lazy evict hasn't fired
+        _ = await reg.start { "fresh" }  // a new job sweeps expired entries
+        #expect(await reg.count == 1)  // only the fresh job remains — the stale one was swept, not leaked
+    }
 }

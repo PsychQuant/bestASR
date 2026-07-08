@@ -129,6 +129,33 @@ struct MCPServerTests {
         #expect(rs.isError == true)
     }
 
+    /// verify MEDIUM-1 (task 2.3 / spec "Async transcribes remain serialized"):
+    /// async job work and a sync call sharing ONE SingleFlight gate never overlap,
+    /// so the single-model engine invariant (#80 F1/F2) holds for async too. This
+    /// models the server's exact composition — async is `jobs.start { gate.run {
+    /// work } }`, sync is `gate.run { work } ` — without needing a real engine.
+    /// (The server's use of the shared gate on both paths is inspection-verified;
+    /// this locks in that the mechanism itself serializes.)
+    @Test func `Async job work and a sync call sharing one gate never overlap`() async {
+        let gate = SingleFlight()
+        let jobs = JobRegistry()
+        let tracker = ConcurrencyTracker()
+        let recordedWork: @Sendable () async throws -> String = {
+            try await gate.run {
+                await tracker.enter()
+                for _ in 0..<6 { await Task.yield() }
+                await tracker.leave()
+                return "done"
+            }
+        }
+        _ = await jobs.start(recordedWork)  // async #1
+        _ = await jobs.start(recordedWork)  // async #2
+        _ = try? await recordedWork()  // sync path, same gate
+        try? await Task.sleep(for: .milliseconds(300))  // let the async jobs drain
+        #expect(await tracker.maxConcurrent == 1)
+        #expect(await tracker.completed == 3)
+    }
+
     /// verify findings F1/F2: transcribe MUST be single-flight so concurrent MCP
     /// requests can't overlap the single-model engine. Guards the SingleFlight
     /// gate directly — actor reentrancy defeated the naive "actor serializes it"

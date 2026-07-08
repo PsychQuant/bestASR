@@ -50,6 +50,12 @@ public actor JobRegistry {
     /// is captured as `.failed`.
     @discardableResult
     public func start(_ work: @Sendable @escaping () async throws -> String) -> String {
+        // Bound the registry: drop every already-expired completed job before
+        // adding a new one. Lazy per-key eviction alone leaks the common path —
+        // a job polled to `.done` and never re-accessed would live until process
+        // exit (verify HIGH-1). A global sweep on each start caps the dict at
+        // "jobs started within one retention window".
+        sweepExpired()
         let id = UUID().uuidString
         jobs[id] = Entry(state: .running, result: nil, completedAt: nil)
         Task { [weak self] in
@@ -81,9 +87,16 @@ public actor JobRegistry {
             try? await Task.sleep(for: pollInterval)   // releases the actor while waiting
             if let terminal = terminalOutcome(id) { return terminal }
         }
-        // Distinguish "still running" from "evicted while we waited".
-        return jobs[id] == nil ? .unknown : .stillRunning
+        // One last check so a job completing in the final sub-pollInterval window
+        // is reported as done/failed, not stillRunning (verify LOW). terminalOutcome
+        // also maps a missing/evicted job to .unknown; nil means genuinely running.
+        return terminalOutcome(id) ?? .stillRunning
     }
+
+    /// Number of tracked jobs (running + not-yet-swept). Internal — lets tests
+    /// prove the registry is bounded without accessing a job (which would trigger
+    /// lazy eviction and mask a leak).
+    var count: Int { jobs.count }
 
     // MARK: - internals
 
@@ -115,6 +128,16 @@ public actor JobRegistry {
         guard let completedAt = jobs[id]?.completedAt else { return }
         if Date().timeIntervalSince(completedAt) >= retention {
             jobs[id] = nil
+        }
+    }
+
+    /// Drop every completed/failed job past its retention window, regardless of
+    /// whether it has been re-accessed. Running jobs (no `completedAt`) are kept.
+    private func sweepExpired() {
+        let now = Date()
+        jobs = jobs.filter { _, entry in
+            guard let completedAt = entry.completedAt else { return true }
+            return now.timeIntervalSince(completedAt) < retention
         }
     }
 }
