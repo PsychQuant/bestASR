@@ -5,14 +5,14 @@
     "url": "https://github.com/PsychQuant"
   },
   "metadata": {
-    "description": "Benchmark-driven local ASR for Apple Silicon — plugins for context ingestion and SRT proofreading",
-    "version": "0.10.0"
+    "description": "Benchmark-driven local ASR for Apple Silicon — MCP server + agent workflow skills",
+    "version": "0.11.0"
   },
   "plugins": [
     {
       "name": "bestasr",
       "source": "./plugins/bestasr",
-      "description": "Agent workflows for bestASR: transcribe any source to SRT (transcript), distill documents into context.json (context-ingest), and proofread SRT transcripts against context with immutable timecodes (srt-proofread). The skills drive the bestasr CLI (install via scripts/install.sh)."
+      "description": "bestASR for agents: bundles the bestasr-mcp MCP server (benchmark-driven ASR routing over stdio — transcribe/recommend/list_backends/list_models/corpus_add, notarized binary auto-downloaded on install) plus workflow skills — transcript (any source → SRT), context-ingest (documents → context.json), and srt-proofread (three-axis correction with immutable timecodes)."
     }
   ]
 }

@@ -1,0 +1,7 @@
+{
+  "bestasr": {
+    "type": "stdio",
+    "command": "${CLAUDE_PLUGIN_ROOT}/bin/bestasr-mcp-wrapper.sh",
+    "description": "bestASR MCP server — benchmark-driven local ASR routing over stdio. Five tools: transcribe / recommend / list_backends / list_models / corpus_add. The warm engine stays resident across calls."
+  }
+}

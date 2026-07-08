@@ -1,7 +1,7 @@
 {
   "name": "bestasr",
-  "version": "0.10.0",
-  "description": "Context calibration + transcription workflows for bestASR: context-ingest (documents → context.json), srt-proofread (three-axis SRT correction), and transcript (any source → SRT via bestASR ASR).",
+  "version": "0.11.0",
+  "description": "bestASR for agents: the bestasr-mcp MCP server (benchmark-driven ASR routing — transcribe/recommend/list_backends/list_models/corpus_add, auto-downloaded on install) plus workflow skills (context-ingest, srt-proofread, transcript).",
   "author": {
     "name": "PsychQuant",
     "url": "https://github.com/PsychQuant/bestASR"
