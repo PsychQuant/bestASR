@@ -13,6 +13,14 @@ public actor BestASRMCPServer {
     /// Serializes `transcribe` so concurrent MCP requests can't overlap the
     /// single-model engine (verify findings F1/F2). Read-only tools bypass it.
     let transcribeGate = SingleFlight()
+    /// Tracks opt-in async transcribe jobs (#86). Async work still routes
+    /// through `transcribeGate`, so the single-model invariant holds.
+    let jobs = JobRegistry()
+
+    /// How long `transcribe_result` waits server-side before returning
+    /// `still_running` — shorter than typical MCP client request timeouts so the
+    /// result call cannot itself become the unbounded block it exists to avoid.
+    static let resultWaitCap: Duration = .seconds(25)
 
     public init(core: CommandCore = .live()) {
         self.core = core
@@ -82,6 +90,14 @@ public actor BestASRMCPServer {
                         "model": .object([
                             "type": .string("string"),
                             "description": .string("Model override (default: routed)"),
+                        ]),
+                        "async": .object([
+                            "type": .string("boolean"),
+                            "description": .string(
+                                "Opt-in async mode (default false = synchronous, unchanged). "
+                                    + "true returns a job_id immediately; poll transcribe_status / "
+                                    + "transcribe_result. Use for long audio that would trip the "
+                                    + "client request timeout."),
                         ]),
                     ]),
                     "required": .array([.string("audio_path")]),
@@ -162,6 +178,40 @@ public actor BestASRMCPServer {
                 ]),
                 annotations: .init(readOnlyHint: false, openWorldHint: false)
             ),
+            Tool(
+                name: "transcribe_status",
+                description: "Check an async transcribe job (started via transcribe with "
+                    + "async=true). Returns running | done | failed (+ error). Cheap, "
+                    + "non-blocking — use transcribe_result to fetch the transcript.",
+                inputSchema: .object([
+                    "type": .string("object"),
+                    "properties": .object([
+                        "job_id": .object([
+                            "type": .string("string"),
+                            "description": .string("Job id returned by an async transcribe call"),
+                        ])
+                    ]),
+                    "required": .array([.string("job_id")]),
+                ]),
+                annotations: .init(readOnlyHint: true, openWorldHint: false)
+            ),
+            Tool(
+                name: "transcribe_result",
+                description: "Fetch an async transcribe job's result. Long-polls server-side "
+                    + "until the job finishes or a cap elapses, then returns the transcript, "
+                    + "a still_running marker (call again), or the typed error.",
+                inputSchema: .object([
+                    "type": .string("object"),
+                    "properties": .object([
+                        "job_id": .object([
+                            "type": .string("string"),
+                            "description": .string("Job id returned by an async transcribe call"),
+                        ])
+                    ]),
+                    "required": .array([.string("job_id")]),
+                ]),
+                annotations: .init(readOnlyHint: true, openWorldHint: false)
+            ),
         ]
     }
 
@@ -218,41 +268,74 @@ public actor BestASRMCPServer {
                 ?? FileManager.default.temporaryDirectory
                     .appendingPathComponent("bestasr-mcp-\(UUID().uuidString).\(format)").path
             let diarize = args["diarize"]?.boolValue ?? false
+            let isAsync = args["async"]?.boolValue ?? false
             let core = self.core
-            // Single-flight: the engine keeps ONE model resident and runs one
-            // transcription per pipeline; overlapping transcribes would evict
-            // each other's in-flight model or reenter a shared pipeline (F1/F2).
-            return try await transcribeGate.run {
-                let outcome = try await core.transcribe(
-                    audioPath: audioPath,
-                    selection: selection,
-                    formatName: format,
-                    outputPath: output,
-                    diarize: diarize
-                )
-                // Clean up only the temp file WE created (output_path omitted);
-                // a caller-supplied path is theirs to keep (F3). Runs after
-                // read-back, and on the error path too — so no leak either way.
-                defer {
-                    if !outputWasProvided {
-                        try? FileManager.default.removeItem(atPath: outcome.outputPath)
+            let gate = self.transcribeGate
+            // The actual transcription, wrapped so the sync and async paths share
+            // it. Runs through SingleFlight so at most one transcription hits the
+            // single-model engine at a time (#80 F1/F2) — true for async jobs too.
+            let work: @Sendable () async throws -> String = {
+                try await gate.run {
+                    let outcome = try await core.transcribe(
+                        audioPath: audioPath,
+                        selection: selection,
+                        formatName: format,
+                        outputPath: output,
+                        diarize: diarize
+                    )
+                    // Clean up only the temp file WE created (output_path omitted);
+                    // a caller-supplied path is theirs to keep (F3). Runs after
+                    // read-back, and on the error path too — so no leak either way.
+                    defer {
+                        if !outputWasProvided {
+                            try? FileManager.default.removeItem(atPath: outcome.outputPath)
+                        }
                     }
+                    // A produced-but-unreadable transcript is a loud runtime failure,
+                    // not an empty success (F4 / spec: errors are never swallowed).
+                    guard
+                        let content = try? String(
+                            contentsOfFile: outcome.outputPath, encoding: .utf8)
+                    else {
+                        throw BestASRError.runtime(
+                            "transcript written to \(outcome.outputPath) but could not be read back")
+                    }
+                    var reply = content + "\n---\n" + outcome.explanation
+                    // Only report a file path when the caller asked for one; the temp
+                    // is deleted above, so pointing at it would dangle.
+                    if outputWasProvided {
+                        reply += "\ntranscript file: \(outcome.outputPath)"
+                    }
+                    return reply
                 }
-                // A produced-but-unreadable transcript is a loud runtime failure,
-                // not an empty success (F4 / spec: errors are never swallowed).
-                guard
-                    let content = try? String(contentsOfFile: outcome.outputPath, encoding: .utf8)
-                else {
-                    throw BestASRError.runtime(
-                        "transcript written to \(outcome.outputPath) but could not be read back")
-                }
-                var reply = content + "\n---\n" + outcome.explanation
-                // Only report a file path when the caller asked for one; the temp
-                // is deleted above, so pointing at it would dangle.
-                if outputWasProvided {
-                    reply += "\ntranscript file: \(outcome.outputPath)"
-                }
-                return reply
+            }
+            // Opt-in async (#86): kick the work off in the background and return a
+            // job id at once. Sync default runs the work inline (unchanged).
+            if isAsync {
+                let jobId = await jobs.start(work)
+                return Self.json(["job_id": jobId, "status": "running"])
+            }
+            return try await work()
+
+        case "transcribe_status":
+            let jobId = try requiredString("job_id", in: args)
+            guard let state = await jobs.status(jobId) else {
+                throw BestASRError.usage("unknown job: \(jobId)")
+            }
+            switch state {
+            case .running: return Self.json(["job_id": jobId, "status": "running"])
+            case .done: return Self.json(["job_id": jobId, "status": "done"])
+            case .failed(let message):
+                return Self.json(["job_id": jobId, "status": "failed", "error": message])
+            }
+
+        case "transcribe_result":
+            let jobId = try requiredString("job_id", in: args)
+            switch await jobs.awaitResult(jobId, cap: Self.resultWaitCap) {
+            case .result(let transcript): return transcript
+            case .stillRunning: return Self.json(["job_id": jobId, "status": "still_running"])
+            case .failed(let message): throw BestASRError.runtime(message)
+            case .unknown: throw BestASRError.usage("unknown job: \(jobId)")
             }
 
         case "recommend":
@@ -297,5 +380,16 @@ public actor BestASRMCPServer {
     private func languageOrNil(_ raw: String?) -> String? {
         guard let raw, raw != "auto" else { return nil }
         return raw
+    }
+
+    /// Serialize a small string→string reply as JSON (correct escaping via
+    /// JSONSerialization — job error messages may contain quotes/newlines).
+    static func json(_ obj: [String: String]) -> String {
+        guard
+            let data = try? JSONSerialization.data(
+                withJSONObject: obj, options: [.sortedKeys]),
+            let string = String(data: data, encoding: .utf8)
+        else { return "{}" }
+        return string
     }
 }
