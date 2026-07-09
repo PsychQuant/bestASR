@@ -26,10 +26,13 @@ REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_ROOT"
 
 # Single source of truth for the version: BestASRVersion.current (the bundle
-# smoke test asserts the plist matches this constant — no drift).
-VERSION="$(sed -n 's/.*static let current = "\([0-9][0-9.]*\)".*/\1/p' \
-  Sources/BestASRKit/Models/DataModels.swift | head -1)"
-[ -n "$VERSION" ] || { echo "x could not parse BestASRVersion.current" >&2; exit 1; }
+# smoke test asserts the plist matches this constant — no drift). Scoped to the
+# enum block so another type's `static let current` can never be picked up
+# (verify #87 MEDIUM), and shape-asserted like release-mcp.sh.
+VERSION="$(awk '/enum BestASRVersion/,/^}/' Sources/BestASRKit/Models/DataModels.swift \
+  | sed -n 's/.*static let current = "\([0-9][0-9.]*\)".*/\1/p' | head -1)"
+[[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+  echo "x could not parse a semver BestASRVersion.current (got: '$VERSION')" >&2; exit 1; }
 
 OUT_DIR="${OUT_DIR:-dist}"
 APP="$OUT_DIR/bestASR.app"
@@ -46,8 +49,11 @@ if [ -z "${BIN_DIR:-}" ]; then
   fi
   # One invocation per product: swift build accepts a single --product
   # (repeats silently keep only the last one — caught by the real-build check).
+  # The ${arr[@]+...} guard matters: /bin/bash is 3.2, where expanding an EMPTY
+  # array under `set -u` aborts with "unbound variable" — which would kill the
+  # build exactly on the recommended Xcode-toolchain path (verify #87 HIGH).
   for product in bestasr-gui bestasr-mcp bestasr; do
-    "${BUILD_ENV[@]}" swift build -c release --arch arm64 --arch x86_64 --product "$product"
+    ${BUILD_ENV[@]+"${BUILD_ENV[@]}"} swift build -c release --arch arm64 --arch x86_64 --product "$product"
   done
   BIN_DIR=".build/apple/Products/Release"
 else

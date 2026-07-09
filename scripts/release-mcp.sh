@@ -38,7 +38,9 @@ if [[ "$(command -v swift)" == *".swiftly"* ]] && swift --version 2>&1 | grep -q
 fi
 
 echo "== [1/6] build release bestasr-mcp =="
-"${BUILD_ENV[@]}" swift build -c release --product bestasr-mcp
+# ${arr[@]+...}: /bin/bash 3.2 aborts on expanding an EMPTY array under set -u
+# (verify #87 HIGH — the crash hits exactly the recommended Xcode-toolchain path).
+${BUILD_ENV[@]+"${BUILD_ENV[@]}"} swift build -c release --product bestasr-mcp
 # SwiftPM maintains .build/release as a symlink to the active release bin dir.
 BIN=".build/release/bestasr-mcp"
 [ -x "$BIN" ] || { echo "x built binary not found at $BIN" >&2; exit 1; }
