@@ -36,13 +36,20 @@ public actor JobRegistry {
     private var jobs: [String: Entry] = [:]
     private let retention: TimeInterval
     private let pollInterval: Duration
+    private let now: @Sendable () -> Date
 
     /// - Parameters:
     ///   - retention: how long a completed/failed job stays fetchable before eviction.
     ///   - pollInterval: how often `awaitResult` re-checks a still-running job.
-    public init(retention: TimeInterval = 300, pollInterval: Duration = .milliseconds(50)) {
+    ///   - now: retention clock, injectable so eviction tests advance time
+    ///     explicitly instead of racing a starved CI scheduler with real sleeps.
+    public init(
+        retention: TimeInterval = 300, pollInterval: Duration = .milliseconds(50),
+        now: @escaping @Sendable () -> Date = { Date() }
+    ) {
         self.retention = retention
         self.pollInterval = pollInterval
+        self.now = now
     }
 
     /// Register + start a background job. Returns its id immediately; the work
@@ -115,18 +122,18 @@ public actor JobRegistry {
         guard jobs[id] != nil else { return }   // evicted mid-flight — drop
         jobs[id]?.state = .done
         jobs[id]?.result = result
-        jobs[id]?.completedAt = Date()
+        jobs[id]?.completedAt = now()
     }
 
     private func fail(_ id: String, message: String) {
         guard jobs[id] != nil else { return }
         jobs[id]?.state = .failed(message)
-        jobs[id]?.completedAt = Date()
+        jobs[id]?.completedAt = now()
     }
 
     private func evictIfExpired(_ id: String) {
         guard let completedAt = jobs[id]?.completedAt else { return }
-        if Date().timeIntervalSince(completedAt) >= retention {
+        if now().timeIntervalSince(completedAt) >= retention {
             jobs[id] = nil
         }
     }
@@ -134,10 +141,10 @@ public actor JobRegistry {
     /// Drop every completed/failed job past its retention window, regardless of
     /// whether it has been re-accessed. Running jobs (no `completedAt`) are kept.
     private func sweepExpired() {
-        let now = Date()
+        let cutoff = now()
         jobs = jobs.filter { _, entry in
             guard let completedAt = entry.completedAt else { return true }
-            return now.timeIntervalSince(completedAt) < retention
+            return cutoff.timeIntervalSince(completedAt) < retention
         }
     }
 }
