@@ -512,6 +512,125 @@ SRT
 SRT
 }
 
+# ---- LibriSpeech (#88, spec corpora) — CC BY 4.0, OpenSLR /12, account-free ----
+# The English standard the field reports on (see references/asr-benchmark-landscape.md).
+# 24 utterances per split in 4 groups of 6 (one chapter per group), FLAC decoded to
+# 16 kHz mono PCM16 via ffmpeg (bit-exact → deterministic digest), verbatim SRT from
+# the .trans.txt + decoded durations. Source tarball + converted artifact both pinned.
+LS_TESTCLEAN_TAR_SHA="39fde525e59672dc6d1551919b1478f724438a95aa55f874b576be21967e6c23"
+LS_DEVCLEAN_TAR_SHA="76f87d090650617fca0cac8f88b9416e0ebf80350acb97b343a85fa903728ab3"
+
+ls_picks() {  # <split>:<group> -> 6 utterance ids
+  case "$1" in
+    test:1) echo "1089-134686-0000 1089-134686-0001 1089-134686-0002 1089-134686-0003 1089-134686-0004 1089-134686-0005" ;;
+    test:2) echo "1089-134691-0000 1089-134691-0001 1089-134691-0002 1089-134691-0003 1089-134691-0004 1089-134691-0005" ;;
+    test:3) echo "1188-133604-0000 1188-133604-0001 1188-133604-0002 1188-133604-0003 1188-133604-0004 1188-133604-0005" ;;
+    test:4) echo "121-121726-0000 121-121726-0001 121-121726-0002 121-121726-0003 121-121726-0004 121-121726-0005" ;;
+    dev:1)  echo "1272-128104-0000 1272-128104-0001 1272-128104-0002 1272-128104-0003 1272-128104-0004 1272-128104-0005" ;;
+    dev:2)  echo "1272-135031-0000 1272-135031-0001 1272-135031-0002 1272-135031-0003 1272-135031-0004 1272-135031-0005" ;;
+    dev:3)  echo "1272-141231-0000 1272-141231-0001 1272-141231-0002 1272-141231-0003 1272-141231-0004 1272-141231-0005" ;;
+    dev:4)  echo "1462-170138-0000 1462-170138-0001 1462-170138-0002 1462-170138-0003 1462-170138-0004 1462-170138-0005" ;;
+  esac
+}
+ls_group_sha() {  # <split>:<group> -> pinned converted-artifact SHA-256
+  case "$1" in
+    test:1) echo "a7d9a1fb13b662e3046af74d2c0d7b1af153dc7cfb8816dfe746be3b78239a4b" ;;
+    test:2) echo "99912dd21bc0a652449ba744bb2ee71c7536fd600b30cf8335cc3ca45fbcba6a" ;;
+    test:3) echo "1d869e65979d94624b571438c5f944baa19a8f820d60d9549d624b39e244e5d4" ;;
+    test:4) echo "15b8fd6c3f94b651c4c34b06cd2c13c9029c48f6546e7ea09936a5def39d032a" ;;
+    dev:1)  echo "eee4eb824c080d22ba72eb5a2219c22263235f601dd3893a7ff6b52aae99b4ac" ;;
+    dev:2)  echo "b43fcd0d9b4e1cd113b7b21670a743518ab03d78d697ab94ac67cdf88656db4c" ;;
+    dev:3)  echo "6f456c0c5339f63fe5389330707baad6e27363b60dd52a1677cb00a274807b20" ;;
+    dev:4)  echo "19933399884da02f82b17c8479689d9865f59da85b280cd6dbf9dc43c0d0aa52" ;;
+  esac
+}
+ls_tar_sha() { case "$1" in test) echo "$LS_TESTCLEAN_TAR_SHA" ;; dev) echo "$LS_DEVCLEAN_TAR_SHA" ;; esac; }
+
+# ls_build_group <tmp-with-pcm16-and-trans> <out.wav> <out.srt> <extract-top> <ids...>
+# concat pcm16 + emit verbatim SRT (durations from pcm16, transcripts from .trans.txt).
+ls_build_group() {
+  /usr/bin/python3 - "$@" <<'PY'
+import sys, wave, contextlib, os
+tmp, out_wav, out_srt, top = sys.argv[1:5]
+ids = sys.argv[5:]
+def transcript(idv):
+    spk, chap = idv.split("-")[0], idv.split("-")[1]
+    p = os.path.join(tmp, top, spk, chap, f"{spk}-{chap}.trans.txt")
+    for line in open(p, encoding="utf-8"):
+        if line.startswith(idv + " "):
+            return line.split(" ", 1)[1].strip()
+    return ""
+def ts(sec):
+    ms = int(round(sec * 1000)); h = ms // 3600000; ms %= 3600000
+    m = ms // 60000; ms %= 60000; s = ms // 1000; ms %= 1000
+    return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
+cues, t = [], 0.0
+with wave.open(out_wav, "wb") as w:
+    for i, idv in enumerate(ids):
+        with contextlib.closing(wave.open(os.path.join(tmp, f"{idv}.pcm16.wav"), "rb")) as r:
+            if i == 0: w.setparams(r.getparams())
+            dur = r.getnframes() / r.getframerate()
+            w.writeframes(r.readframes(r.getnframes()))
+        cues.append((t, t + dur, transcript(idv))); t += dur
+with open(out_srt, "w", encoding="utf-8") as fh:
+    for n, (a, b, txt) in enumerate(cues, 1):
+        fh.write(f"{n}\n{ts(a)} --> {ts(b)}\n{txt}\n\n")
+PY
+}
+
+fetch_librispeech() {
+  command -v ffmpeg >/dev/null \
+    || { echo "✗ ffmpeg required to decode LibriSpeech FLAC (brew install ffmpeg)" >&2; return 1; }
+  /usr/bin/python3 -c "import wave" >/dev/null 2>&1 \
+    || { echo "✗ working /usr/bin/python3 required (install Xcode CLT)" >&2; return 1; }
+  local split gi need=0
+  for split in test dev; do for gi in 1 2 3 4; do
+    [ -f "$DEST/librispeech-${split}clean-$gi.wav" ] || need=1
+  done; done
+  if [ "$need" = 1 ]; then
+    for split in test dev; do
+      local tar top tmp
+      tmp=$(mktemp -d); trap 'rm -rf "$tmp"; trap - RETURN' RETURN
+      tar="$tmp/${split}-clean.tar.gz"; top="LibriSpeech/${split}-clean"
+      curl -fsSL --max-time 1200 -o "$tar" \
+        "https://www.openslr.org/resources/12/${split}-clean.tar.gz"
+      echo "$(ls_tar_sha "$split")  $tar" | shasum -a 256 -c - >/dev/null \
+        || { echo "✗ raw LibriSpeech ${split}-clean tar digest mismatch — refusing to parse" >&2; rm -rf "$tmp"; trap - RETURN; return 1; }
+      for gi in 1 2 3 4; do
+        local id spk rest chap ids converted=""
+        ids=$(ls_picks "$split:$gi")
+        for id in $ids; do
+          spk="${id%%-*}"; rest="${id#*-}"; chap="${rest%%-*}"
+          tar -xzf "$tar" -C "$tmp" "$top/$spk/$chap/$id.flac"
+          tar -xzf "$tar" -C "$tmp" "$top/$spk/$chap/$spk-$chap.trans.txt" 2>/dev/null || true
+          ffmpeg -nostdin -loglevel error -i "$tmp/$top/$spk/$chap/$id.flac" \
+            -ar 16000 -ac 1 -c:a pcm_s16le -bitexact -fflags +bitexact "$tmp/$id.pcm16.wav"
+        done
+        ls_build_group "$tmp" "$tmp/librispeech-${split}clean-$gi.wav" \
+          "$DEST/librispeech-${split}clean-$gi.srt" "$top" $ids
+        echo "$(ls_group_sha "$split:$gi")  $tmp/librispeech-${split}clean-$gi.wav" | shasum -a 256 -c - >/dev/null \
+          || { echo "✗ librispeech-${split}clean-$gi converted-artifact digest mismatch — likely ffmpeg drift; nothing registered for this group" >&2; rm -rf "$tmp"; trap - RETURN; return 1; }
+        mv "$tmp/librispeech-${split}clean-$gi.wav" "$DEST/librispeech-${split}clean-$gi.wav"
+      done
+      rm -rf "$tmp"; trap - RETURN
+    done
+  fi
+  for split in test dev; do for gi in 1 2 3 4; do
+    echo "$(ls_group_sha "$split:$gi")  $DEST/librispeech-${split}clean-$gi.wav" | shasum -a 256 -c - >/dev/null \
+      || { echo "✗ librispeech-${split}clean-$gi.wav digest mismatch — remove it to rebuild" >&2; return 1; }
+  done; done
+  cat > "$DEST/librispeech_ATTRIBUTION.txt" <<'NOTICE'
+LibriSpeech corpora (librispeech-testclean-1..4, librispeech-devclean-1..4 .wav/.srt)
+are built from LibriSpeech (Panayotov et al., 2015), CC BY 4.0 —
+https://www.openslr.org/12/  License: https://creativecommons.org/licenses/by/4.0/
+Attribution must travel with any redistributed copy of these files.
+NOTICE
+  for split in test dev; do for gi in 1 2 3 4; do
+    "$BIN" corpus add "$DEST/librispeech-${split}clean-$gi.wav" \
+      "$DEST/librispeech-${split}clean-$gi.srt" --language en --name "librispeech-${split}clean-$gi"
+  done; done
+}
+
 FETCH_FAILURES=0
 
 run_fetch() {  # $1 = label; rest = command — isolate每個語料：一個失敗不擋其他（partial success）
@@ -531,6 +650,7 @@ run_fetch "osr-harvard-2 (en)"  fetch_osr2
 run_fetch "osr-harvard-3 (en)"  fetch_osr3
 run_fetch "fleurs-ja groups (ja)" fetch_fleurs_ja
 run_fetch "cv-zhtw groups (zh-TW)" fetch_cv_zhtw
+run_fetch "librispeech groups (en)" fetch_librispeech
 echo "✓ Standard corpora registered (en + zh-TW + ja; failures above, if any, were skipped):"
 "$BIN" corpus list
 exit $((FETCH_FAILURES > 0 ? 1 : 0))
