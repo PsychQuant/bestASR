@@ -67,7 +67,14 @@ claude plugin install bestasr@bestasr        # MCP tools + skills, ready to use
 
 The MCP server links the engine directly, so the model stays warm across calls
 (first transcribe loads it; the second returns in ~0.1 s). Tools: transcribe /
-recommend / list_backends / list_models / corpus_add.
+recommend / list_backends / list_models / corpus_add / transcribe_status /
+transcribe_result.
+
+For long audio that would trip an MCP client's request timeout, call
+`transcribe` with `async: true` — it returns a `job_id` immediately, then poll
+`transcribe_status` (running / done / failed) or `transcribe_result` (long-polls
+until the transcript is ready). The default (`async` omitted) stays synchronous
+and returns the transcript inline.
 
 The workflow skills shell out to the `bestasr` **CLI** for the actual ASR, so
 install it once too (agents can run this):
