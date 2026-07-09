@@ -95,9 +95,31 @@ claude mcp add bestasr -- ~/bin/bestasr-mcp
 # Claude Desktop: add ~/bin/bestasr-mcp under mcpServers in the app config
 ```
 
-One project, three consumption surfaces sharing one benchmark store:
-**CLI** (terminal / scripts), **agent skills** (this plugin), and the
-**MCP server** (bundled in the plugin, or standalone).
+### The macOS app (GUI, dual-track bundle)
+
+For humans who want "drop a file → get an SRT" with no terminal: `bestASR.app`
+is a SwiftUI GUI (file picker / drag-and-drop, language + effort + format,
+elapsed-time progress, result preview + reveal-in-Finder) that calls the same
+engine core as the CLI. The bundle is **dual-track** — `Contents/MacOS/` also
+carries the MCP helper and the CLI (`bestasr-cli`; the `-cli` suffix exists
+because default macOS filesystems are case-insensitive, where a `bestasr`
+entry would collide with the `bestASR` GUI executable):
+
+```bash
+scripts/release-app.sh --assemble-only   # unsigned local bundle in dist/
+# maintainers: scripts/release-app.sh    # sign + notarize + STAPLE + zip
+# agents can use the bundled helper directly:
+claude mcp add bestasr -- /Applications/bestASR.app/Contents/MacOS/bestasr-mcp
+```
+
+Unlike the bare `~/bin` binaries, the stapled bundle verifies offline with
+Gatekeeper. Models still download on first use to the same cache. Progress is
+stage + elapsed (the engines expose no percentage — no fake progress bars).
+
+One project, four consumption surfaces sharing one benchmark store:
+**CLI** (terminal / scripts), **agent skills** (this plugin), the
+**MCP server** (bundled in the plugin, or standalone), and the
+**macOS app** (GUI for humans, with the MCP helper and CLI riding inside).
 
 ## Quick start
 

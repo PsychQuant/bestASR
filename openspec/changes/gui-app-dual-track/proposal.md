@@ -7,7 +7,7 @@ bestASR reaches agents well (CLI, Claude Code plugin, MCP server with async jobs
 ## What Changes
 
 - New SwiftPM executable target `bestasr-gui`: a SwiftUI macOS app (file picker + drag-and-drop, language/effort/format selection, stage+elapsed progress, result view with export and reveal-in-Finder, persisted defaults) that calls the same `CommandCore` as the CLI/MCP.
-- New `scripts/release-app.sh`: universal build → hand-assembled `bestASR.app` bundle (GUI + `bestasr-mcp` + `bestasr` in `Contents/MacOS/`) → Developer ID sign (nested-first, hardened runtime) → notarize (`che-mcps-notary`) → **staple** → zip artifact. An unsigned assemble mode keeps bundle structure testable without credentials.
+- New `scripts/release-app.sh`: universal build → hand-assembled `bestASR.app` bundle (GUI + `bestasr-mcp` + `bestasr-cli` in `Contents/MacOS/`; the CLI is suffixed to dodge the case-insensitive-APFS collision with `bestASR`) → Developer ID sign (nested-first, hardened runtime) → notarize (`che-mcps-notary`) → **staple** → zip artifact. An unsigned assemble mode keeps bundle structure testable without credentials.
 - Bundle-structure smoke test + GUI view-model state-machine tests.
 - README gains the .app install track.
 

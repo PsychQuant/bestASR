@@ -7,6 +7,7 @@ let package = Package(
     products: [
         .executable(name: "bestasr", targets: ["bestasr"]),
         .executable(name: "bestasr-mcp", targets: ["bestasr-mcp"]),
+        .executable(name: "bestasr-gui", targets: ["bestasr-gui"]),
         .library(name: "BestASRKit", targets: ["BestASRKit"]),
     ],
     dependencies: [
@@ -50,11 +51,24 @@ let package = Package(
             dependencies: ["BestASRMCPCore"],
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
+        // #87 GUI dual-track: logic in a library target (mirrors BestASRMCPCore)
+        // so the session state machine is testable without SwiftUI.
+        .target(
+            name: "BestASRGUICore",
+            dependencies: ["BestASRKit"],
+            swiftSettings: [.swiftLanguageMode(.v5)]
+        ),
+        .executableTarget(
+            name: "bestasr-gui",
+            dependencies: ["BestASRGUICore"],
+            swiftSettings: [.swiftLanguageMode(.v5)]
+        ),
         .testTarget(
             name: "BestASRKitTests",
             dependencies: [
                 "BestASRKit",
                 "BestASRMCPCore",
+                "BestASRGUICore",
                 .product(name: "WhisperKit", package: "WhisperKit"),
             ],
             swiftSettings: [.swiftLanguageMode(.v5)]

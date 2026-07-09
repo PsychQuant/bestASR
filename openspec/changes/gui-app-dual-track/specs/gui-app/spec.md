@@ -21,7 +21,7 @@ The system SHALL provide a SwiftUI macOS app (`bestasr-gui` target) through whic
 
 ### Requirement: Dual-track bundle carries GUI, MCP helper, and CLI
 
-The release artifact SHALL be a single `bestASR.app` bundle whose `Contents/MacOS/` contains exactly three executables: `bestASR` (the GUI, the bundle's `CFBundleExecutable`), `bestasr-mcp`, and `bestasr`. The bundle SHALL declare `CFBundleIdentifier` `com.psychquant.bestASR`, a `CFBundleShortVersionString` equal to `BestASRVersion.current`, and `LSMinimumSystemVersion` 14.0. The bundled `bestasr-mcp` SHALL be usable directly by MCP clients via its bundle path.
+The release artifact SHALL be a single `bestASR.app` bundle whose `Contents/MacOS/` contains exactly three executables: `bestASR` (the GUI, the bundle's `CFBundleExecutable`), `bestasr-mcp`, and `bestasr-cli` (the CLI — named with the `-cli` suffix because the default macOS filesystem is case-insensitive, so `bestasr` would collide with the GUI executable `bestASR` in the same directory). The bundle SHALL declare `CFBundleIdentifier` `com.psychquant.bestASR`, a `CFBundleShortVersionString` equal to `BestASRVersion.current`, and `LSMinimumSystemVersion` 14.0. The bundled `bestasr-mcp` SHALL be usable directly by MCP clients via its bundle path.
 
 #### Scenario: Bundle structure is assembled
 
