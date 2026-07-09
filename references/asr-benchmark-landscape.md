@@ -97,6 +97,14 @@ existing zh-TW normalization care (#34: script-normalized Hant→Hans folding).
 3. *(optional, heavier)* AISHELL-1 — Simplified Mandarin, ~15 GB single tgz;
    account-free but large and not zh-TW.
 
-**Not for automated download** (require login / restricted): Common Voice zh-TW,
-ReazonSpeech (JA), TED-LIUM (NC-ND), GigaSpeech, SPGISpeech. zh-TW / JA corpus
-expansion needs a separate logged-in manual-fetch path, tracked out of this issue.
+**Not in the initial set:**
+- *Account-gated* (need login): Common Voice zh-TW, ReazonSpeech (JA — also
+  Article 30-4 restricted), GigaSpeech, SPGISpeech.
+- *License-restricted but not gated*: TED-LIUM (CC-BY-NC-ND — non-commercial,
+  no-derivatives; avoid).
+- *Account-free CC0 but deferred* (not needed once LibriSpeech covers the English
+  standard; could be added later): VoxPopuli (EU parliamentary, multilingual),
+  Earnings-22 (CC-BY-SA financial-meeting).
+
+zh-TW / JA corpus expansion needs a separate logged-in manual-fetch path, tracked
+out of this issue.

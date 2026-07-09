@@ -21,9 +21,10 @@ zh-TW/JA expansion is tracked separately.)
   a few medium-length corpora with an embedded verbatim SRT reference, verifies
   the converted-artifact digests, and registers them via `bestasr corpus add
   --language en`.
-- Following the established English-set convention: ~24 utterances split into
-  ~4 groups of 6 per split, so per-corpus CER/WER can be averaged and variance
-  observed. Binaries are never committed (audio lands under `~/.bestasr/corpora`).
+- Following the established English-set convention: 24 utterances per split
+  (4 groups of 6), i.e. 8 corpora / 48 utterances across `test-clean` +
+  `dev-clean`, so per-corpus CER/WER can be averaged and variance observed.
+  Binaries are never committed (audio lands under `~/.bestasr/corpora`).
 - Add `references/asr-benchmark-landscape.md` as the durable literature base that
   motivated the dataset choice.
 

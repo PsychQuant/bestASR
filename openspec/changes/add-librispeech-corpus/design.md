@@ -56,7 +56,7 @@ resolved by the apply step actually downloading + converting once).
 **Behavior:** running `scripts/fetch-corpora.sh` (LibriSpeech step) on a
 network-connected machine downloads the two OpenSLR tarballs, verifies their
 pinned digests, decodes the pinned utterance sample from FLAC, concatenates into
-3–5 corpora with embedded SRT, verifies converted digests, and registers each via
+8 corpora (4 per split) with embedded SRT, verifies converted digests, and registers each via
 `bestasr corpus add --language en`. `bestasr corpus list` then shows the new
 LibriSpeech corpora. A digest mismatch (source or converted) registers nothing for
 the affected group and reports the mismatch (fail-closed); other languages are

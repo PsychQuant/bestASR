@@ -564,6 +564,16 @@ def ts(sec):
     ms = int(round(sec * 1000)); h = ms // 3600000; ms %= 3600000
     m = ms // 60000; ms %= 60000; s = ms // 1000; ms %= 1000
     return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
+# Resolve every transcript BEFORE writing anything — a missing/blank reference
+# must fail loud here, not silently produce a blank-reference corpus (which would
+# score ~100% WER unnoticed). Failing before the wav is written also keeps the
+# converted-artifact digest gate meaningful (no wav → no register).
+texts = []
+for idv in ids:
+    t = transcript(idv)
+    if not t:
+        raise SystemExit(f"no transcript for {idv} — refusing to build a blank-reference corpus")
+    texts.append(t)
 cues, t = [], 0.0
 with wave.open(out_wav, "wb") as w:
     for i, idv in enumerate(ids):
@@ -571,7 +581,7 @@ with wave.open(out_wav, "wb") as w:
             if i == 0: w.setparams(r.getparams())
             dur = r.getnframes() / r.getframerate()
             w.writeframes(r.readframes(r.getnframes()))
-        cues.append((t, t + dur, transcript(idv))); t += dur
+        cues.append((t, t + dur, texts[i])); t += dur
 with open(out_srt, "w", encoding="utf-8") as fh:
     for n, (a, b, txt) in enumerate(cues, 1):
         fh.write(f"{n}\n{ts(a)} --> {ts(b)}\n{txt}\n\n")
@@ -584,8 +594,12 @@ fetch_librispeech() {
   /usr/bin/python3 -c "import wave" >/dev/null 2>&1 \
     || { echo "✗ working /usr/bin/python3 required (install Xcode CLT)" >&2; return 1; }
   local split gi need=0
+  # Rebuild if EITHER the wav OR the srt is missing — the srt is generated only
+  # in the build block, so a deleted srt must trigger a rebuild (else register
+  # would be handed a nonexistent reference file).
   for split in test dev; do for gi in 1 2 3 4; do
-    [ -f "$DEST/librispeech-${split}clean-$gi.wav" ] || need=1
+    { [ -f "$DEST/librispeech-${split}clean-$gi.wav" ] \
+      && [ -f "$DEST/librispeech-${split}clean-$gi.srt" ]; } || need=1
   done; done
   if [ "$need" = 1 ]; then
     for split in test dev; do

@@ -10,8 +10,8 @@ them into medium-length corpora each carrying an embedded verbatim SRT reference
 verify the pinned digest of each converted concatenated artifact before
 registration, and register them via `corpus add --language en`. Binaries SHALL NOT
 be committed to the repository (audio lands under `~/.bestasr/corpora`). The set
-SHALL provide approximately 20–30 utterances grouped into 3–5 medium-length
-corpora (each a handful of concatenated utterances) so per-corpus metrics can be
+SHALL provide 48 utterances grouped into 8 medium-length corpora — 4 groups of 6
+per split, across `test-clean` and `dev-clean` — so per-corpus metrics can be
 averaged and their variance observed. The supply chain SHALL be pinned end to end:
 the source tarball digest is verified before any decode touches the bytes, and
 each converted concatenated artifact digest is verified before registration.
@@ -19,7 +19,7 @@ each converted concatenated artifact digest is verified before registration.
 #### Scenario: fetch script registers the LibriSpeech corpora
 
 - **WHEN** the fetch script's LibriSpeech step runs on a machine with network access
-- **THEN** `corpus list` shows 3–5 LibriSpeech English corpora (language en) with their durations, all registered through `corpus add`, each with a verified hash
+- **THEN** `corpus list` shows 8 LibriSpeech English corpora (language en) with their durations, all registered through `corpus add`, each with a verified hash
 
 #### Scenario: tampered LibriSpeech download refuses to register
 
