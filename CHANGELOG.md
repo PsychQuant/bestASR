@@ -1,6 +1,58 @@
 # Changelog
 
+All notable changes to bestASR are documented here. The format follows
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow SemVer.
+
 ## [Unreleased]
+
+## [0.12.0] - 2026-07-10
+
+### Added
+
+- **MCP async job mode (#86)**: `transcribe` accepts an opt-in `async` flag and
+  returns a `job_id` immediately; new read-only tools `transcribe_status` and
+  `transcribe_result` (bounded long-poll, 25 s cap) poll it. Jobs live in a
+  bounded in-memory registry (TTL eviction + a global sweep on every start) and
+  share the same single-flight serialization as synchronous transcribes.
+- **macOS GUI dual-track bundle (#87)**: new SwiftUI `bestasr-gui` app (drag &
+  drop / file picker, language/effort/format pickers persisted across launches,
+  honest stage+elapsed progress, transcript preview + reveal-in-Finder) and
+  `scripts/release-app.sh`, which assembles, signs, notarizes, and **staples**
+  a `bestASR.app` carrying the GUI, `bestasr-mcp`, and the CLI as
+  `bestasr-cli` (default APFS is case-insensitive — a `bestasr` entry would
+  overwrite the `bestASR` GUI executable). First offline-Gatekeeper-verifiable
+  bestASR artifact, published as `bestASR-0.12.0.zip` on the v0.12.0 release.
+- **LibriSpeech English benchmark corpora (#88)**: test-clean + dev-clean,
+  8 corpora / 48 utterances, source tarballs and converted artifacts digest-
+  pinned end to end; `references/asr-benchmark-landscape.md` records the cited
+  dataset/license/methodology survey behind the pick.
+
+### Fixed
+
+- **External-adapter watchdog hang (#91)**: a spurious `Process.isRunning`
+  false right after launch could skip the timeout watchdog entirely, leaving an
+  unbounded `waitUntilExit()` (a 1-hour CI hang). The loop is now gated on a
+  `terminationHandler`-driven exit latch installed before `run()`, so it can
+  exit only via real process exit or the SIGTERM→SIGKILL deadline branch.
+- **bash 3.2 empty-array crash in release/install scripts**: expanding an empty
+  `"${BUILD_ENV[@]}"` under `set -u` aborts on stock macOS bash — which killed
+  the build exactly on the recommended Xcode-toolchain path. Guarded in
+  `release-app.sh`, `release-mcp.sh`, and `install.sh`; the app version parse
+  is now scoped to the `BestASRVersion` enum and semver-asserted.
+
+## [0.11.0] - 2026-07-08
+
+### Added
+
+- **MCP server surface (#80, #84)**: `bestasr-mcp` speaks MCP over stdio
+  (official swift-sdk), linking BestASRKit directly so engine pipeline caches
+  persist across tool calls; v1 tools: transcribe / recommend / list_backends /
+  list_models / corpus_add. Tool errors are loud and typed; transcribes are
+  single-flight serialized.
+- **Plugin bundles the MCP server (#85)**: the Claude Code plugin auto-downloads
+  a Developer ID-signed, notarized `bestasr-mcp` from GitHub Releases
+  (che-mcps wrapper pattern); `scripts/release-mcp.sh` builds, signs,
+  smoke-tests under hardened runtime, notarizes, and publishes it.
 
 ### Added
 - mlx-audio catalog measured (#65): seven families live-probed, revision-pinned, and benchmarked — canary 1b / granite-speech 2b / voxtral-realtime 4b hit en WER 3.8% (front-tier), vibevoice-asr 9b reaches zh CER 17.7%; nemotron-asr and moonshine verified; qwen2-audio measured (chat-style output inflates WER honestly). qwen3-asr and mega-asr fail in the mlx_audio loader ("All arrays must have the same shape"); distil-whisper lacks its processor config; mms / voxtral mini-3b / qwen3-forcedaligner have no mlx conversion. mlx candidates are now addressed family/size end-to-end (bare-size collision trapped the benchmark report).
@@ -16,9 +68,6 @@
 
 ### Changed
 - **Breaking (output format)**: diarized speaker prefixes are now human-readable — SRT/VTT cues read `Speaker 1: text` (was `[SPEAKER_1] text`) and txt lines use the same `Speaker N: ` form; enrolled names render as `Name: `. JSON keeps the internal `SPEAKER_N` label. Downstream parsers of the old bracket form must update. (#54)
-
-All notable changes to bestASR are documented here. The format follows
-[Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow SemVer.
 
 ## [0.10.0] - 2026-07-06
 
