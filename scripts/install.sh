@@ -37,7 +37,11 @@ if command -v swift >/dev/null && [[ "$(command -v swift)" == *".swiftly"* ]]; t
 fi
 
 echo "== building release binary (first build takes a few minutes) =="
-"${BUILD_ENV[@]}" swift build -c release
+# Bare build compiles every product — since #87 that includes the bestasr-gui
+# SwiftUI app (a ride-along; only bestasr/bestasr-mcp are installed below).
+# ${arr[@]+...}: /bin/bash 3.2 aborts on expanding an EMPTY array under set -u
+# (verify #87 HIGH), which would kill exactly the non-swiftly default path.
+${BUILD_ENV[@]+"${BUILD_ENV[@]}"} swift build -c release
 
 PREFIX="${PREFIX:-$HOME/bin}"
 mkdir -p "$PREFIX"
