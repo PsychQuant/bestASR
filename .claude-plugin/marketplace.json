@@ -6,7 +6,7 @@
   },
   "metadata": {
     "description": "Benchmark-driven local ASR for Apple Silicon — MCP server + agent workflow skills",
-    "version": "0.11.0"
+    "version": "0.12.0"
   },
   "plugins": [
     {
