@@ -1,6 +1,6 @@
 {
   "name": "bestasr",
-  "version": "0.11.0",
+  "version": "0.12.0",
   "description": "bestASR for agents: the bestasr-mcp MCP server (benchmark-driven ASR routing — transcribe/recommend/list_backends/list_models/corpus_add, auto-downloaded on install) plus workflow skills (context-ingest, srt-proofread, transcript).",
   "author": {
     "name": "PsychQuant",
