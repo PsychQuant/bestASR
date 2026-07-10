@@ -113,7 +113,9 @@ struct ExternalEngineTests {
     @Test func `A hung adapter is terminated at the timeout`() async throws {
         let dir = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: dir) }
-        let adapter = try makeAdapter(in: dir, script: "sleep 3600")
+        // 15 s: still 15x the 1 s test timeout, but a watchdog regression now
+        // costs seconds of CI, not the hour-long hang of #91 (sleep 3600).
+        let adapter = try makeAdapter(in: dir, script: "sleep 15")
         let hung = ExternalProcessEngine(
             id: .mlxAudio, command: [adapter], timeoutOverride: 1.0)
         do {
