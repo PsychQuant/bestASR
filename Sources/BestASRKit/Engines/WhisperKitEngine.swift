@@ -71,12 +71,21 @@ public struct WhisperKitEngine: Engine {
     /// segment text, polluting transcripts and inflating WER (#6 — caught by
     /// real-model verification against jfk.wav / OSR Harvard).
     static func makeDecodeOptions(
-        language: String?, promptTokens: [Int]?, deterministic: Bool = false
+        language: String?, promptTokens: [Int]?, deterministic: Bool = false,
+        noSpeechThreshold: Double? = nil, compressionRatioThreshold: Double? = nil,
+        logProbThreshold: Double? = nil
     ) -> DecodingOptions {
         var decodeOptions = DecodingOptions()
         decodeOptions.language = language
         decodeOptions.detectLanguage = language == nil
         decodeOptions.skipSpecialTokens = true
+        // Decode-param knobs (#101): apply only when set — nil keeps
+        // WhisperKit's own defaults byte-for-byte (pre-#101 behavior).
+        if let noSpeechThreshold { decodeOptions.noSpeechThreshold = Float(noSpeechThreshold) }
+        if let compressionRatioThreshold {
+            decodeOptions.compressionRatioThreshold = Float(compressionRatioThreshold)
+        }
+        if let logProbThreshold { decodeOptions.logProbThreshold = Float(logProbThreshold) }
         if deterministic {
             // #34 regression gate: WhisperKit defaults to 5 temperature-
             // fallback retries (0.2 increments) on low-quality segments —
@@ -143,7 +152,10 @@ public struct WhisperKitEngine: Engine {
         }
         let decodeOptions = Self.makeDecodeOptions(
             language: options.language, promptTokens: promptTokens,
-            deterministic: options.deterministicDecode)
+            deterministic: options.deterministicDecode,
+            noSpeechThreshold: options.noSpeechThreshold,
+            compressionRatioThreshold: options.compressionRatioThreshold,
+            logProbThreshold: options.logProbThreshold)
 
         let results = try await pipe.transcribe(audioPath: audioPath, decodeOptions: decodeOptions)
         let segments = results.flatMap(\.segments).map { seg in
@@ -151,7 +163,9 @@ public struct WhisperKitEngine: Engine {
                 start: Double(seg.start),
                 end: Double(seg.end),
                 text: seg.text,
-                confidence: Double(seg.avgLogprob)
+                confidence: Double(seg.avgLogprob),
+                noSpeechProb: Double(seg.noSpeechProb),
+                compressionRatio: Double(seg.compressionRatio)
             )
         }
         return RawTranscription(

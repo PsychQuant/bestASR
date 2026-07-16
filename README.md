@@ -411,6 +411,26 @@ harmless no-op for backends that never emit those strings. Pass
 `--hallucination-filter off` (CLI) or `hallucination_filter: "off"` (the MCP
 `transcribe` tool) to disable it.
 
+`--hallucination-filter full` adds confidence gating on top of the denylist:
+cues are also dropped by Whisper's per-segment signals — the joint silence rule
+(`no_speech_prob > 0.6` **and** `avg_logprob < -1.0`, openai-whisper semantics)
+and the repetition rule (`compression_ratio > 2.4`). WhisperKit populates the
+signals; backends that don't (whisper.cpp, Parakeet) sail through untouched, so
+`full` degrades to `denylist` per backend automatically.
+
+Complementary decode-side knobs (WhisperKit only; CLI-only for now — the MCP
+tool and GUI don't expose them) suppress hallucinations at the source instead
+of filtering them afterwards — unset, they ride WhisperKit's own defaults. With
+`--decode-deterministic` (no fallback retries), aggressive thresholds mark or
+skip segments outright instead of triggering a re-decode:
+
+```bash
+bestasr transcribe meeting.m4a \
+  --no-speech-threshold 0.5 \
+  --compression-ratio-threshold 2.2 \
+  --logprob-threshold -1.0
+```
+
 ### Transcribe any source (agent skill)
 
 `bestasr transcribe` takes a local audio file. The **`transcript` agent skill**

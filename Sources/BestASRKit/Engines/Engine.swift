@@ -25,12 +25,21 @@ public struct RawTranscription: Sendable {
         public let end: Double
         public let text: String
         public let confidence: Double?
+        /// Whisper per-segment hallucination signals (#100); nil when the
+        /// backend does not compute them.
+        public let noSpeechProb: Double?
+        public let compressionRatio: Double?
 
-        public init(start: Double, end: Double, text: String, confidence: Double? = nil) {
+        public init(
+            start: Double, end: Double, text: String, confidence: Double? = nil,
+            noSpeechProb: Double? = nil, compressionRatio: Double? = nil
+        ) {
             self.start = start
             self.end = end
             self.text = text
             self.confidence = confidence
+            self.noSpeechProb = noSpeechProb
+            self.compressionRatio = compressionRatio
         }
     }
 
@@ -109,7 +118,9 @@ extension Engine {
                 start: seg.start,
                 end: seg.end,
                 text: seg.text,
-                confidence: seg.confidence
+                confidence: seg.confidence,
+                noSpeechProb: seg.noSpeechProb,
+                compressionRatio: seg.compressionRatio
             )
         }
         let text = segments.map(\.text).joined().trimmingCharacters(in: .whitespacesAndNewlines)

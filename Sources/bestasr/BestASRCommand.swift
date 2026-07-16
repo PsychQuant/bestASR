@@ -106,8 +106,25 @@ struct Transcribe: AsyncParsableCommand {
     @Flag(help: "Label each cue with an acoustic speaker (SPEAKER_1…); downloads CoreML diarization models on first use")
     var diarize = false
 
-    @Option(help: "Strip decoder hallucinations before writing: off | denylist (default denylist)")
+    @Option(help: "Strip decoder hallucinations before writing: off | denylist | full (confidence-gated, WhisperKit signals; default denylist)")
     var hallucinationFilter: HallucinationFilterMode = .denylist
+
+    @Option(help: "Decode knob (WhisperKit only): mark segments above this no-speech probability as silence (default: WhisperKit's)")
+    var noSpeechThreshold: Double?
+
+    @Option(help: "Decode knob (WhisperKit only): treat segments above this compression ratio as failed/repetitive (default: WhisperKit's)")
+    var compressionRatioThreshold: Double?
+
+    // parsing: .unconditional — the meaningful domain is all-negative (it's a
+    // log-prob floor), and ArgumentParser's default strategy rejects a leading
+    // dash ("--logprob-threshold -1.0" → 'Missing value'). Unconditional
+    // consumes the next token as the value (verify #101 HIGH).
+    @Option(
+        parsing: .unconditional,
+        help:
+            "Decode knob (WhisperKit only): average-logprob floor below which a segment decode is retried/marked (negative, e.g. -1.0; default: WhisperKit's). Note: with --decode-deterministic, threshold trips mark/skip segments instead of triggering a fallback retry"
+    )
+    var logprobThreshold: Double?
 
     func run() async throws {
         try await runMapped {
@@ -117,7 +134,10 @@ struct Transcribe: AsyncParsableCommand {
                 formatName: format,
                 outputPath: output,
                 diarize: diarize,
-                hallucinationFilter: hallucinationFilter
+                hallucinationFilter: hallucinationFilter,
+                noSpeechThreshold: noSpeechThreshold,
+                compressionRatioThreshold: compressionRatioThreshold,
+                logProbThreshold: logprobThreshold
             )
             print("Wrote \(result.format) transcript to \(result.outputPath)")
             if explain {

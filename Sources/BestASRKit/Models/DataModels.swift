@@ -81,16 +81,28 @@ public struct TranscribeOptions: Sendable, Equatable {
     /// needs reproducibility more than the occasional rescue; normal
     /// transcription keeps the fallback.
     public let deterministicDecode: Bool
+    /// WhisperKit decode-param knobs (#101): nil rides WhisperKit's own
+    /// defaults. Other backends never read these — the knobs suppress
+    /// hallucinations at decode time and only WhisperKit's decoder has them
+    /// (complementary to the backend-agnostic post-decode filter, #98/#100).
+    public let noSpeechThreshold: Double?
+    public let compressionRatioThreshold: Double?
+    public let logProbThreshold: Double?
 
     public init(
         model: String, quantization: String, language: String? = nil, prompt: String? = nil,
-        deterministicDecode: Bool = false
+        deterministicDecode: Bool = false,
+        noSpeechThreshold: Double? = nil, compressionRatioThreshold: Double? = nil,
+        logProbThreshold: Double? = nil
     ) {
         self.model = model
         self.quantization = quantization
         self.language = language
         self.prompt = prompt
         self.deterministicDecode = deterministicDecode
+        self.noSpeechThreshold = noSpeechThreshold
+        self.compressionRatioThreshold = compressionRatioThreshold
+        self.logProbThreshold = logProbThreshold
     }
 }
 
@@ -100,6 +112,13 @@ public struct TranscriptSegment: Sendable, Equatable {
     public let end: Double
     public let text: String
     public let confidence: Double?
+    /// Whisper per-segment hallucination signals (#100): probability the
+    /// segment is silence, and the text's gzip compression ratio (repetition
+    /// marker). nil when the backend does not compute them (whisper.cpp /
+    /// Parakeet) — a nil signal can never trip the `full` filter's thresholds,
+    /// which is exactly the per-backend degradation the spec asks for.
+    public let noSpeechProb: Double?
+    public let compressionRatio: Double?
     /// Cue-level diarization label (`SPEAKER_1`-based, order of first appearance;
     /// #25). nil when diarization did not run or no turn overlapped this segment
     /// — absent means "unknown", never a fabricated speaker (spec diarization).
@@ -107,6 +126,7 @@ public struct TranscriptSegment: Sendable, Equatable {
 
     public init(
         id: Int, start: Double, end: Double, text: String, confidence: Double? = nil,
+        noSpeechProb: Double? = nil, compressionRatio: Double? = nil,
         speaker: String? = nil
     ) {
         self.id = id
@@ -114,6 +134,8 @@ public struct TranscriptSegment: Sendable, Equatable {
         self.end = end
         self.text = text
         self.confidence = confidence
+        self.noSpeechProb = noSpeechProb
+        self.compressionRatio = compressionRatio
         self.speaker = speaker
     }
 
@@ -121,6 +143,7 @@ public struct TranscriptSegment: Sendable, Equatable {
     public func withSpeaker(_ speaker: String?) -> TranscriptSegment {
         TranscriptSegment(
             id: id, start: start, end: end, text: text, confidence: confidence,
+            noSpeechProb: noSpeechProb, compressionRatio: compressionRatio,
             speaker: speaker)
     }
 }

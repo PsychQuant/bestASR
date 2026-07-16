@@ -286,7 +286,10 @@ public struct CommandCore: Sendable {
         formatName: String,
         outputPath: String?,
         diarize: Bool = false,
-        hallucinationFilter: HallucinationFilterMode = .denylist
+        hallucinationFilter: HallucinationFilterMode = .denylist,
+        noSpeechThreshold: Double? = nil,
+        compressionRatioThreshold: Double? = nil,
+        logProbThreshold: Double? = nil
     ) async throws -> TranscribeOutcome {
         let format = try TranscriptWriter.format(named: formatName)
         let audio = try AudioProber.probe(
@@ -301,7 +304,10 @@ public struct CommandCore: Sendable {
             audioPath: audio.path,
             options: TranscribeOptions(
                 model: rec.model, quantization: rec.quantization,
-                language: audio.language, prompt: context?.rendered.prompt)
+                language: audio.language, prompt: context?.rendered.prompt,
+                noSpeechThreshold: noSpeechThreshold,
+                compressionRatioThreshold: compressionRatioThreshold,
+                logProbThreshold: logProbThreshold)
         )
 
         // Cue-level diarization (#25, spec diarization): acoustic turns from the
