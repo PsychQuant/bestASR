@@ -53,15 +53,27 @@ public struct HallucinationDenylist: Sendable {
         return String(String.UnicodeScalarView(kept)).lowercased()
     }
 
-    /// A cue is a hallucination when its normalized text CONTAINS a normalized
-    /// denylist phrase. Containment (not equality) because the boilerplate is
-    /// usually the whole cue but may carry a short leading/trailing fragment.
+    /// Minimum share of the cue (by normalized character length) that a denylist
+    /// phrase must cover for the cue to count as a hallucination. Containment
+    /// alone would let a short outro phrase nuke a long real sentence that merely
+    /// mentions it; requiring the phrase to *dominate* the cue keeps genuine
+    /// speech while still tolerating leading/trailing decoder filler around the
+    /// boilerplate. Biased toward precision because this filter is on by default.
+    static let coverageThreshold = 0.6
+
+    /// A cue is a hallucination when its normalized text contains a normalized
+    /// denylist phrase AND that phrase covers at least `coverageThreshold` of the
+    /// cue. Not plain equality — Whisper often prepends filler ("嗯", punctuation)
+    /// to the boilerplate — and not plain containment — that drops real sentences
+    /// that happen to include a short outro phrase.
     public func matches(_ text: String) -> Bool {
         let needle = Self.normalize(text)
         guard !needle.isEmpty else { return false }
+        let needleCount = needle.count
         return phrases.contains { phrase in
             let candidate = Self.normalize(phrase)
-            return !candidate.isEmpty && needle.contains(candidate)
+            guard !candidate.isEmpty, needle.contains(candidate) else { return false }
+            return Double(candidate.count) >= Double(needleCount) * Self.coverageThreshold
         }
     }
 }

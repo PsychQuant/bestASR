@@ -47,6 +47,18 @@ struct HallucinationFilterTests {
         #expect(out.segments.map(\.text) == input.segments.map(\.text))
     }
 
+    // (b2) A short boilerplate phrase embedded in a longer real sentence is
+    // NOT dropped — the phrase must dominate the cue, not merely appear in it.
+    // Guards default-on silent data loss of genuine speech.
+    @Test func `boilerplate embedded in a longer sentence is retained`() {
+        let input = make([
+            seg(1, "非常感謝觀看今天我們展覽的每一位貴賓"), // contains 感謝觀看 as a fragment
+            seg(2, "感謝觀看"),                          // standalone boilerplate → dropped
+        ])
+        let out = HallucinationFilter.filter(input, mode: .denylist)
+        #expect(out.segments.map(\.text) == ["非常感謝觀看今天我們展覽的每一位貴賓"])
+    }
+
     // (c) `.off` is an exact pass-through: same cues, ids, and flat text.
     @Test func `off mode passes through unchanged`() {
         let input = make([
