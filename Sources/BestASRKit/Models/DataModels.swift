@@ -81,16 +81,28 @@ public struct TranscribeOptions: Sendable, Equatable {
     /// needs reproducibility more than the occasional rescue; normal
     /// transcription keeps the fallback.
     public let deterministicDecode: Bool
+    /// WhisperKit decode-param knobs (#101): nil rides WhisperKit's own
+    /// defaults. Other backends never read these — the knobs suppress
+    /// hallucinations at decode time and only WhisperKit's decoder has them
+    /// (complementary to the backend-agnostic post-decode filter, #98/#100).
+    public let noSpeechThreshold: Double?
+    public let compressionRatioThreshold: Double?
+    public let logProbThreshold: Double?
 
     public init(
         model: String, quantization: String, language: String? = nil, prompt: String? = nil,
-        deterministicDecode: Bool = false
+        deterministicDecode: Bool = false,
+        noSpeechThreshold: Double? = nil, compressionRatioThreshold: Double? = nil,
+        logProbThreshold: Double? = nil
     ) {
         self.model = model
         self.quantization = quantization
         self.language = language
         self.prompt = prompt
         self.deterministicDecode = deterministicDecode
+        self.noSpeechThreshold = noSpeechThreshold
+        self.compressionRatioThreshold = compressionRatioThreshold
+        self.logProbThreshold = logProbThreshold
     }
 }
 

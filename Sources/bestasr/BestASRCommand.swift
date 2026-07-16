@@ -109,6 +109,15 @@ struct Transcribe: AsyncParsableCommand {
     @Option(help: "Strip decoder hallucinations before writing: off | denylist | full (confidence-gated, WhisperKit signals; default denylist)")
     var hallucinationFilter: HallucinationFilterMode = .denylist
 
+    @Option(help: "Decode knob (WhisperKit only): mark segments above this no-speech probability as silence (default: WhisperKit's)")
+    var noSpeechThreshold: Double?
+
+    @Option(help: "Decode knob (WhisperKit only): treat segments above this compression ratio as failed/repetitive (default: WhisperKit's)")
+    var compressionRatioThreshold: Double?
+
+    @Option(help: "Decode knob (WhisperKit only): average-logprob floor below which a segment decode is retried/marked (default: WhisperKit's)")
+    var logprobThreshold: Double?
+
     func run() async throws {
         try await runMapped {
             let result = try await CommandCore.live().transcribe(
@@ -117,7 +126,10 @@ struct Transcribe: AsyncParsableCommand {
                 formatName: format,
                 outputPath: output,
                 diarize: diarize,
-                hallucinationFilter: hallucinationFilter
+                hallucinationFilter: hallucinationFilter,
+                noSpeechThreshold: noSpeechThreshold,
+                compressionRatioThreshold: compressionRatioThreshold,
+                logProbThreshold: logprobThreshold
             )
             print("Wrote \(result.format) transcript to \(result.outputPath)")
             if explain {
