@@ -10,6 +10,12 @@ public enum HallucinationFilterMode: String, Sendable, CaseIterable {
     /// adjacent-duplicate cues. Backend-agnostic; the denylist content is
     /// Whisper-family, so it is a no-op for backends that never emit it.
     case denylist
+    /// Everything `denylist` does, plus confidence-gated drops on Whisper's
+    /// per-segment signals (#100): the joint silence rule (noSpeechProb AND
+    /// avgLogprob past threshold, openai-whisper semantics) and the repetition
+    /// rule (compressionRatio past threshold). Backends that don't populate the
+    /// signals degrade to `denylist` behavior — nil never trips a threshold.
+    case full
 }
 
 /// Post-decode cleanup pass. A pure function over a `Transcript` that never
@@ -19,6 +25,26 @@ public enum HallucinationFilterMode: String, Sendable, CaseIterable {
 /// diarization, which makes it backend-agnostic and preserves speaker labels on
 /// the cues that survive.
 public enum HallucinationFilter {
+    /// Whisper's canonical thresholds (openai/whisper defaults). The silence
+    /// rule is deliberately a conjunction — a high no-speech probability alone
+    /// (or a low logprob alone) also occurs on quiet-but-real speech.
+    static let noSpeechThreshold = 0.6
+    static let logProbThreshold = -1.0
+    static let compressionRatioThreshold = 2.4
+
+    /// True when the segment's confidence signals mark it as a hallucination
+    /// (`full` mode only). nil signals never trip a rule.
+    static func isConfidenceFlagged(_ segment: TranscriptSegment) -> Bool {
+        if let noSpeech = segment.noSpeechProb, let logProb = segment.confidence,
+            noSpeech > noSpeechThreshold, logProb < logProbThreshold {
+            return true
+        }
+        if let compression = segment.compressionRatio, compression > compressionRatioThreshold {
+            return true
+        }
+        return false
+    }
+
     /// Return `transcript` with hallucination cues removed per `mode`.
     /// A no-op (`mode == .off`, or nothing matched) returns the input untouched
     /// so ids and flat text stay byte-identical.
@@ -36,6 +62,8 @@ public enum HallucinationFilter {
             if trimmed.isEmpty { continue }
             // Known-boilerplate hallucination.
             if denylist.matches(segment.text) { continue }
+            // Confidence-gated drop (full mode only, #100).
+            if mode == .full, isConfidenceFlagged(segment) { continue }
             // Adjacent exact-duplicate cue (rolling caption / token echo).
             if let previous = kept.last,
                 previous.text.trimmingCharacters(in: .whitespacesAndNewlines) == trimmed {
@@ -54,7 +82,9 @@ public enum HallucinationFilter {
         let reindexed = kept.enumerated().map { index, segment in
             TranscriptSegment(
                 id: index + 1, start: segment.start, end: segment.end,
-                text: segment.text, confidence: segment.confidence, speaker: segment.speaker)
+                text: segment.text, confidence: segment.confidence,
+                noSpeechProb: segment.noSpeechProb, compressionRatio: segment.compressionRatio,
+                speaker: segment.speaker)
         }
         let rebuiltText = reindexed.map(\.text).joined()
             .trimmingCharacters(in: .whitespacesAndNewlines)

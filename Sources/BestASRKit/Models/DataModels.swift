@@ -100,6 +100,13 @@ public struct TranscriptSegment: Sendable, Equatable {
     public let end: Double
     public let text: String
     public let confidence: Double?
+    /// Whisper per-segment hallucination signals (#100): probability the
+    /// segment is silence, and the text's gzip compression ratio (repetition
+    /// marker). nil when the backend does not compute them (whisper.cpp /
+    /// Parakeet) — a nil signal can never trip the `full` filter's thresholds,
+    /// which is exactly the per-backend degradation the spec asks for.
+    public let noSpeechProb: Double?
+    public let compressionRatio: Double?
     /// Cue-level diarization label (`SPEAKER_1`-based, order of first appearance;
     /// #25). nil when diarization did not run or no turn overlapped this segment
     /// — absent means "unknown", never a fabricated speaker (spec diarization).
@@ -107,6 +114,7 @@ public struct TranscriptSegment: Sendable, Equatable {
 
     public init(
         id: Int, start: Double, end: Double, text: String, confidence: Double? = nil,
+        noSpeechProb: Double? = nil, compressionRatio: Double? = nil,
         speaker: String? = nil
     ) {
         self.id = id
@@ -114,6 +122,8 @@ public struct TranscriptSegment: Sendable, Equatable {
         self.end = end
         self.text = text
         self.confidence = confidence
+        self.noSpeechProb = noSpeechProb
+        self.compressionRatio = compressionRatio
         self.speaker = speaker
     }
 
@@ -121,6 +131,7 @@ public struct TranscriptSegment: Sendable, Equatable {
     public func withSpeaker(_ speaker: String?) -> TranscriptSegment {
         TranscriptSegment(
             id: id, start: start, end: end, text: text, confidence: confidence,
+            noSpeechProb: noSpeechProb, compressionRatio: compressionRatio,
             speaker: speaker)
     }
 }

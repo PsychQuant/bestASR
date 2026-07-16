@@ -106,7 +106,7 @@ struct Transcribe: AsyncParsableCommand {
     @Flag(help: "Label each cue with an acoustic speaker (SPEAKER_1…); downloads CoreML diarization models on first use")
     var diarize = false
 
-    @Option(help: "Strip decoder hallucinations before writing: off | denylist (default denylist)")
+    @Option(help: "Strip decoder hallucinations before writing: off | denylist | full (confidence-gated, WhisperKit signals; default denylist)")
     var hallucinationFilter: HallucinationFilterMode = .denylist
 
     func run() async throws {

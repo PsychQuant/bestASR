@@ -151,7 +151,9 @@ public struct WhisperKitEngine: Engine {
                 start: Double(seg.start),
                 end: Double(seg.end),
                 text: seg.text,
-                confidence: Double(seg.avgLogprob)
+                confidence: Double(seg.avgLogprob),
+                noSpeechProb: Double(seg.noSpeechProb),
+                compressionRatio: Double(seg.compressionRatio)
             )
         }
         return RawTranscription(
