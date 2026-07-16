@@ -390,6 +390,27 @@ context-ingest skill's rules exclude it, and the only reader is the local
 `--diarize` run. (These are the enforced mechanisms; bestASR cannot govern
 what other tools on your machine do with the files.)
 
+### Hallucination filtering (silent-segment boilerplate)
+
+Whisper-family models hallucinate over silent / music segments — the decoder
+emits plausible-looking boilerplate with no speech behind it (the classic case
+is a YouTube-style "please like & subscribe" outro appearing verbatim over
+silence). bestASR strips these **before writing the transcript**, so `srt` /
+`txt` / `json` / `vtt` come out clean without a downstream proofread pass.
+
+```bash
+bestasr transcribe meeting.m4a --format srt                        # cleaned by default
+bestasr transcribe meeting.m4a --format srt --hallucination-filter off   # raw output
+```
+
+The filter is backend-agnostic (it runs at the single output choke point, after
+diarization, so speaker labels are preserved). In `denylist` mode — the default
+— it drops cues matching a curated known-boilerplate list, plus empty and
+adjacent-duplicate cues. The denylist content is Whisper-family, so it is a
+harmless no-op for backends that never emit those strings. Pass
+`--hallucination-filter off` (CLI) or `hallucination_filter: "off"` (the MCP
+`transcribe` tool) to disable it.
+
 ### Transcribe any source (agent skill)
 
 `bestasr transcribe` takes a local audio file. The **`transcript` agent skill**
