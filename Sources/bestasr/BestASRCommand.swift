@@ -25,6 +25,12 @@ struct BestASR: AsyncParsableCommand {
     )
 }
 
+// The library enum is ArgumentParser-free (BestASRKit has no such dependency);
+// the CLI adds the conformance here. RawValue is String, so ArgumentParser
+// derives `init?(argument:)` and lists the cases (off | denylist) in --help.
+// (Same package as the enum, so no @retroactive.)
+extension HallucinationFilterMode: ExpressibleByArgument {}
+
 // Command handlers delegate to BestASRKit.CommandCore (design D1: the executable
 // stays a thin argument-parsing shell; behavior lives in the library where the
 // test target can reach it).
@@ -100,6 +106,9 @@ struct Transcribe: AsyncParsableCommand {
     @Flag(help: "Label each cue with an acoustic speaker (SPEAKER_1…); downloads CoreML diarization models on first use")
     var diarize = false
 
+    @Option(help: "Strip decoder hallucinations before writing: off | denylist (default denylist)")
+    var hallucinationFilter: HallucinationFilterMode = .denylist
+
     func run() async throws {
         try await runMapped {
             let result = try await CommandCore.live().transcribe(
@@ -107,7 +116,8 @@ struct Transcribe: AsyncParsableCommand {
                 selection: selection.resolved(),
                 formatName: format,
                 outputPath: output,
-                diarize: diarize
+                diarize: diarize,
+                hallucinationFilter: hallucinationFilter
             )
             print("Wrote \(result.format) transcript to \(result.outputPath)")
             if explain {

@@ -73,6 +73,12 @@ public actor BestASRMCPServer {
                             "type": .string("boolean"),
                             "description": .string("Label cues with acoustic speakers"),
                         ]),
+                        "hallucination_filter": .object([
+                            "type": .string("string"),
+                            "description": .string(
+                                "Strip decoder hallucinations before writing: "
+                                    + "off | denylist (default denylist)"),
+                        ]),
                         "context_dir": .object([
                             "type": .string("string"),
                             "description": .string(
@@ -268,6 +274,19 @@ public actor BestASRMCPServer {
                 ?? FileManager.default.temporaryDirectory
                     .appendingPathComponent("bestasr-mcp-\(UUID().uuidString).\(format)").path
             let diarize = args["diarize"]?.boolValue ?? false
+            // Parse the filter mode outside the gate too — an unknown value is a
+            // usage error that should fail fast, not queue behind a transcription.
+            let hallucinationFilter: HallucinationFilterMode
+            if let raw = args["hallucination_filter"]?.stringValue {
+                guard let mode = HallucinationFilterMode(rawValue: raw) else {
+                    throw BestASRError.usage(
+                        "unknown hallucination_filter: '\(raw)'; valid values are "
+                            + HallucinationFilterMode.allCases.map(\.rawValue).joined(separator: ", "))
+                }
+                hallucinationFilter = mode
+            } else {
+                hallucinationFilter = .denylist
+            }
             let isAsync = args["async"]?.boolValue ?? false
             let core = self.core
             let gate = self.transcribeGate
@@ -281,7 +300,8 @@ public actor BestASRMCPServer {
                         selection: selection,
                         formatName: format,
                         outputPath: output,
-                        diarize: diarize
+                        diarize: diarize,
+                        hallucinationFilter: hallucinationFilter
                     )
                     // Clean up only the temp file WE created (output_path omitted);
                     // a caller-supplied path is theirs to keep (F3). Runs after

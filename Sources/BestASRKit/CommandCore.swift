@@ -285,7 +285,8 @@ public struct CommandCore: Sendable {
         selection: SelectionRequest,
         formatName: String,
         outputPath: String?,
-        diarize: Bool = false
+        diarize: Bool = false,
+        hallucinationFilter: HallucinationFilterMode = .denylist
     ) async throws -> TranscribeOutcome {
         let format = try TranscriptWriter.format(named: formatName)
         let audio = try AudioProber.probe(
@@ -381,6 +382,11 @@ public struct CommandCore: Sendable {
                 model: transcript.model,
                 segments: zip(transcript.segments, labels).map { $0.withSpeaker($1) })
         }
+
+        // Strip decoder hallucinations (silent-segment boilerplate, empty /
+        // duplicate cues) before writing. Backend-agnostic and post-diarization,
+        // so speaker labels on surviving cues are preserved (#98).
+        finalTranscript = HallucinationFilter.filter(finalTranscript, mode: hallucinationFilter)
 
         let destination = outputPath ?? Self.derivedOutputPath(audioPath: audioPath, format: format)
         try TranscriptWriter.write(finalTranscript, to: destination, format: format)

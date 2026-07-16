@@ -5,6 +5,26 @@ All notable changes to bestASR are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **Hallucination filter (#98)**: a backend-agnostic post-decode pass that strips
+  known ASR hallucinations — silent-segment boilerplate (the Whisper-family
+  "please like & subscribe" outros that surface verbatim over silence), empty
+  cues, and adjacent exact-duplicate cues — before the transcript is written.
+  New `--hallucination-filter <off|denylist>` on the CLI and `hallucination_filter`
+  on the MCP `transcribe` tool. Applied at the single `CommandCore.transcribe`
+  choke point, after diarization, so speaker labels on surviving cues are kept.
+  The denylist content is Whisper-family, so it is a no-op for backends that
+  never emit those strings.
+
+### Changed
+
+- **Transcripts are cleaned by default (#98)**: transcription now runs the
+  hallucination filter in `denylist` mode by default, so known boilerplate no
+  longer reaches the output (`srt`/`txt`/`json`/`vtt`) and downstream
+  `srt-proofread` no longer has to strip it. Pass `--hallucination-filter off`
+  (CLI) or `hallucination_filter: "off"` (MCP) to restore the raw output.
+
 ## [0.12.0] - 2026-07-10
 
 ### Added
