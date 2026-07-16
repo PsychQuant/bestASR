@@ -69,6 +69,9 @@ let package = Package(
                 "BestASRKit",
                 "BestASRMCPCore",
                 "BestASRGUICore",
+                // CLI parse regression tests (#101: ArgumentParser negative-value
+                // form) — SwiftPM links executable targets into tests since 5.5.
+                "bestasr",
                 .product(name: "WhisperKit", package: "WhisperKit"),
             ],
             swiftSettings: [.swiftLanguageMode(.v5)]

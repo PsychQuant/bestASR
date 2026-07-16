@@ -418,9 +418,11 @@ and the repetition rule (`compression_ratio > 2.4`). WhisperKit populates the
 signals; backends that don't (whisper.cpp, Parakeet) sail through untouched, so
 `full` degrades to `denylist` per backend automatically.
 
-Complementary decode-side knobs (WhisperKit only) suppress hallucinations at
-the source instead of filtering them afterwards — unset, they ride WhisperKit's
-own defaults:
+Complementary decode-side knobs (WhisperKit only; CLI-only for now — the MCP
+tool and GUI don't expose them) suppress hallucinations at the source instead
+of filtering them afterwards — unset, they ride WhisperKit's own defaults. With
+`--decode-deterministic` (no fallback retries), aggressive thresholds mark or
+skip segments outright instead of triggering a re-decode:
 
 ```bash
 bestasr transcribe meeting.m4a \
