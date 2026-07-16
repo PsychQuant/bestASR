@@ -5,6 +5,20 @@ All notable changes to bestASR are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **Confidence-gated hallucination filtering (#100)**: `--hallucination-filter
+  full` drops cues by Whisper's per-segment signals — the joint silence rule
+  (`no_speech_prob > 0.6` AND `avg_logprob < -1.0`) and the repetition rule
+  (`compression_ratio > 2.4`) — on top of the denylist. Backends that don't
+  compute the signals (whisper.cpp, Parakeet) degrade to `denylist`
+  automatically; output formats unchanged.
+- **WhisperKit decode-param knobs (#101)**: `--no-speech-threshold`,
+  `--compression-ratio-threshold`, `--logprob-threshold` (WhisperKit only;
+  unset rides WhisperKit's own defaults) suppress hallucinations at decode
+  time, complementing the post-decode filter. Negative values parse in space
+  form (`--logprob-threshold -1.0`).
+
 ## [0.13.0] - 2026-07-16
 
 ### Added
