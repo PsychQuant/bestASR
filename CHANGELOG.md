@@ -5,6 +5,8 @@ All notable changes to bestASR are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-07-16
+
 ### Added
 
 - **Hallucination filter (#98)**: a backend-agnostic post-decode pass that strips
