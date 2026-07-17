@@ -5,6 +5,8 @@ All notable changes to bestASR are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-07-17
+
 ### Added
 
 - **Confidence-gated hallucination filtering (#100)**: `--hallucination-filter
