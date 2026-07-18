@@ -21,6 +21,7 @@ struct BestASR: AsyncParsableCommand {
             ListBackends.self,
             ListModels.self,
             Corpus.self,
+            Bench.self,
         ]
     )
 }
@@ -280,7 +281,7 @@ struct SelectionOptions: ParsableArguments {
 struct Corpus: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         abstract: "Manage ground-truth corpora for benchmarking",
-        subcommands: [Add.self, List.self]
+        subcommands: [Add.self, List.self, Pull.self, Contribute.self]
     )
 
     struct Add: AsyncParsableCommand {
