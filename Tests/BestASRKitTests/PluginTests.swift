@@ -33,8 +33,10 @@ struct PluginTests {
     @Test func `Plugin packages exactly its shipped skills`() {
         let skillsDir = Self.repoRoot.appendingPathComponent("plugins/bestasr/skills")
         let entries = (try? FileManager.default.contentsOfDirectory(atPath: skillsDir.path)) ?? []
-        // transcript added in #31 (any source → SRT via bestASR ASR).
-        #expect(Set(entries) == Set(["context-ingest", "srt-proofread", "transcript"]))
+        // transcript added in #31 (any source → SRT via bestASR ASR);
+        // bench-contribute added for the community benchmark (Phase 1 Plan 3).
+        #expect(Set(entries)
+            == Set(["context-ingest", "srt-proofread", "transcript", "bench-contribute"]))
         for skill in entries {
             let skillFile = skillsDir.appendingPathComponent("\(skill)/SKILL.md")
             #expect(FileManager.default.fileExists(atPath: skillFile.path), "missing \(skill)/SKILL.md")
