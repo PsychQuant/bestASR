@@ -54,15 +54,22 @@ public struct ChineseFamilyEngine: Engine {
     let probeDuration: @Sendable (String) throws -> TimeInterval
     let pipelineFactory: @Sendable (String) async throws -> any TextTranscribing
     let pipelines = CreateOnceStore<any TextTranscribing>()
+    /// #106: per-call sample window of a fixed-window backend, in seconds
+    /// (max) and the backend's floor (min). nil = the backend takes whole
+    /// files (paraformer today). SenseVoice: 0.2–30 s per call — longer
+    /// input hard-fails inside the CoreML graph, so the engine slices.
+    let windowLimit: (max: Double, min: Double)?
 
     init(
         id: BackendID,
         probeDuration: @escaping @Sendable (String) throws -> TimeInterval,
-        pipelineFactory: @escaping @Sendable (String) async throws -> any TextTranscribing
+        pipelineFactory: @escaping @Sendable (String) async throws -> any TextTranscribing,
+        windowLimit: (max: Double, min: Double)? = nil
     ) {
         self.id = id
         self.probeDuration = probeDuration
         self.pipelineFactory = pipelineFactory
+        self.windowLimit = windowLimit
     }
 
     public static func paraformer() -> ChineseFamilyEngine {
@@ -80,7 +87,10 @@ public struct ChineseFamilyEngine: Engine {
             probeDuration: Self.probedDuration,
             pipelineFactory: { _ in
                 FluidAudioSenseVoicePipeline(manager: try await SenseVoiceManager.load())
-            })
+            },
+            // #106: SenseVoice's CoreML graph accepts 3 200–480 000 samples
+            // (0.2–30 s at the 16 kHz the engine seam guarantees) per call.
+            windowLimit: (max: 30.0, min: 0.2))
     }
 
     private static func probedDuration(_ audioPath: String) throws -> TimeInterval {
@@ -108,6 +118,54 @@ public struct ChineseFamilyEngine: Engine {
             )
         }
 
+        let duration = (try? probeDuration(audioPath)) ?? 0
+
+        // #106: a fixed-window backend never sees more than its per-call
+        // ceiling — longer input is sliced into windows, each transcribed
+        // separately, each becoming a segment with its REAL window times
+        // (an improvement over the former single full-duration cue).
+        if let windowLimit, duration > windowLimit.max {
+            let windows: [AudioWindower.Window]
+            do {
+                windows = try AudioWindower.slice(
+                    audioPath: audioPath,
+                    maxSeconds: windowLimit.max, minSeconds: windowLimit.min)
+            } catch {
+                throw TranscriptionError(
+                    backend: id.rawValue,
+                    message: "windowing \(audioPath) failed: \(error.localizedDescription)",
+                    underlying: error
+                )
+            }
+            defer { AudioWindower.cleanup(windows) }
+
+            var segments: [RawTranscription.RawSegment] = []
+            for window in windows {
+                let text: String
+                do {
+                    text = try await pipe.transcribe(
+                        audioPath: window.path, language: options.language)
+                } catch {
+                    throw TranscriptionError(
+                        backend: id.rawValue,
+                        message: String(
+                            format: "%@ (window %.1f–%.1fs): %@",
+                            audioPath, window.start, window.end, error.localizedDescription),
+                        underlying: error
+                    )
+                }
+                let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmed.isEmpty {
+                    segments.append(
+                        .init(
+                            start: window.start, end: window.end,
+                            text: trimmed, confidence: nil))
+                }
+            }
+            return RawTranscription(
+                segments: segments, language: options.language, duration: duration)
+        }
+
         let text: String
         do {
             text = try await pipe.transcribe(audioPath: audioPath, language: options.language)
@@ -119,7 +177,6 @@ public struct ChineseFamilyEngine: Engine {
             )
         }
 
-        let duration = (try? probeDuration(audioPath)) ?? 0
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         let segments: [RawTranscription.RawSegment] =
             trimmed.isEmpty
