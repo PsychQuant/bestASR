@@ -23,6 +23,9 @@ public struct CommandCore: Sendable {
     let enroller: @Sendable (String) async throws -> [Float]?
     let dynamicHost: @Sendable () -> DynamicHostState
     let probe: MeasurementProbe
+    /// #105: detects the audio's language when `--language auto` resolved to
+    /// nil, so routing never falls back to language-agnostic ranking silently.
+    let languageDetector: any AudioLanguageDetecting
 
     public init(
         engines: [any Engine],
@@ -35,7 +38,8 @@ public struct CommandCore: Sendable {
         enroller: @escaping @Sendable (String) async throws -> [Float]? = {
             try await SpeakerEnroller().embedding(for: $0)
         },
-        dynamicHost: @escaping @Sendable () -> DynamicHostState = { .probe() }
+        dynamicHost: @escaping @Sendable () -> DynamicHostState = { .probe() },
+        languageDetector: any AudioLanguageDetecting = WhisperKitLanguageDetector()
     ) {
         self.engines = engines
         self.detect = detect
@@ -44,6 +48,7 @@ public struct CommandCore: Sendable {
         self.enroller = enroller
         self.dynamicHost = dynamicHost
         self.probe = probe
+        self.languageDetector = languageDetector
     }
 
     /// The production wiring: real engines, real detection, real store.
@@ -247,10 +252,40 @@ public struct CommandCore: Sendable {
         return rec.prepending(reasons: resolved.reasons)
     }
 
+    /// #105: `--language auto` used to rank language-agnostically (English-
+    /// biased in practice — parakeet's flattering en record won a mixed pool
+    /// for zh audio). With no resolved language, detect it from the audio
+    /// first; on failure fall back to nil ranking with an explicit warning
+    /// instead of failing the command.
+    static let detectionUnavailableWarning =
+        "language auto-detection unavailable; ranking is language-agnostic and "
+        + "may recommend a backend that does not support the audio's language"
+
+    func resolveAutoLanguage(
+        audioPath: String, resolved: String?
+    ) async -> (language: String?, reasons: [String], warnings: [String]) {
+        if let resolved { return (resolved, [], []) }
+        do {
+            let detected = try await languageDetector.detectLanguage(audioPath: audioPath)
+            guard let base = LanguageResolver.resolve(detected) else {
+                return (nil, [], [Self.detectionUnavailableWarning])
+            }
+            return (
+                base,
+                ["detected language '\(base)' from the first 30s of audio (--language auto)"],
+                []
+            )
+        } catch {
+            return (nil, [], [Self.detectionUnavailableWarning])
+        }
+    }
+
     public func recommendJSON(audioPath: String, selection: SelectionRequest) async throws -> String {
         let audio = try AudioProber.probe(
             path: audioPath, requestedLanguage: selection.requestedLanguage)
-        var rec = try await resolveRecommendation(selection: selection, language: audio.language)
+        let lang = await resolveAutoLanguage(audioPath: audio.path, resolved: audio.language)
+        var rec = try await resolveRecommendation(selection: selection, language: lang.language)
+        rec = rec.merging(reasons: lang.reasons, warnings: lang.warnings)
         if let bundle = try loadContext(flag: selection.contextDir) {
             rec = ASRRecommendation(
                 backend: rec.backend, model: rec.model, quantization: rec.quantization,
@@ -294,7 +329,9 @@ public struct CommandCore: Sendable {
         let format = try TranscriptWriter.format(named: formatName)
         let audio = try AudioProber.probe(
             path: audioPath, requestedLanguage: selection.requestedLanguage)
-        let rec = try await resolveRecommendation(selection: selection, language: audio.language)
+        let lang = await resolveAutoLanguage(audioPath: audio.path, resolved: audio.language)
+        let rec = (try await resolveRecommendation(selection: selection, language: lang.language))
+            .merging(reasons: lang.reasons, warnings: lang.warnings)
         guard let engine = engines.first(where: { $0.id == rec.backend }) else {
             throw BestASRError.runtime("no engine registered for backend \(rec.backend.rawValue)")
         }
@@ -304,7 +341,7 @@ public struct CommandCore: Sendable {
             audioPath: audio.path,
             options: TranscribeOptions(
                 model: rec.model, quantization: rec.quantization,
-                language: audio.language, prompt: context?.rendered.prompt,
+                language: lang.language, prompt: context?.rendered.prompt,
                 noSpeechThreshold: noSpeechThreshold,
                 compressionRatioThreshold: compressionRatioThreshold,
                 logProbThreshold: logProbThreshold)

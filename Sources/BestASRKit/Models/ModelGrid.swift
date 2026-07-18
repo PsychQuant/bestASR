@@ -53,7 +53,14 @@ public enum ModelGrid {
         ModelRow(
             backend: backendFluidParakeet, family: "parakeet", size: "0.6b-v3",
             quantization: "default", hfRepo: "FluidInference/parakeet-tdt-0.6b-v3-coreml",
-            languages: ["multi"], estMemoryGB: 2.0, priority: 1, verified: true)
+            // #105: parakeet-tdt-0.6b-v3 is English + 24 European languages
+            // (NVIDIA model card) — NOT blanket multilingual. The earlier
+            // "multi" label let the router propose it for zh/ja/ko audio.
+            languages: [
+                "bg", "hr", "cs", "da", "nl", "en", "et", "fi", "fr", "de", "el", "hu",
+                "it", "lv", "lt", "mt", "pl", "pt", "ro", "sk", "sl", "es", "sv", "ru", "uk",
+            ],
+            estMemoryGB: 2.0, priority: 1, verified: true)
     ]
 
     /// Live rows for the Chinese families (#50, spec model-grid "Full-family
@@ -120,7 +127,12 @@ public enum ModelGrid {
         ModelRow(backend: backendMLXAudio, family: "parakeet", size: "0.6b",
                  quantization: "default", hfRepo: "mlx-community/parakeet-tdt-0.6b-v3",
                  hfRevision: "ed2b7e8c15f9aaa0b5772e2efb986255eaef7e15",
-                 languages: ["multi"], estMemoryGB: 1.5, priority: 1, verified: true),
+                 // #105: same parakeet-tdt-0.6b-v3 weights — European set, not "multi".
+                 languages: [
+                     "bg", "hr", "cs", "da", "nl", "en", "et", "fi", "fr", "de", "el", "hu",
+                     "it", "lv", "lt", "mt", "pl", "pt", "ro", "sk", "sl", "es", "sv", "ru", "uk",
+                 ],
+                 estMemoryGB: 1.5, priority: 1, verified: true),
         ModelRow(backend: backendMLXAudio, family: "qwen3-asr", size: "small",
                  quantization: "4bit", hfRepo: nil,
                  languages: ["multi"], estMemoryGB: 2.0, priority: 1, verified: false),

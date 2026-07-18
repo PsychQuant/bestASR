@@ -81,6 +81,13 @@ public enum Router {
                         && (lockedBackend == nil || backend == lockedBackend)
                 } == true
                 && (requestedLanguage == nil || record.language == requestedLanguage)
+                // #105 declared-language gate — AUTONOMOUS ranking only. A
+                // locked backend is the user's will and bypasses the gate
+                // (same doctrine as the quality floor); the measured return
+                // below still attaches a support warning in that case.
+                && (requestedLanguage == nil || lockedBackend != nil
+                    || Self.declaredSupport(
+                        backend: record.backend, model: record.model, language: requestedLanguage!))
                 && (modelOverride == nil || record.model == modelOverride)
         }
 
@@ -109,6 +116,16 @@ public enum Router {
                 // the record to whisperkit (#53 item 5).
                 throw BestASRError.runtime(
                     "internal: ranked record carries unknown backend '\(record.backend)'")
+            }
+            // #105: a locked backend bypassed the declared-language gate to
+            // get here — surface the support gap instead of staying silent.
+            if let requestedLanguage,
+                !Self.declaredSupport(
+                    backend: record.backend, model: record.model, language: requestedLanguage) {
+                warnings.append(
+                    "backend '\(record.backend)' model '\(record.model)' does not list "
+                        + "support for language '\(requestedLanguage)' — output quality "
+                        + "is not established")
             }
             let percent = String(format: "%.1f", record.errorRate * 100)
             let speed = String(format: "%.1f", record.timesRealtime)
@@ -191,6 +208,17 @@ public enum Router {
             model = catalogFallback
         }
 
+        // #105 declared-language check on the cold-start outcome: a locked or
+        // prior-selected backend whose catalog row does not advertise the
+        // target language ships with an explicit warning, never silently.
+        if let requestedLanguage,
+            !Self.declaredSupport(
+                backend: backend.rawValue, model: model, language: requestedLanguage) {
+            warnings.append(
+                "backend '\(backend.rawValue)' model '\(model)' does not list support "
+                    + "for language '\(requestedLanguage)' — output quality is not established")
+        }
+
         // A model address only pairs with backends whose grid lists variants
         // for it (#14; explicit mismatches like --backend whisperkit
         // --model 0.6b-v3 still fail loud here).
@@ -211,6 +239,23 @@ public enum Router {
             reason: reasons,
             warnings: warnings
         )
+    }
+
+    /// #105 declared-language gate: with a known target language, a model
+    /// whose catalog row advertises neither that language nor "multi" is not
+    /// an autonomous candidate (parakeet's European-only row must never rank
+    /// for zh). Models outside the grid fail open — the grid only catalogs
+    /// non-whisper backends, and whisper sizes are multilingual by
+    /// construction.
+    static func declaredSupport(backend: String, model: String, language: String) -> Bool {
+        guard
+            let row = ModelGrid.rows(backend: backend, priorityCeiling: nil)
+                .first(where: { $0.size == model })
+        else { return true }
+        let base = LanguageResolver.baseSubtag(language)
+        return row.languages.contains {
+            $0 == "multi" || LanguageResolver.baseSubtag($0) == base
+        }
     }
 
     /// #64 (spec asr-routing): equal-weight per-record mean per candidate

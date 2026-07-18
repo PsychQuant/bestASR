@@ -307,6 +307,17 @@ public struct ASRRecommendation: Sendable, Equatable {
             language: language, dataSource: dataSource, measured: measured,
             reason: reasons + reason, warnings: warnings)
     }
+
+    /// Copy merging extra reasons and warnings (#105: auto language-detection
+    /// notes travel on the recommendation like every other routing fact).
+    public func merging(reasons extraReasons: [String], warnings extraWarnings: [String])
+        -> ASRRecommendation {
+        guard !extraReasons.isEmpty || !extraWarnings.isEmpty else { return self }
+        return ASRRecommendation(
+            backend: backend, model: model, quantization: quantization, profile: profile,
+            language: language, dataSource: dataSource, measured: measured,
+            reason: extraReasons + reason, warnings: warnings + extraWarnings)
+    }
 }
 
 // MARK: - Router profiles
