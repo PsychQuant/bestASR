@@ -100,6 +100,10 @@ public struct CorpusRow: Codable, Sendable, Equatable {
     public let duration: Double
     public let audioPath: String
     public let referencePath: String
+    public let referenceProvenance: String?
+    public let license: String?
+    public let attribution: String?
+    public let contributor: String?
 
     enum CodingKeys: String, CodingKey {
         case corpusId = "corpus_id"
@@ -109,11 +113,15 @@ public struct CorpusRow: Codable, Sendable, Equatable {
         case duration
         case audioPath = "audio_path"
         case referencePath = "reference_path"
+        case referenceProvenance = "reference_provenance"
+        case license, attribution, contributor
     }
 
     public init(
         name: String, language: String, audioSHA256: String, referenceSHA256: String,
-        duration: Double, audioPath: String, referencePath: String
+        duration: Double, audioPath: String, referencePath: String,
+        referenceProvenance: String? = nil, license: String? = nil,
+        attribution: String? = nil, contributor: String? = nil
     ) {
         self.name = name
         self.language = language
@@ -122,6 +130,10 @@ public struct CorpusRow: Codable, Sendable, Equatable {
         self.duration = duration
         self.audioPath = audioPath
         self.referencePath = referencePath
+        self.referenceProvenance = referenceProvenance
+        self.license = license
+        self.attribution = attribution
+        self.contributor = contributor
         self.corpusId = String(audioSHA256.prefix(12))
     }
 }
