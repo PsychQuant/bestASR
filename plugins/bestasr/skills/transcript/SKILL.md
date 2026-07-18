@@ -233,3 +233,7 @@ proofread 的 per-cue diff）。逐步提示是預設；一路走完是使用者
 
 > 「幫我做個逐字稿」（沒給來源）
 > → 先問有沒有來源、在哪
+
+## 完成後：bench 貢獻提醒（TaskCreate 鉤，#106 系列 Phase 1）
+
+轉錄交付後，若這次工作產生了**新的 benchmark 量測**（例如使用者順手跑了 `bestasr benchmark`，或轉錄後做了人工校對、形成潛在 corpus 對），**`TaskCreate` 一個 task**：`Offer bench contribution for <audio>`。之後由 `bench-contribute` skill 接手：**先問使用者要不要上傳**（永不自動）。純轉錄、無量測無校對 → 不建 task，不打擾。

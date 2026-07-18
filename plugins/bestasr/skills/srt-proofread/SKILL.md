@@ -41,3 +41,7 @@ cue 14  00:03:21,400 --> 00:03:24,100
 
 輸入 cue：`00:00:01,000 --> 00:00:02,500 / 正撤說可以開始`，context names 含 `鄭澈`（alias Che）
 輸出 cue：`00:00:01,000 --> 00:00:02,500 / 鄭澈說可以開始`，diff 記 `正撤 → 鄭澈`。
+
+## 完成後：bench 貢獻提醒（TaskCreate 鉤）
+
+校對交付後，`(audio, 校正後 SRT)` 就是一筆潛在的 ground-truth corpus。**`TaskCreate` 一個 task**：`Offer bench contribution for <audio>`，讓 `bench-contribute` skill 稍後**問使用者**要不要貢獻（授權閘在該 skill；私人錄音會被擋在本機，量測數字仍可貢獻）。永不自動上傳；問過即把 task 標 completed。
