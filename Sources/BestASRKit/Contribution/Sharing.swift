@@ -8,7 +8,9 @@ import Foundation
 /// Default community targets; every CLI command takes overrides.
 public enum BenchTargets {
     public static let benchRepo = "PsychQuant/bestASR-bench"
-    public static let hfDataset = "PsychQuant/bestasr-corpus"
+    /// Maintainer's HF namespace today; an org migration is a one-line bump
+    /// (manifest hf_*_path values are namespace-relative on purpose).
+    public static let hfDataset = "che830621/bestasr-corpus"
 }
 
 /// One measurement row as published to the bench repo — MeasurementRow's
