@@ -475,8 +475,22 @@ public struct CommandCore: Sendable {
         let profile = try Self.parseProfile(profileName)
 
         // Reference problems are usage errors raised BEFORE any transcription.
-        let cues = try SRTParser.parse(fileAt: referencePath)
-        let referenceText = SRTParser.referenceText(from: cues)
+        // .srt parses as cues; anything else (the canonical corpus ships plain
+        // .txt transcripts — `corpus pull`'s "Next: bestasr benchmark" promise)
+        // reads verbatim as the reference text.
+        let referenceText: String
+        if referencePath.lowercased().hasSuffix(".srt") {
+            let cues = try SRTParser.parse(fileAt: referencePath)
+            referenceText = SRTParser.referenceText(from: cues)
+        } else {
+            let raw = try String(
+                contentsOfFile: (referencePath as NSString).expandingTildeInPath,
+                encoding: .utf8)
+            referenceText = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !referenceText.isEmpty else {
+                throw BestASRError.usage("reference file is empty: \(referencePath)")
+            }
+        }
 
         let resolvedLanguage = LanguageResolver.resolve(language)
         let metricKind =
