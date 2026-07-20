@@ -5,6 +5,14 @@ All notable changes to bestASR are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- **BREAKING — context directory renamed (#107)**: the working-directory context
+  layer moved from `./bestasr-context/` to `./.bestasr/context/`, matching the home
+  layer `~/.bestasr/context/`. The legacy `./bestasr-context/` is no longer
+  resolved. **Migration**: rename the existing directory, e.g. run
+  `mv bestasr-context .bestasr/context` in the project root.
+
 ## [0.14.0] - 2026-07-17
 
 ### Added

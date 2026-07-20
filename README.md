@@ -326,11 +326,11 @@ claude plugin marketplace add PsychQuant/bestASR
 #    then ask Claude to run the context-ingest skill on your docs folder
 
 # 2. Transcribe with context (auto-resolves --context-dir >
-#    ./bestasr-context/ > ~/.bestasr/context/) and see what got injected
+#    ./.bestasr/context/ > ~/.bestasr/context/) and see what got injected
 bestasr transcribe input.mp3 --explain
 
 # 3. Prove the biasing works on YOUR audio (± context delta columns)
-bestasr benchmark clip.wav --reference clip.srt --context-dir ./bestasr-context
+bestasr benchmark clip.wav --reference clip.srt --context-dir ./.bestasr/context
 
 # 4. Agent-side proofreading (three-axis: speaker / timestamp / text,
 #    timecodes immutable) — srt-proofread skill
@@ -367,7 +367,7 @@ Drop a short voice sample per person into a `voices/` folder inside your
 context directory — the filename becomes the label:
 
 ```
-bestasr-context/
+.bestasr/context/
   context.json
   voices/
     Alice.wav      # a few seconds of Alice speaking, alone
@@ -444,7 +444,7 @@ Claude in plain language and it drives yt-dlp / ffmpeg / `bestasr` for you.
 > "Make subtitles for ~/Movies/lecture.mp4, most accurate" → extracts audio,
 > transcribes with `--profile max`.
 > "Transcribe ~/rec/meeting.m4a with my term list and speaker labels" →
-> `--context-dir ./bestasr-context --diarize`.
+> `--context-dir ./.bestasr/context --diarize`.
 > "Make a transcript" (no source) → the skill asks what to transcribe.
 
 The skill treats every input as a "source" and branches by type: URLs and

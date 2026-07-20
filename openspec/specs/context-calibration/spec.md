@@ -8,7 +8,7 @@ TBD - created by archiving change 'context-calibration-and-marketplace'. Update 
 
 ### Requirement: Resolve the context directory by three-layer precedence
 
-The system SHALL resolve the context directory in this order, first hit wins, no merging across layers: an explicit `--context-dir` flag; a `bestasr-context` directory in the current working directory; a global `context` directory under the user's `.bestasr` home directory. The resolved location (or the absence of any) SHALL be stated in the recommendation reasons.
+The system SHALL resolve the context directory in this order, first hit wins, no merging across layers: an explicit `--context-dir` flag; a `.bestasr/context` directory in the current working directory; a global `context` directory under the user's `.bestasr` home directory. The resolved location (or the absence of any) SHALL be stated in the recommendation reasons. A legacy `bestasr-context` directory in the current working directory SHALL NOT be resolved; it is no longer a recognized layer, and its presence alone SHALL NOT inject any context.
 
 #### Scenario: Explicit flag wins over both fallback layers
 
@@ -17,40 +17,30 @@ The system SHALL resolve the context directory in this order, first hit wins, no
 
 #### Scenario: Working-directory layer wins over the global layer
 
-- **WHEN** no flag is passed and both `./bestasr-context/` and the global directory exist
-- **THEN** only `./bestasr-context/` is loaded
+- **WHEN** no flag is passed and both `./.bestasr/context/` and the global directory exist
+- **THEN** only `./.bestasr/context/` is loaded
 
 #### Scenario: No layer present means no context
 
 - **WHEN** no flag is passed and neither fallback directory exists
 - **THEN** no context is loaded and transcription behavior is unchanged
 
+#### Scenario: Legacy cwd directory is no longer resolved
+
+- **WHEN** no flag is passed and only a legacy `./bestasr-context/` directory exists, with no `./.bestasr/context/` directory and no global directory
+- **THEN** no context is loaded and transcription behavior is unchanged
+
 
 <!-- @trace
-source: context-calibration-and-marketplace
-updated: 2026-07-02
+source: unify-context-dir-naming
+updated: 2026-07-20
 code:
-  - Sources/BestASRKit/Models/DataModels.swift
-  - Tests/BestASRKitTests/PluginTests.swift
-  - Sources/BestASRKit/Context/ContextSchema.swift
+  - plugins/bestasr/skills/transcript/SKILL.md
+  - CHANGELOG.md
   - plugins/bestasr/skills/context-ingest/SKILL.md
-  - Sources/BestASRKit/Context/PromptRenderer.swift
-  - Sources/bestasr/BestASRCommand.swift
-  - Tests/BestASRKitTests/ContextTests.swift
-  - plugins/bestasr/.claude-plugin/plugin.json
-  - README.md
-  - .claude-plugin/marketplace.json
-  - Tests/BestASRKitTests/DataModelTests.swift
-  - Sources/BestASRKit/CommandCore.swift
-  - plugins/bestasr/skills/srt-proofread/SKILL.md
-  - Sources/BestASRKit/Engines/WhisperCppEngine.swift
-  - Sources/BestASRKit/Benchmark/BenchmarkReport.swift
-  - Tests/BestASRKitTests/BenchmarkTests.swift
-  - Sources/BestASRKit/Engines/WhisperKitEngine.swift
-  - Tests/BestASRKitTests/BackendEngineTests.swift
   - Sources/BestASRKit/Context/ContextLoader.swift
-  - Sources/BestASRKit/Benchmark/BenchmarkRunner.swift
-  - Tests/BestASRKitTests/CLITests.swift
+  - Tests/BestASRKitTests/ContextTests.swift
+  - README.md
 -->
 
 ---

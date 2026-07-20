@@ -54,7 +54,7 @@ struct ContextResolutionTests {
         let home = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: cwd); try? FileManager.default.removeItem(at: home) }
         try FileManager.default.createDirectory(
-            at: cwd.appendingPathComponent("bestasr-context"), withIntermediateDirectories: true)
+            at: cwd.appendingPathComponent(".bestasr/context"), withIntermediateDirectories: true)
         try FileManager.default.createDirectory(
             at: home.appendingPathComponent(".bestasr/context"), withIntermediateDirectories: true)
         let resolved = ContextLoader.resolveDirectory(flag: "/tmp/explicit-ctx", cwd: cwd, home: home)
@@ -65,7 +65,7 @@ struct ContextResolutionTests {
         let cwd = try makeTempDir()
         let home = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: cwd); try? FileManager.default.removeItem(at: home) }
-        let cwdCtx = cwd.appendingPathComponent("bestasr-context")
+        let cwdCtx = cwd.appendingPathComponent(".bestasr/context")
         try FileManager.default.createDirectory(at: cwdCtx, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(
             at: home.appendingPathComponent(".bestasr/context"), withIntermediateDirectories: true)
@@ -76,6 +76,18 @@ struct ContextResolutionTests {
         let cwd = try makeTempDir()
         let home = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: cwd); try? FileManager.default.removeItem(at: home) }
+        #expect(ContextLoader.resolveDirectory(flag: nil, cwd: cwd, home: home) == nil)
+        #expect(try ContextLoader.load(flag: nil, cwd: cwd, home: home) == nil)
+    }
+
+    @Test func `Legacy cwd directory is no longer resolved`() throws {
+        let cwd = try makeTempDir()
+        let home = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: cwd); try? FileManager.default.removeItem(at: home) }
+        // A legacy ./bestasr-context/ exists but the new ./.bestasr/context/ does not,
+        // and there is no global layer — the legacy directory must not be resolved.
+        try FileManager.default.createDirectory(
+            at: cwd.appendingPathComponent("bestasr-context"), withIntermediateDirectories: true)
         #expect(ContextLoader.resolveDirectory(flag: nil, cwd: cwd, home: home) == nil)
         #expect(try ContextLoader.load(flag: nil, cwd: cwd, home: home) == nil)
     }

@@ -46,12 +46,14 @@ public struct LoadedContext: Sendable, Equatable {
 /// Resolves and loads the context directory (spec context-calibration:
 /// Resolve the context directory by three-layer precedence; design D1/D4).
 public enum ContextLoader {
-    public static let cwdDirectoryName = "bestasr-context"
+    public static let cwdDirectoryName = ".bestasr/context"
 
     static let termListExtensions: Set<String> = ["txt", "md"]
 
     /// Three-layer resolution, first hit wins, no merging:
-    /// explicit flag > ./bestasr-context/ > ~/.bestasr/context/.
+    /// explicit flag > ./.bestasr/context/ > ~/.bestasr/context/.
+    /// The legacy ./bestasr-context/ layer was removed (breaking); migrate by
+    /// renaming the directory to ./.bestasr/context/.
     public static func resolveDirectory(
         flag: String?,
         cwd: URL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath),
