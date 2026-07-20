@@ -1,7 +1,7 @@
 import Foundation
 
 public enum BestASRVersion {
-    public static let current = "0.14.0"
+    public static let current = "0.15.0"
 }
 
 // MARK: - Backends
