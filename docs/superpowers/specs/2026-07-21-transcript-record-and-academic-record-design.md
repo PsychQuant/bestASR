@@ -68,7 +68,7 @@
 - **重點摘要**：通用、中性（A 不載入任何人格）
 - **待核清單**：低信心專名，**永不臆造**
 
-**輸出**：一份 `.md` 記錄（＋保留校對後 SRT 當機讀 provenance）。
+**輸出**：一份 `.md` 記錄（＋保留校對後 SRT 當機讀 provenance）。檔名慣例：**`<slug>_逐字稿_<date>.md`**（`<slug>` 取自來源/主題，`<date>` 為 `YYYY-MM-DD`）。
 
 **紀律**：本文近逐字、不摘要化；時間碼沿用 SRT；raw 音檔/SRT 落 job tmp 或 gitignored，**不主動 `git add`**。
 
@@ -128,5 +128,6 @@ Skill 是 instruction doc 不是 code，驗證＝四層：
 ## 待決（實作階段解）
 
 - che-local-plugins 主 repo 位置（scaffold B 時確認；目前只在 worktree 見到）。
-- A 的 `.md` 記錄檔名慣例（`<slug>_逐字稿_<date>.md`?）。
 - 版本/發布：A 動到 bestasr plugin → 走 mcp/plugin release 流程；B 動到 che-local-plugins → 該 repo 的 plugin-update。
+
+（已定：A 的 `.md` 記錄檔名慣例＝`<slug>_逐字稿_<date>.md`，見 Skill A「輸出」段。）
