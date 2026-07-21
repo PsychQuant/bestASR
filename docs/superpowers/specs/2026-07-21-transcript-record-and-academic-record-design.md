@@ -131,3 +131,20 @@ Skill 是 instruction doc 不是 code，驗證＝四層：
 - 版本/發布：A 動到 bestasr plugin → 走 mcp/plugin release 流程；B 動到 che-local-plugins → 該 repo 的 plugin-update。
 
 （已定：A 的 `.md` 記錄檔名慣例＝`<slug>_逐字稿_<date>.md`，見 Skill A「輸出」段。）
+
+## Examples
+
+### A+B 端到端 golden example：伍麗華 2026-07-20 立院質詢
+
+實際執行紀錄（2026-07-21，先於 skill 存在時手工跑），驗證 `academic-record` → `transcript-record` → `bestasr:transcript`/`srt-proofread` 鏈：
+
+1. **抓源（B）**：原給國會頻道 YouTube `Qo9QwuCpV3s` → 偵測 `is_live:true`（常駐直播端點，抓不到單場）→ pivot g0v IVOD：`日期=2026-07-20` → 篩「伍麗華Saidhai Tahovecahe」→ **Clip 170600**（10:15:40–10:25:51）。取 `video_url`(m3u8) + `transcript.whisperx`(官方稿)；`ffmpeg -vn -c:a copy` 抽 `out.m4a`（611s）。
+2. **轉錄+校對（A→bestASR）**：whisper large-v3-turbo（CER 0.7%）+ indigenous `.bestasr/context` 30 專名 biasing → SRT；opencc s2twp 簡→繁；與 IVOD whisperx 交叉比對，分歧標【待核】（中醫院/中研院、國務院/國衛院、召委/趙委…）。
+3. **記錄（A）**：產 metadata＋語者本文（伍麗華委員／陳建仁院長／陳君厚祕書長）＋deliverable 摘要＋待核清單的 `.md`。
+4. **機構層（B）**：場景化摘要抓出**兩項要求**（精準健康書面報告 1 個月內 ≈8/20；民族所×佳平部落 2 週內 ≈8/3）；歸位 `indigenous_precision_health/coordination/2026-07-20_伍麗華立院質詢/`；綁 IDD issue #1（附全文逐字稿留言、更正 YouTube 直播來源、登記第 2 項要求）—— post 前給使用者看過。
+
+**Dry-run findings**：
+
+- ✅ 鏈接完整（B→A→bestASR 名字逐字對得上）、無自呼叫。
+- ✅ 兩項 deliverable 的偵測正是 `academic-record` step 3a「質詢→要求/deadline 逐項不遺漏」要保證的（第 2 項差點漏、靠逐字稿才浮現）。
+- ⚠ **檔名 deviation**：實際檔 `逐字稿_伍麗華質詢_2026-07-20.md` 早於 `<slug>_逐字稿_<date>` 慣例定案；新記錄照慣例（`伍麗華質詢_逐字稿_2026-07-20.md`）。既有檔是否 rename 屬 indigenous repo 清理，另議（touches issue #1 路徑引用）。
