@@ -1,7 +1,7 @@
 # 設計：`transcript-record`（bestasr）＋ `academic-record`（sinica-admin）
 
 - 日期：2026-07-21
-- 狀態：設計待審（brainstorming 產出）
+- 狀態：設計已審（brainstorming 產出）；追蹤於 PsychQuant/bestASR#108
 - 作者：鄭澈 × Claude
 
 ## 動機

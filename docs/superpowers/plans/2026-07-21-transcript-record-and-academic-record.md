@@ -2,6 +2,8 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+**Tracked in:** PsychQuant/bestASR#108
+
 **Goal:** 交付兩個 compose 的 skill —— `transcript-record`（bestasr，通用逐字稿記錄引擎）與 `academic-record`（sinica-admin，引用前者的學術記錄層）—— 把口語來源變成一份歸位的 .md 逐字稿記錄。
 
 **Architecture:** 兩層。`academic-record` invoke `transcript-record` invoke `bestasr:transcript`/`srt-proofread`。A 通用（不載人格、不假設 repo）；B 疊上 IVOD 來源知識、repo 歸位、IDD 綁定、meeting-minutes chain。
