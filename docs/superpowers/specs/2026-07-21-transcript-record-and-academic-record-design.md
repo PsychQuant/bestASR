@@ -147,4 +147,4 @@ Skill 是 instruction doc 不是 code，驗證＝四層：
 
 - ✅ 鏈接完整（B→A→bestASR 名字逐字對得上）、無自呼叫。
 - ✅ 兩項 deliverable 的偵測正是 `academic-record` step 3a「質詢→要求/deadline 逐項不遺漏」要保證的（第 2 項差點漏、靠逐字稿才浮現）。
-- ⚠ **檔名 deviation**：實際檔 `逐字稿_伍麗華質詢_2026-07-20.md` 早於 `<slug>_逐字稿_<date>` 慣例定案；新記錄照慣例（`伍麗華質詢_逐字稿_2026-07-20.md`）。既有檔是否 rename 屬 indigenous repo 清理，另議（touches issue #1 路徑引用）。
+- ✅ **檔名 deviation 已修**：實際檔原名 `逐字稿_伍麗華質詢_2026-07-20.md` 早於慣例定案；已 `git mv` 成 `伍麗華質詢_逐字稿_2026-07-20.md`（符合 `<slug>_逐字稿_<date>`）並同步更新 issue #1 body 路徑引用。
