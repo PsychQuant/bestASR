@@ -34,9 +34,13 @@ struct PluginTests {
         let skillsDir = Self.repoRoot.appendingPathComponent("plugins/bestasr/skills")
         let entries = (try? FileManager.default.contentsOfDirectory(atPath: skillsDir.path)) ?? []
         // transcript added in #31 (any source → SRT via bestASR ASR);
-        // bench-contribute added for the community benchmark (Phase 1 Plan 3).
+        // bench-contribute added for the community benchmark (Phase 1 Plan 3);
+        // transcript-record added in 0.16.0 (spoken source → readable .md record).
         #expect(Set(entries)
-            == Set(["context-ingest", "srt-proofread", "transcript", "bench-contribute"]))
+            == Set([
+                "context-ingest", "srt-proofread", "transcript", "bench-contribute",
+                "transcript-record",
+            ]))
         for skill in entries {
             let skillFile = skillsDir.appendingPathComponent("\(skill)/SKILL.md")
             #expect(FileManager.default.fileExists(atPath: skillFile.path), "missing \(skill)/SKILL.md")
