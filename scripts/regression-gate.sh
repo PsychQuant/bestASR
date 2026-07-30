@@ -51,7 +51,15 @@ for e in entries:
     if corpus in seen:
         sys.exit(f"✗ gate error: duplicate corpus in baseline: {corpus}")
     seen.add(corpus)
-    print(f"{corpus}\t{e['language']}")
+    # language flows into the TSV alongside corpus (line-oriented `read` split
+    # downstream) AND into `--language "$language"` as a CLI arg. Without a
+    # charset whitelist an embedded \n forges a worklist record whose corpus
+    # field never passed the check above (#112). Same fullmatch discipline as
+    # corpus: a language tag is [a-z]{2,3} with an optional region subtag.
+    language = e["language"]
+    if not re.fullmatch(r"[a-z]{2,3}(-[A-Za-z0-9]+)?", language):
+        sys.exit(f"✗ gate error: unsafe language in baseline: {language!r}")
+    print(f"{corpus}\t{language}")
 PY
 
 MODEL=$(/usr/bin/python3 - "$BASELINE" <<'PY'
