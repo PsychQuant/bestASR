@@ -32,6 +32,12 @@ public struct SubmissionRow: Codable, Sendable, Equatable {
     public let macosVersion: String
     public let contextErrorRate: Double?
     public let hfRevision: String?
+    /// Provenance of the underlying measurement (#111) — carried through so the
+    /// published row is self-contained. nil for legacy rows.
+    public let runKind: String?
+    /// Deterministic-decode flag as recorded on the measurement (#111); nil for
+    /// backends that ignore it (mlx-audio) and for legacy rows.
+    public let decodeDeterministic: Bool?
     public let contributor: String
     public let chip: String
     public let unifiedMemoryGB: Double
@@ -50,6 +56,8 @@ public struct SubmissionRow: Codable, Sendable, Equatable {
         case macosVersion = "macos_version"
         case contextErrorRate = "context_error_rate"
         case hfRevision = "hf_revision"
+        case runKind = "run_kind"
+        case decodeDeterministic = "decode_deterministic"
         case contributor, chip
         case unifiedMemoryGB = "unified_memory_gb"
     }
@@ -87,7 +95,9 @@ public enum SubmissionPackager {
                 errorRate: row.errorRate, rtf: row.rtf, peakMemoryGB: row.peakMemoryGB,
                 warmupSeconds: row.warmupSeconds, appVersion: row.appVersion,
                 macosVersion: row.macosVersion, contextErrorRate: row.contextErrorRate,
-                hfRevision: row.hfRevision, contributor: contributor,
+                hfRevision: row.hfRevision,
+                runKind: row.runKind, decodeDeterministic: row.decodeDeterministic,
+                contributor: contributor,
                 chip: machine.chip, unifiedMemoryGB: machine.unifiedMemoryGB)
             return publishedKeys.contains(submission.dedupeKey) ? nil : submission
         }

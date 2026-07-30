@@ -158,12 +158,16 @@ public struct BenchmarkStore: Sendable {
             let modelId = ModelRow.id(
                 backend: record.backend, family: "whisper", size: record.model,
                 quantization: record.quantization)
+            // Legacy flat-cache rows predate the #111 provenance fields — there
+            // is no run-kind and no decode-deterministic flag to recover here, so
+            // both stay nil (legacy-safe) rather than being fabricated.
             let measurement = MeasurementRow(
                 modelId: modelId, corpusId: corpus.corpusId, machineId: machine.machineId,
                 measuredAt: record.measuredAt, metricKind: record.metricKind,
                 errorRate: record.errorRate, rtf: record.rtf,
                 peakMemoryGB: record.peakMemoryGB, warmupSeconds: 0,
-                appVersion: record.appVersion, macosVersion: record.macosVersion)
+                appVersion: record.appVersion, macosVersion: record.macosVersion,
+                runKind: nil, decodeDeterministic: nil)
             try appendLine(table: "measurements", row: measurement)
         }
         try FileManager.default.moveItem(

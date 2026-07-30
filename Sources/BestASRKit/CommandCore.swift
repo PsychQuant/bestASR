@@ -470,7 +470,8 @@ public struct CommandCore: Sendable {
         asJSON: Bool,
         contextDir: String? = nil,
         allGrid: Bool = false,
-        decodeDeterministic: Bool = false
+        decodeDeterministic: Bool = false,
+        runKind: String? = nil
     ) async throws -> String {
         let profile = try Self.parseProfile(profileName)
 
@@ -584,7 +585,14 @@ public struct CommandCore: Sendable {
                 peakMemoryGB: record.peakMemoryGB, warmupSeconds: measured.warmupSeconds,
                 appVersion: record.appVersion, macosVersion: record.macosVersion,
                 contextErrorRate: measured.contextErrorRate,
-                hfRevision: seededRow?.hfRevision))
+                hfRevision: seededRow?.hfRevision,
+                runKind: runKind,
+                // decode_deterministic is meaningful only for whisper-family backends that
+                // actually consume the flag; mlx-audio ignores it (silent no-op, #111/#118),
+                // so record nil there rather than lie.
+                decodeDeterministic:
+                    [ModelGrid.backendWhisperKit, ModelGrid.backendWhisperCpp].contains(record.backend)
+                    ? decodeDeterministic : nil))
         }
         }
 
