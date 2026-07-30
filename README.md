@@ -512,7 +512,7 @@ The bestASR family is grouped by the `bestASR-` name prefix and the
 | Repo | Role |
 |------|------|
 | [bestASR](https://github.com/PsychQuant/bestASR) | The product — benchmark-driven ASR router. The measurement instrument is built in (`bestasr benchmark` → store → routing), and releases are gated by the in-repo regression baseline (`benchmarks/baseline.json`). |
-| [bestASR-bench](https://github.com/PsychQuant/bestASR-bench) | Public evidence — community benchmark corpus, submitted measurements, and the leaderboard. Contribute via the `bench-contribute` skill. |
+| [bestASR-bench](https://github.com/PsychQuant/bestASR-bench) | Public evidence — community benchmark corpus, submitted measurements, and the leaderboard (including per-version snapshots grouped by `app_version`). Contribute via the `bench-contribute` skill; after each release, `scripts/release-sweep.sh` measures the runnable candidates over the canonical corpora deterministically and `bestasr bench submit` shares the snapshot. |
 
 ## Development
 

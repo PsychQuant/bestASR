@@ -5,6 +5,23 @@ All notable changes to bestASR are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **Release sweep (#109)**: `scripts/release-sweep.sh` — the per-version
+  deterministic measurement snapshot. Runs the priority-1 runnable candidates
+  (default ceiling; `--all-grid` widens to the whole grid) over the **canonical
+  community corpora** (`bestasr bench pull`) with `--decode-deterministic`
+  (binding for Whisper-family backends; forwarded elsewhere), so the local
+  store gains a "performance of each model under this pinned version" record
+  (measurements carry `app_version` / `macos_version` / machine id). Canonical
+  corpora are what `bestasr bench submit` can publish — the bench leaderboard
+  renders per-version snapshots by grouping on `app_version` + chip. A version
+  guard refuses to sweep with a binary older than the checkout, and the
+  epilogue prints a per-corpus candidate census so partial matrices are
+  visible. Supports `--dry-run` and `--backends`/`--models` subset filters.
+  Not a gate — the regression gate in `release.sh` remains the release
+  blocker; the sweep is the evidence regime run after each release.
+
 ### Changed
 
 - **BREAKING — context directory renamed (#107)**: the working-directory context
