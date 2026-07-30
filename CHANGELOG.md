@@ -22,6 +22,31 @@ All notable changes to bestASR are documented here. The format follows
   Not a gate — the regression gate in `release.sh` remains the release
   blocker; the sweep is the evidence regime run after each release.
 
+- **Measurement provenance fields (#111)**: `MeasurementRow` / `SubmissionRow`
+  gain two **optional** fields, mirroring the `hf_revision` precedent (absent
+  keys decode to nil, so existing rows and submissions stay valid).
+  `run_kind` (`release-sweep` | `adhoc`) marks how a row was produced, so a
+  per-version snapshot's candidate census can be checked mechanically instead
+  of assumed; the new `bestasr benchmark --run-kind` flag carries it, and
+  `scripts/release-sweep.sh` stamps `release-sweep`. `decode_deterministic` is
+  **tri-state on purpose**: `true`/`false` only for backends that actually
+  consume `--decode-deterministic` (WhisperKit, whisper.cpp), and `null` for
+  backends where the flag is a silent no-op (mlx-audio) — a row never claims a
+  decode condition its backend ignored. The bench side validates both only when
+  present (`PsychQuant/bestASR-bench@e728f1a`). Whether the determinism axis
+  should become a per-backend enum is tracked in #118.
+
+### Fixed
+
+- **Baseline `language` field validated before the worklist TSV (#112)**:
+  `scripts/regression-gate.sh` whitelisted the `corpus` field but wrote
+  `language` into the same line-oriented TSV unchecked, so an embedded newline
+  could forge a worklist record whose corpus field never passed the charset
+  check (reproduced against `corpora/../`). `language` now takes the same
+  `re.fullmatch` discipline and fails loud. Defense in depth — `baseline.json`
+  is version-controlled and the gate publishes nothing, so exploiting it
+  required landing a hostile baseline first.
+
 ### Changed
 
 - **BREAKING — context directory renamed (#107)**: the working-directory context
