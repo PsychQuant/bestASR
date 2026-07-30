@@ -157,6 +157,14 @@ public struct MeasurementRow: Codable, Sendable, Equatable {
     /// number was measured against must live on the measurement itself).
     /// nil for legacy rows and models without an HF pin.
     public let hfRevision: String?
+    /// How this measurement was produced: "release-sweep" (scripts/release-sweep.sh)
+    /// vs "adhoc" (a one-off local benchmark). nil for legacy rows (#111).
+    public let runKind: String?
+    /// Whether temperature-fallback re-decoding was disabled for reproducibility.
+    /// Meaningful only for whisper-family backends that consume the flag; nil for
+    /// backends that ignore it (mlx-audio is a silent no-op, #111/#118) and for
+    /// legacy rows measured before the flag existed.
+    public let decodeDeterministic: Bool?
 
     enum CodingKeys: String, CodingKey {
         case modelId = "model_id"
@@ -172,13 +180,16 @@ public struct MeasurementRow: Codable, Sendable, Equatable {
         case macosVersion = "macos_version"
         case contextErrorRate = "context_error_rate"
         case hfRevision = "hf_revision"
+        case runKind = "run_kind"
+        case decodeDeterministic = "decode_deterministic"
     }
 
     public init(
         modelId: String, corpusId: String, machineId: String, measuredAt: Date,
         metricKind: MetricKind, errorRate: Double, rtf: Double, peakMemoryGB: Double,
         warmupSeconds: Double, appVersion: String, macosVersion: String,
-        contextErrorRate: Double? = nil, hfRevision: String? = nil
+        contextErrorRate: Double? = nil, hfRevision: String? = nil,
+        runKind: String? = nil, decodeDeterministic: Bool? = nil
     ) {
         self.modelId = modelId
         self.corpusId = corpusId
@@ -193,6 +204,8 @@ public struct MeasurementRow: Codable, Sendable, Equatable {
         self.macosVersion = macosVersion
         self.contextErrorRate = contextErrorRate
         self.hfRevision = hfRevision
+        self.runKind = runKind
+        self.decodeDeterministic = decodeDeterministic
     }
 }
 

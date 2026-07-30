@@ -128,7 +128,7 @@ if [ -n "$DRY_RUN" ]; then
   echo ""
   echo "— dry run: would execute —"
   while IFS=$'\t' read -r name lang wav ref; do
-    printf '  %q benchmark %q --reference %q --language %q --decode-deterministic%s%s%s --json\n' \
+    printf '  %q benchmark %q --reference %q --language %q --decode-deterministic --run-kind release-sweep%s%s%s --json\n' \
       "$BIN" "$wav" "$ref" "$lang" \
       "${ALL_GRID:+ --all-grid}" \
       "${BACKENDS:+ --backends $BACKENDS}" "${MODELS:+ --models $MODELS}"
@@ -147,7 +147,7 @@ while IFS=$'\t' read -r name lang wav ref; do
   # would silently eat the remaining corpus lines (regression-gate.sh lesson).
   set +e
   OUT_JSON=$("$BIN" benchmark "$wav" --reference "$ref" --language "$lang" \
-        --decode-deterministic \
+        --decode-deterministic --run-kind release-sweep \
         ${ALL_GRID:+--all-grid} \
         ${BACKENDS:+--backends "$BACKENDS"} ${MODELS:+--models "$MODELS"} \
         --json </dev/null)

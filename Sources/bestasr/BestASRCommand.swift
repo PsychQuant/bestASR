@@ -188,6 +188,13 @@ struct Benchmark: AsyncParsableCommand {
             """)
     var decodeDeterministic = false
 
+    @Option(
+        help: """
+            Provenance tag stamped onto each measurement's run_kind field \
+            (e.g. release-sweep for scripts/release-sweep.sh; omit for ad-hoc runs)
+            """)
+    var runKind: String?
+
     @Flag(help: "Emit machine-readable JSON instead of the table")
     var json = false
 
@@ -204,7 +211,8 @@ struct Benchmark: AsyncParsableCommand {
                     asJSON: json,
                     contextDir: contextDir,
                     allGrid: allGrid,
-                    decodeDeterministic: decodeDeterministic
+                    decodeDeterministic: decodeDeterministic,
+                    runKind: runKind
                 )
             )
         }
