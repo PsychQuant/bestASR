@@ -67,4 +67,7 @@ PY
 git add Sources/BestASRKit/Models/DataModels.swift plugins/bestasr/.claude-plugin/plugin.json
 git commit -m "chore: release v$VERSION"
 echo "== release $VERSION ready — review the commit, then push =="
+echo "   (evidence snapshot: after release, run scripts/release-sweep.sh on the"
+echo "    reference machine, then 'bestasr bench submit' — full-matrix per-version"
+echo "    performance record, #109. Not a gate; the regression gate above is.)"
 echo "   (marketplace-distributed plugin: run the plugin-update sync afterwards)"

@@ -5,6 +5,19 @@ All notable changes to bestASR are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **Release sweep (#109)**: `scripts/release-sweep.sh` — the full-matrix
+  deterministic measurement snapshot. Runs every runnable backend×model over
+  the baseline corpora with `--decode-deterministic`, so the local store gains
+  a complete "performance of each model under this pinned version" record
+  (measurements already carry `app_version` / `macos_version` / machine id /
+  `hf_revision`). Share it with `bestasr bench submit`; the bench leaderboard
+  renders per-version snapshots by grouping on `app_version`. Supports
+  `--dry-run` and `--backends`/`--models` subset filters. Not a gate — the
+  regression gate in `release.sh` remains the release blocker; the sweep is
+  the evidence regime run after each release.
+
 ### Changed
 
 - **BREAKING — context directory renamed (#107)**: the working-directory context
