@@ -38,6 +38,19 @@ All notable changes to bestASR are documented here. The format follows
 
 ### Fixed
 
+- **Baseline values no longer reach the CI log unescaped (#117)**:
+  `scripts/lib/baseline-compare.py` interpolated `corpus` / `language` /
+  `metric` straight into the pass/fail lines it prints, and that stdout is the
+  log a human reads to decide whether a release is safe. `metric` was validated
+  **nowhere** — the worklist stage checks corpus and language, and unlike
+  `golden` / `tolerance` / `error_rate` it never passes through `float()` — so
+  a committed baseline carrying `"cer\x1b[32m\rFAKE ALL-PASS"` repainted the
+  line into a forged green verdict, with no timing window needed. `metric` now
+  has to be `cer` or `wer`, and every rendered value is escaped at the render
+  boundary so a field added to these messages later is covered without the
+  author having to remember. Escaped rather than stripped — the offending bytes
+  stay diagnosable.
+
 - **Baseline `language` field validated before the worklist TSV (#112)**:
   `scripts/regression-gate.sh` whitelisted the `corpus` field but wrote
   `language` into the same line-oriented TSV unchecked, so an embedded newline

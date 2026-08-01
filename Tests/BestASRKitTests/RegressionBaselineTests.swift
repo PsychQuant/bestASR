@@ -159,4 +159,38 @@ struct RegressionBaselineTests {
             ])
         #expect(r.exit == 0)
     }
+
+    // MARK: - baseline values reaching the CI log (#117)
+
+    @Test func `an unknown metric is a gate error, not a label nobody checks`() throws {
+        // metric was the one rendered field validated NOWHERE: the worklist
+        // stage checks corpus and language, and unlike golden/tolerance it
+        // never passes through float(). A bounded vocabulary makes a bad value
+        // loud instead of decorative.
+        var hostile = entry
+        hostile["metric"] = "cer\u{1B}[32m\rFAKE ALL-PASS"
+        let r = try runCompare(
+            baseline: [hostile],
+            measured: [["corpus": "c1", "metric": "cer", "error_rate": 0.10]])
+        #expect(r.exit != 0)
+        #expect(r.output.contains("unknown metric"))
+    }
+
+    @Test func `control characters never reach the log, even on the passing path`() throws {
+        // Defense in depth at the RENDER boundary: language passes the worklist
+        // whitelist in the gate, but this script is a separate entry point that
+        // re-validates nothing. The payload repaints a CI line — CR returns the
+        // cursor and the SGR turns it green — so a human reading the log to
+        // approve a release sees a forged verdict. Escaped, it is inert AND
+        // still diagnosable.
+        var hostile = entry
+        hostile["language"] = "zh\u{1B}[32m\rFAKE ALL-PASS"
+        let r = try runCompare(
+            baseline: [hostile],
+            measured: [["corpus": "c1", "metric": "cer", "error_rate": 0.10]])
+        #expect(r.exit == 0, "a hostile label must not change the verdict")
+        #expect(!r.output.contains("\u{1B}"), "ANSI escape reached the log")
+        #expect(!r.output.contains("\r"), "carriage return reached the log")
+        #expect(r.output.contains("\\x1b"), "the offending bytes should stay visible")
+    }
 }
