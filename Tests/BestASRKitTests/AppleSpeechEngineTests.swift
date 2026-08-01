@@ -37,6 +37,89 @@ struct AppleSpeechLocaleResolutionTests {
                 language: "zh", supported: Self.supported) == "zh_TW")
     }
 
+    @Test func `A script subtag selects its script, never the language default`() throws {
+        // VERIFY REGRESSION (Codex leg, reproduced by probe): subtags were read
+        // BY POSITION, so `Hans` in zh-Hans was taken for a region, matched
+        // nothing, and fell through to the `zh` preference — a user who asked
+        // for SIMPLIFIED silently received the TRADITIONAL model. Position does
+        // not identify a subtag; shape does.
+        #expect(
+            try AppleSpeechEngine.resolveLocaleIdentifier(
+                language: "zh-Hans", supported: Self.supported) == "zh_CN")
+        #expect(
+            try AppleSpeechEngine.resolveLocaleIdentifier(
+                language: "zh-Hant", supported: Self.supported) == "zh_TW")
+        // Case must not matter — the tag arrives lowercased from
+        // LanguageResolver, but the resolver may not depend on that.
+        #expect(
+            try AppleSpeechEngine.resolveLocaleIdentifier(
+                language: "ZH-HANS", supported: Self.supported) == "zh_CN")
+    }
+
+    @Test func `An explicit region outranks a script that contradicts it`() throws {
+        // zh-Hans-TW is a legitimate tag (Simplified as written in Taiwan).
+        // Apple ships no such locale; the explicit region is the
+        // better-evidenced half of the request, so it wins.
+        #expect(
+            try AppleSpeechEngine.resolveLocaleIdentifier(
+                language: "zh-Hans-TW", supported: Self.supported) == "zh_TW")
+        #expect(
+            try AppleSpeechEngine.resolveLocaleIdentifier(
+                language: "zh-Hant-CN", supported: Self.supported) == "zh_CN")
+    }
+
+    @Test func `A four-letter script is never mistaken for a region`() throws {
+        // en-Latn-GB: `Latn` is a script and must not consume the region slot,
+        // or GB is dropped and the answer degrades to en_US.
+        #expect(
+            try AppleSpeechEngine.resolveLocaleIdentifier(
+                language: "en-Latn-GB", supported: Self.supported) == "en_GB")
+    }
+
+    @Test func `Resolution never crosses to another base language`() throws {
+        // The contract the whole design rests on, asserted as a property over
+        // every supported locale plus a batch of malformed tags — not as a
+        // handful of hand-picked examples.
+        let probes = Self.supported.map { $0.replacingOccurrences(of: "_", with: "-") }
+            + Self.supported + ["zh-Hans", "en-Latn-GB", "pt-US", "en-", "de_CH_x", "yue"]
+        for probe in probes {
+            guard let got = try? AppleSpeechEngine.resolveLocaleIdentifier(
+                language: probe, supported: Self.supported)
+            else { continue }  // throwing is always an acceptable answer here
+            #expect(
+                AppleSpeechEngine.parseTag(got)?.base == AppleSpeechEngine.parseTag(probe)?.base,
+                "\(probe) resolved to \(got) — different base language")
+        }
+    }
+
+    @Test func `Resolution is stable under reordering of the supported set`() throws {
+        // A future OS listing its locales in another order must not change a
+        // measured result. Reversal is the cheapest adversarial permutation.
+        for probe in ["zh", "zh-Hans", "en", "pt", "de", "yue"] {
+            let forward = try AppleSpeechEngine.resolveLocaleIdentifier(
+                language: probe, supported: Self.supported)
+            let reversed = try AppleSpeechEngine.resolveLocaleIdentifier(
+                language: probe, supported: Self.supported.reversed())
+            #expect(forward == reversed, "\(probe): \(forward) vs \(reversed) under reordering")
+        }
+    }
+
+    @Test func `Apple's underscored identifier is recorded in hyphenated form`() {
+        // Load-bearing: every language predicate in this project routes through
+        // LanguageResolver.baseSubtag, which splits on "-" ONLY. Recording
+        // `zh_TW` verbatim makes baseSubtag return "zh_tw", so isChinese turns
+        // false and the D7 Traditional/Simplified fold silently stops applying
+        // to this backend's zh scoring.
+        #expect(AppleSpeechEngine.bcp47("zh_TW") == "zh-TW")
+        #expect(LanguageResolver.isChinese(AppleSpeechEngine.bcp47("zh_TW")))
+        #expect(LanguageResolver.metricKind(forLanguage: AppleSpeechEngine.bcp47("zh_TW")) == .cer)
+        #expect(LanguageResolver.metricKind(forLanguage: AppleSpeechEngine.bcp47("ja_JP")) == .cer)
+        #expect(LanguageResolver.metricKind(forLanguage: AppleSpeechEngine.bcp47("en_US")) == .wer)
+        // The un-fixed form is genuinely broken — asserted so the fix cannot be
+        // reverted without a red test.
+        #expect(!LanguageResolver.isChinese("zh_TW"))
+    }
+
     @Test func `An explicit region is honored verbatim when Apple supports it`() throws {
         #expect(
             try AppleSpeechEngine.resolveLocaleIdentifier(
@@ -149,6 +232,19 @@ struct AppleSpeechLocaleResolutionTests {
 }
 
 struct AppleSpeechConfidenceTests {
+    @Test func `A broken confidence value reads as unknown, never as a number`() {
+        // NaN/inf/out-of-range are not low confidences, they are invalid ones.
+        // Passing NaN through would let it sort and compare nonsensically in
+        // any downstream filter; nil is the honest answer.
+        #expect(AppleSpeechEngine.aggregateConfidence([0.9, .nan]) == nil)
+        #expect(AppleSpeechEngine.aggregateConfidence([.infinity]) == nil)
+        #expect(AppleSpeechEngine.aggregateConfidence([-0.1]) == nil)
+        #expect(AppleSpeechEngine.aggregateConfidence([1.5]) == nil)
+        // The valid boundaries still pass through.
+        #expect(AppleSpeechEngine.aggregateConfidence([0.0]) == 0.0)
+        #expect(AppleSpeechEngine.aggregateConfidence([1.0]) == 1.0)
+    }
+
     @Test func `Segment confidence is the minimum over the result's runs`() {
         // Apple reports confidence PER RUN; RawSegment carries one value per
         // segment, so the segment number is DERIVED. Min is the conservative

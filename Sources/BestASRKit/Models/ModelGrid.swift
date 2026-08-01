@@ -120,7 +120,9 @@ public enum ModelGrid {
     ///   and is deliberately conservative, since the value only ever gates
     ///   cold-start feasibility (design D2: measured data wins once benchmarked).
     /// - `priority` 1: the tier gates the DEFAULT benchmark sweep, and there is
-    ///   no download to defer — en_* and zh_* assets ship pre-installed, and on
+    ///   nothing to defer for the measured set — en_* and zh_* assets were
+    ///   pre-installed on the development machine (ja_JP was NOT, and had to be
+    ///   downloaded; "no download" is not a property of this backend), and on
     ///   a host below macOS 26 `isAvailable()` returns false so enumeration
     ///   skips it with a note. Paraformer sits at 2 because its output is
     ///   unusable, not merely because it downloads (whisperkit rows are

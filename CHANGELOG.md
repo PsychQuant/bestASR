@@ -9,9 +9,11 @@ All notable changes to bestASR are documented here. The format follows
 
 - **Apple Speech backend (#121)**: `apple-speech` — the OS-native backend
   (Speech.framework's `SpeechAnalyzer` / `SpeechTranscriber`, macOS 26+). The
-  only backend in the pool with no dependency, no weight download and no
-  supply-chain pin: the model ships with the operating system, so **its version
-  IS the OS version**. Registered unconditionally; `isAvailable()` is a pure
+  only backend in the pool with no third-party dependency and no HuggingFace
+  weight pin: the recognizer ships with the operating system, so **its version
+  IS the OS version**. That is a claim about *provenance*, not about network
+  traffic — a locale whose asset is absent is still downloaded from Apple on
+  first use, as `ja_JP` was here. Registered unconditionally; `isAvailable()` is a pure
   macOS-26 gate, so older hosts report it as not installed rather than failing
   to build. One grid row (`apple-speech · speechanalyzer/system`), priority 1,
   **`verified: false`** — the API is live-probed but the row is not yet measured
@@ -42,6 +44,24 @@ All notable changes to bestASR are documented here. The format follows
   confidence is **derived** (the minimum over Apple's per-run values), so a
   confident run cannot mask a weak one inside the same cue.
 
+  **First measured numbers** (M5 Max, macOS 27, single corpus per language —
+  indicative, not a certification; the row stays `verified: false` until a full
+  sweep):
+
+  | corpus | metric | apple-speech | whisperkit large-v3-turbo |
+  |---|---|---|---|
+  | `cv-zhtw-2` (zh) | CER | **13.9 %** @ 63–65× realtime | 12.5 % @ 7.1× |
+  | `fleurs-ja-1` (ja) | CER | **10.9 %** @ 85× realtime | 10.6 % @ 6.9× |
+  | `librispeech-testclean-1` (en) | WER | **4.3 %** @ 58× realtime | not yet measured |
+  | `librispeech-devclean-1` (en) | WER | **4.1 %** @ 45× realtime | not yet measured |
+
+  So on this machine Apple lands within ~1.4 pp of Whisper large-v3-turbo on
+  zh and ~0.3 pp on ja, at roughly **9–12× the speed** and with no model to
+  download or hold resident. Reported `peak-GB` is 0.00 because recognition
+  runs in Apple's out-of-process daemon — the harness's in-process sampler
+  cannot see that footprint, so this backend's memory column is **not
+  comparable** with the in-process backends'.
+
 ### Fixed
 
 - **`--backend apple-speech` was silently substituted (#121)**: `Router`'s
@@ -53,6 +73,43 @@ All notable changes to bestASR are documented here. The format follows
   output in **Simplified** Chinese; after it, genuine Apple Speech output in
   **Traditional**. `ModelRegistry.isRunnableModel` gained the same membership so
   `--model system` resolves.
+
+- **`zh-Hans` selected the Traditional model (#121 verify)**: language subtags
+  were read **by position**, so the script subtag in `zh-Hans` was taken for a
+  region, matched no locale, and fell through to the `zh` preference — a user
+  who explicitly asked for **Simplified** silently received **Traditional**.
+  Subtags are now classified by **shape** (BCP-47: script is 4 alpha, region is
+  2 alpha or 3 digits), with `Hans → CN` / `Hant → TW`; an explicit region still
+  outranks a contradicting script (`zh-Hans-TW` → `zh_TW`).
+
+- **Provenance recorded the requested language, not the one that ran (#121
+  verify)**: asking for `pt-BR` on a system shipping only `pt_PT` produced a
+  measurement labelled `pt-BR`. The resolved locale is now recorded, in
+  hyphenated form — Apple's underscored `zh_TW` would otherwise defeat
+  `LanguageResolver.baseSubtag` (which splits on `-` only) and silently disable
+  the D7 Traditional/Simplified fold for this backend's zh scoring.
+
+- **Locale asset downloaded before the audio file was validated (#121
+  verify)**: `transcribe --language ja /nonexistent.wav` could fetch a
+  multi-hundred-MB asset and only then report the missing file. The file is now
+  opened first. Additionally, a nil installation request no longer falls through
+  to Apple's misleading `"Audio format is not supported"`: `installedLocales` is
+  re-checked after the attempt and a still-absent asset fails with that
+  explanation.
+
+- **Recognized speech could vanish silently (#121 verify)**: a result with
+  unusable timing was dropped. Because the WER denominator is the reference word
+  count and does not move, a dropped correct word adds a deletion while a dropped
+  garbage word removes an insertion — the measured rate shifts in an unsignposted
+  direction. Non-empty text with unusable timing now **fails the run**. Only
+  truly-empty text is dropped; whitespace-only segments are kept, since
+  `Engine.transcribe` joins with no separator and discarding the separator would
+  glue neighbouring words.
+
+- **Orphaned collector task (#121 verify)**: the unstructured `Task` reading
+  `transcriber.results` was neither awaited nor cancelled when the analyzer
+  threw, pinning the transcriber and its buffers for the life of the process —
+  which accumulates across a benchmark sweep. It is now cancelled on every exit.
 
 - **Release sweep (#109)**: `scripts/release-sweep.sh` — the per-version
   deterministic measurement snapshot. Runs the priority-1 runnable candidates

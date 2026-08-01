@@ -4,8 +4,14 @@ import Speech
 
 /// The OS-native ASR backend (#121): Speech.framework's `SpeechAnalyzer` +
 /// `SpeechTranscriber`, introduced in macOS 26. It is the only backend in the
-/// pool with no dependency, no weight download, and no supply-chain pin — the
-/// model ships with the operating system, so its version IS the OS version.
+/// pool with no third-party dependency and no HuggingFace weight pin — the
+/// recognizer ships with the operating system, so its version IS the OS version.
+///
+/// That is NOT the same as "downloads nothing": a locale whose asset is absent
+/// is fetched from Apple on first use, and this project measured exactly that
+/// (`ja_JP` was missing on the development machine and had to be installed).
+/// The supply-chain claim is about provenance — Apple rather than a model hub —
+/// not about network traffic.
 ///
 /// API mapping (live-probed on macOS 27 / Xcode 26.6 → BestASRKit):
 ///
@@ -91,36 +97,87 @@ public struct AppleSpeechEngine: Engine {
         "de": "DE", "es": "ES", "fr": "FR", "it": "IT", "pt": "PT",
     ]
 
+    /// Which region carries a given script, for tags that name a script rather
+    /// than a country. Only entries whose mapping is unambiguous belong here.
+    ///
+    /// This table exists because a subtag's POSITION does not identify it: in
+    /// `zh-Hans` the second subtag is a script, in `zh-CN` it is a region.
+    /// Reading position-2 as "the region" made `zh-Hans` miss every candidate
+    /// and fall through to the `zh` preference — so a user who explicitly asked
+    /// for **Simplified** silently received the **Traditional** model. Verified
+    /// by probe before the fix: `zh-Hans` → `zh_TW`.
+    static let scriptRegions: [String: String] = ["hans": "CN", "hant": "TW"]
+
+    /// A parsed language tag. `script` and `region` are distinguished by SHAPE
+    /// (BCP-47: script is 4 alpha, region is 2 alpha or 3 digits), never by
+    /// position, so `zh-Hans`, `zh-CN` and `zh-Hans-CN` each parse correctly.
+    struct ParsedTag {
+        var base: String
+        var script: String?
+        var region: String?
+    }
+
+    /// Shape-directed subtag parse. Lowercased throughout — `LanguageResolver`
+    /// already lowercases the request, and locale identifiers are lowercased
+    /// on the way in, so comparisons never depend on the caller's casing.
+    static func parseTag(_ tag: String) -> ParsedTag? {
+        let parts = tag.lowercased().split(whereSeparator: { $0 == "-" || $0 == "_" })
+        guard let first = parts.first, first.count >= 2, first.allSatisfy(\.isLetter) else {
+            return nil
+        }
+        var parsed = ParsedTag(base: String(first), script: nil, region: nil)
+        for part in parts.dropFirst() {
+            if part.count == 4, part.allSatisfy(\.isLetter) {
+                parsed.script = parsed.script ?? String(part)
+            } else if (part.count == 2 && part.allSatisfy(\.isLetter))
+                || (part.count == 3 && part.allSatisfy(\.isNumber)) {
+                parsed.region = parsed.region ?? String(part)
+            }
+            // Variants/extensions are not selectors for this API — ignored.
+        }
+        return parsed
+    }
+
+    /// Apple's `zh_TW` in the hyphenated BCP-47 form the rest of this project
+    /// parses. See the call site in `transcribe` for why this is load-bearing.
+    static func bcp47(_ localeIdentifier: String) -> String {
+        localeIdentifier.replacingOccurrences(of: "_", with: "-")
+    }
+
     /// Map a bestASR language tag onto one of Apple's supported locale
     /// identifiers. Pure and total over its inputs (the supported set is passed
     /// in, never queried here) so the mapping is testable on any OS and the
     /// runtime truth still comes from `SpeechTranscriber.supportedLocales`.
     ///
     /// Resolution order, most specific first:
-    ///   1. an explicitly requested region that Apple supports (`zh-cn` → zh_CN)
-    ///   2. the documented preference for the base language (`zh` → zh_TW)
-    ///   3. the lexicographically smallest remaining candidate — deterministic,
+    ///   1. an explicitly requested REGION that Apple supports (`zh-CN` → zh_CN)
+    ///   2. the region implied by an explicitly requested SCRIPT
+    ///      (`zh-Hans` → CN → zh_CN)
+    ///   3. the documented preference for the base language (`zh` → zh_TW)
+    ///   4. the lexicographically smallest remaining candidate — deterministic,
     ///      so a future OS reordering its list cannot change a benchmark result
     ///
+    /// Region outranks script because a region is the more specific claim and
+    /// the combination is legitimate (`zh-Hans-TW` = Simplified as written in
+    /// Taiwan; Apple ships no such locale, and the explicit region is the
+    /// better-evidenced half of the request).
+    ///
     /// A requested region Apple does NOT ship degrades within the same language
-    /// (`pt-us` → pt_PT): the language is what decides whether output is usable
-    /// at all, the region only shades it. A script subtag is not a region and
-    /// falls through to step 2 (`zh-hant` → zh_TW); pass `zh-CN`/`zh-TW` to
-    /// select a script explicitly.
+    /// (`pt-BR` → pt_PT when only pt_PT exists): the language decides whether
+    /// output is usable at all, the region only shades it. The caller is told
+    /// which locale actually ran — see `transcribe`, which records the RESOLVED
+    /// identifier rather than the requested tag.
     ///
     /// Throws — never falls back across languages. That fallback is precisely
     /// the failure this backend was measured producing.
     static func resolveLocaleIdentifier(language: String?, supported: [String]) throws -> String {
-        guard let requested = LanguageResolver.resolve(language) else {
+        guard let requested = LanguageResolver.resolve(language),
+            let tag = parseTag(requested)
+        else {
             throw TranscriptionError(backend: backendName, message: missingLanguageMessage)
         }
-        let parts = requested.split(whereSeparator: { $0 == "-" || $0 == "_" })
-        guard let base = parts.first.map(String.init), !base.isEmpty else {
-            throw TranscriptionError(backend: backendName, message: missingLanguageMessage)
-        }
-        let requestedRegion = parts.count > 1 ? String(parts[1]) : nil
 
-        let candidates = supported.filter { Self.baseSubtag(ofLocale: $0) == base }
+        let candidates = supported.filter { Self.parseTag($0)?.base == tag.base }
         guard !candidates.isEmpty else {
             throw TranscriptionError(
                 backend: backendName,
@@ -129,33 +186,15 @@ public struct AppleSpeechEngine: Engine {
                     + "system; run a supported language instead — this backend will not "
                     + "substitute another language's model.")
         }
-        if let requestedRegion,
-            let exact = candidates.first(where: {
-                Self.region(ofLocale: $0)?.lowercased() == requestedRegion
-            }) {
-            return exact
+        func match(region: String?) -> String? {
+            guard let region = region?.lowercased() else { return nil }
+            return candidates.first { Self.parseTag($0)?.region == region }
         }
-        if let preferred = preferredRegions[base],
-            let hit = candidates.first(where: {
-                Self.region(ofLocale: $0)?.lowercased() == preferred.lowercased()
-            }) {
-            return hit
-        }
+        if let exact = match(region: tag.region) { return exact }
+        if let script = tag.script, let hit = match(region: scriptRegions[script]) { return hit }
+        if let hit = match(region: preferredRegions[tag.base]) { return hit }
         // `candidates` is non-empty, so `min` is total.
         return candidates.min()!
-    }
-
-    /// "zh" from "zh_TW" / "zh-TW", lowercased.
-    private static func baseSubtag(ofLocale identifier: String) -> String {
-        let lowered = identifier.lowercased()
-        return lowered.split(whereSeparator: { $0 == "_" || $0 == "-" })
-            .first.map(String.init) ?? lowered
-    }
-
-    /// "TW" from "zh_TW"; nil when the identifier carries no second subtag.
-    private static func region(ofLocale identifier: String) -> String? {
-        let parts = identifier.split(whereSeparator: { $0 == "_" || $0 == "-" })
-        return parts.count > 1 ? String(parts[1]) : nil
     }
 
     // MARK: - Confidence
@@ -188,11 +227,22 @@ public struct AppleSpeechEngine: Engine {
     /// backend follows Parakeet. `HallucinationFilter`'s joint silence rule
     /// cannot misfire on the difference — it also requires `noSpeechProb`,
     /// which is Whisper-specific and nil here.
+    /// The value is a MINIMUM OBSERVED RUN CONFIDENCE, not a calibrated
+    /// per-cue probability: more runs means more chances to hit a low one, so
+    /// long cues score systematically lower. Do not threshold it across
+    /// backends without re-establishing what it means there.
     static func aggregateConfidence(_ perRun: [Double?]) -> Double? {
         guard !perRun.isEmpty else { return nil }
         var lowest = Double.infinity
         for value in perRun {
+            // A missing attribute makes the whole segment nil — the field is
+            // Optional precisely so "unknown" is representable.
             guard let value else { return nil }
+            // A non-finite or out-of-range value is not a low confidence, it
+            // is a broken one. Reporting NaN as a number would let it sort and
+            // compare nonsensically downstream; nil says "unknown", which is
+            // the truth.
+            guard value.isFinite, value >= 0, value <= 1 else { return nil }
             lowest = Swift.min(lowest, value)
         }
         return lowest
@@ -248,8 +298,10 @@ public struct AppleSpeechEngine: Engine {
             // value is derived from. Omitting either silently drops that field.
             attributeOptions: [.audioTimeRange, .transcriptionConfidence])
 
-        try await installAssetIfNeeded(locale: locale, transcriber: transcriber)
-
+        // Open and validate the audio BEFORE any asset install. Installing
+        // first meant `transcribe --language ja /nonexistent.wav` downloaded a
+        // multi-hundred-MB locale asset and only then reported the missing
+        // file — an expensive, networked failure for a cheap, local error.
         let file: AVAudioFile
         do {
             file = try AVAudioFile(forReading: URL(fileURLWithPath: audioPath))
@@ -264,6 +316,8 @@ public struct AppleSpeechEngine: Engine {
         let duration = file.length > 0
             ? Double(file.length) / file.processingFormat.sampleRate : nil
 
+        try await installAssetIfNeeded(locale: locale, transcriber: transcriber)
+
         let results: [SpeechTranscriber.Result]
         do {
             // `results` is an AsyncSequence — the collector MUST be running
@@ -273,6 +327,15 @@ public struct AppleSpeechEngine: Engine {
                 for try await result in transcriber.results { collected.append(result) }
                 return collected
             }
+            // The collector is UNSTRUCTURED, so it does not inherit
+            // cancellation and is not awaited on the throwing paths below. If
+            // the analyzer fails, an un-cancelled collector keeps iterating a
+            // sequence that may never terminate, pinning the transcriber and
+            // its buffers for the life of the process — across a benchmark
+            // sweep that accumulates. `defer` covers every exit, including the
+            // success path (where cancelling an already-finished Task is a
+            // no-op) and cancellation of our own parent task.
+            defer { collector.cancel() }
             let analyzer = SpeechAnalyzer(modules: [transcriber])
             _ = try await analyzer.analyzeSequence(from: file)
             try await analyzer.finalizeAndFinishThroughEndOfInput()
@@ -285,8 +348,20 @@ public struct AppleSpeechEngine: Engine {
         }
 
         return RawTranscription(
-            segments: segments(from: results),
-            language: options.language,
+            segments: try segments(from: results),
+            // The RESOLVED locale, not the requested tag. Recording the request
+            // would attribute a measurement to a locale that never ran: ask for
+            // `pt-BR` on a system shipping only `pt_PT` and the row would claim
+            // pt-BR accuracy for a pt-PT model. Provenance must name what
+            // executed (design D2).
+            //
+            // HYPHENATED, because Apple's identifiers are underscored and every
+            // language predicate in this project routes through
+            // `LanguageResolver.baseSubtag`, which splits on "-" ONLY. Emitting
+            // `zh_TW` verbatim would make `baseSubtag` return "zh_tw", so
+            // `isChinese` turns false and the D7 Traditional/Simplified fold
+            // silently stops applying to this backend's zh scoring (#34).
+            language: Self.bcp47(identifier),
             duration: duration)
     }
 
@@ -300,21 +375,42 @@ public struct AppleSpeechEngine: Engine {
     private static func installAssetIfNeeded(
         locale: Locale, transcriber: SpeechTranscriber
     ) async throws {
-        let installed = await SpeechTranscriber.installedLocales
-        guard !installed.contains(where: { $0.identifier == locale.identifier }) else { return }
+        func isInstalled() async -> Bool {
+            // Compare canonically: an inventory that reports `zh-TW` while the
+            // request holds `zh_TW` would otherwise look permanently missing
+            // and re-trigger a download on every single call.
+            let wanted = bcp47(locale.identifier).lowercased()
+            return await SpeechTranscriber.installedLocales
+                .contains { bcp47($0.identifier).lowercased() == wanted }
+        }
+        guard await !isInstalled() else { return }
         do {
-            // nil = the system reports nothing left to install for these
-            // modules; proceed rather than inventing a failure.
-            guard let request = try await AssetInventory.assetInstallationRequest(
-                supporting: [transcriber])
-            else { return }
-            try await request.downloadAndInstall()
+            if let request = try await AssetInventory.assetInstallationRequest(
+                supporting: [transcriber]) {
+                try await request.downloadAndInstall()
+            }
         } catch {
             throw TranscriptionError(
                 backend: backendName,
                 message: "failed to install the on-device speech asset for locale "
                     + "'\(locale.identifier)': \(error.localizedDescription)",
                 underlying: error)
+        }
+        // Re-check instead of trusting either branch. A nil request means "the
+        // system has nothing to install", which CONTRADICTS the inventory that
+        // just said the locale is missing; proceeding on that contradiction is
+        // exactly how the misleading `Code=3 "Audio format is not supported"`
+        // reaches the user — the error this preflight exists to prevent. A
+        // completed download that still leaves the locale absent is equally
+        // unusable. Both fail here, named for what they are.
+        guard await isInstalled() else {
+            throw TranscriptionError(
+                backend: backendName,
+                message: "the on-device speech asset for locale '\(locale.identifier)' is "
+                    + "still not installed after the install attempt. Transcribing now would "
+                    + "surface Apple's misleading \"Audio format is not supported\" error, "
+                    + "which is really a missing-asset report. Check Settings ▸ General ▸ "
+                    + "Language & Region, or free disk space, and retry.")
         }
     }
 
@@ -326,22 +422,41 @@ public struct AppleSpeechEngine: Engine {
     /// inflate this backend's measured WER — the same contract WhisperKit's
     /// segments and #35's parakeet mapper follow.
     @available(macOS 26.0, *)
-    static func segments(from results: [SpeechTranscriber.Result])
+    static func segments(from results: [SpeechTranscriber.Result]) throws
         -> [RawTranscription.RawSegment]
     {
-        results.compactMap { result in
+        try results.enumerated().compactMap { index, result in
             let text = String(result.text.characters)
-            guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                return nil
-            }
+            // Drop only a TRULY empty result. A whitespace-only one is kept:
+            // `Engine.transcribe` joins segment texts with NO separator, so
+            // discarding a segment that consists of the separator would glue
+            // the neighbouring words together and change the hypothesis.
+            guard !text.isEmpty else { return nil }
             // CMTime seconds are NaN/±inf for invalid or indefinite times —
             // never let one into a cue's timing (#53 seam-defense discipline).
             let start = result.range.start.seconds
             let span = result.range.duration.seconds
-            guard start.isFinite, start >= 0, span.isFinite, span >= 0 else { return nil }
+            let end = start + span
+            // Recognized text with unusable timing FAILS THE RUN rather than
+            // vanishing. Dropping it would edit the hypothesis invisibly: the
+            // WER denominator is the reference word count and does not move,
+            // so a dropped correct word adds a deletion while a dropped
+            // garbage word removes an insertion — the measured number shifts
+            // in an unsignposted direction. A benchmark tool must not do that
+            // silently; an error the operator can see is the honest failure.
+            // (`end` is checked separately: two finite addends can still
+            // overflow to infinity.)
+            guard start.isFinite, start >= 0, span.isFinite, span >= 0, end.isFinite else {
+                throw TranscriptionError(
+                    backend: backendName,
+                    message: "result \(index) carries unusable timing "
+                        + "(start \(start), duration \(span)) for non-empty text — refusing to "
+                        + "drop recognized speech, which would silently bias the measured "
+                        + "error rate")
+            }
             return .init(
                 start: start,
-                end: start + span,
+                end: end,
                 text: text,
                 confidence: aggregateConfidence(runConfidences(result.text)),
                 // Whisper-specific hallucination signals; this backend
