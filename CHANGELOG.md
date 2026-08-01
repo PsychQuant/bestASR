@@ -11,7 +11,8 @@ All notable changes to bestASR are documented here. The format follows
   deterministic measurement snapshot. Runs the priority-1 runnable candidates
   (default ceiling; `--all-grid` widens to the whole grid) over the **canonical
   community corpora** (`bestasr bench pull`) with `--decode-deterministic`
-  (binding for Whisper-family backends; forwarded elsewhere), so the local
+  (binding for Whisper-family backends; a silent no-op elsewhere — see the
+  `decode_deterministic` entry below), so the local
   store gains a "performance of each model under this pinned version" record
   (measurements carry `app_version` / `macos_version` / machine id). Canonical
   corpora are what `bestasr bench submit` can publish — the bench leaderboard
@@ -36,8 +37,19 @@ All notable changes to bestASR are documented here. The format follows
   no-op; the Fluid backends have no such knob) — which makes no claim about
   whether those decodes are reproducible, rather than lying in either
   direction. An **absent** field still means "legacy row, predates the field";
-  `null` is never written. The bench side validates both only when present
-  (`PsychQuant/bestASR-bench@e728f1a`).
+  `null` is never written, though a reader accepts it as equivalent to absent.
+  A value the reader does not recognize — including a `decode_deterministic`
+  boolean from the earlier shape of this same unreleased entry — is **rejected**,
+  not coerced; no released version ever wrote one, and no row in either repo or
+  any local store carries one. The bench side validates both only when present
+  (`PsychQuant/bestASR-bench@c93a70e`).
+
+  `--run-kind` also gained a value domain at the CLI (#120): a typo now fails at
+  parse (`exit 64`) instead of surviving into a submission and failing in the
+  bench repo's CI. The stored field stays a plain string on purpose — that
+  vocabulary is human-typed provenance and already incomplete (the regression
+  gate benchmarks with no `--run-kind` at all), so closing it at the row type
+  would trade a loud CI failure for a silently dropped row.
 
 ### Fixed
 

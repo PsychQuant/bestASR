@@ -227,4 +227,48 @@ struct RunKindDecodeDeterministicTests {
             try Benchmark.parse(["a.wav", "--reference", "r.txt", "--run-kind", "bogus"])
         }
     }
+
+    // MARK: - the pre-#118 shape (#130 verify)
+
+    @Test func `A pre-118 boolean decode_deterministic is rejected, not coerced`() throws {
+        // #111 briefly wrote `decode_deterministic` as a JSON boolean before #118
+        // settled on the enum. Nothing released ever emitted one and no row in
+        // either repo carries one — but a census expires, and this does not.
+        // Locking the behaviour states the choice: an old boolean is REJECTED
+        // rather than migrated (true -> deterministic-enforced), because the
+        // mapping would have to re-derive the backend to stay honest.
+        for legacy in ["true", "false"] {
+            let json = """
+                {"model_id":"whisperkit|whisper|large-v3|default","corpus_id":"c1",
+                 "machine_id":"m1","measured_at":"2026-07-30T00:00:00Z","metric_kind":"cer",
+                 "error_rate":0.1,"rtf":0.5,"peak_memory_gb":1.0,"warmup_seconds":0.0,
+                 "app_version":"0.16.0","macos_version":"27.0",
+                 "decode_deterministic":\(legacy)}
+                """
+            #expect(throws: DecodingError.self) {
+                _ = try self.iso8601Decoder().decode(MeasurementRow.self, from: Data(json.utf8))
+            }
+        }
+    }
+
+    @Test func `A submission row with no provenance omits the keys on the wire`() throws {
+        // SubmissionRow is what actually crosses to the bench repo, so the
+        // absent-not-null contract has to hold on THIS type, not only on
+        // MeasurementRow — the bench validator treats null as absent now, but
+        // the producer is still expected never to write one.
+        let bare = MeasurementRow(
+            modelId: "whisperkit|whisper|large-v3|default", corpusId: "abc123abc123",
+            machineId: MachineRow.id(chip: "Apple M5 Max", unifiedMemoryGB: 128),
+            measuredAt: Date(timeIntervalSince1970: 1_752_800_000), metricKind: .cer,
+            errorRate: 0.12, rtf: 0.14, peakMemoryGB: 3.1, warmupSeconds: 8.0,
+            appVersion: "0.14.0", macosVersion: "26.0")  // both provenance fields omitted
+        let rows = SubmissionPackager.package(
+            local: [bare], machines: [MachineRow(chip: "Apple M5 Max", unifiedMemoryGB: 128)],
+            canonicalCorpusIds: ["abc123abc123"], publishedKeys: [], contributor: "tester")
+        #expect(rows.count == 1)
+        let jsonl = try SubmissionPackager.encodeJSONL(rows)
+        #expect(!jsonl.contains("decode_deterministic"))
+        #expect(!jsonl.contains("run_kind"))
+        #expect(!jsonl.contains("null"))
+    }
 }
