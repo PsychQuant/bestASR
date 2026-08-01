@@ -112,6 +112,36 @@ struct RouterCrossFamilyTests {
         #expect(rec.reason.contains { $0.contains("unverified") })
     }
 
+    @Test func `Locking the OS-native backend routes instead of silently substituting`() throws {
+        // #121 verify: an available backend that the router's membership list
+        // omits is WORSE than an unsupported one — the override is discarded,
+        // another backend's output is written under the user's chosen name, and
+        // the "unavailable" warning is both false (isAvailable() returns true
+        // on macOS 26+) and invisible without --explain. Measured on the real
+        // binary before this test existed: `transcribe --backend apple-speech`
+        // silently produced mlx-audio whisper output.
+        let rec = try Router.recommend(
+            host: Fixtures.m5Max, profile: .high, requestedLanguage: "zh",
+            backendOverride: "apple-speech", modelOverride: nil,
+            records: [], availability: [.appleSpeech: true]
+        )
+        #expect(rec.backend == .appleSpeech)
+        #expect(rec.model == "system")
+        #expect(!rec.warnings.contains { $0.contains("unavailable") })
+    }
+
+    @Test func `An unavailable OS-native backend still warns rather than routing`() throws {
+        // The mirror case — below macOS 26 isAvailable() is false, and the
+        // membership fix must not turn that into a bogus route.
+        let rec = try Router.recommend(
+            host: Fixtures.m5Max, profile: .high, requestedLanguage: "en",
+            backendOverride: "apple-speech", modelOverride: nil,
+            records: [], availability: [.whisperKit: true, .appleSpeech: false]
+        )
+        #expect(rec.backend == .whisperKit)
+        #expect(rec.warnings.contains { $0.contains("apple-speech") && $0.contains("unavailable") })
+    }
+
     @Test func `A single flattering measurement never outranks the aggregate`() throws {
         // #64: tiny has one 0.0 record on a short corpus but a bad mean over
         // its records; large-v3-turbo is broadly measured at ~0.09. The

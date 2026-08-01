@@ -258,11 +258,14 @@ struct ListCommandTests {
         // carries the bundled engines; external backends join only when the
         // user registry enables them, so this machine-dependent tail is
         // asserted by capability, not by exact list.
+        // #121: apple-speech is bundled too — registered unconditionally, with
+        // its own isAvailable() (not this list) gating pre-macOS-26 hosts.
         let ids = CommandCore.live().engines.map(\.id)
-        #expect(ids.prefix(5) == [
+        #expect(ids.prefix(6) == [
             .whisperKit, .whisperCpp, .fluidParakeet, .fluidParaformer, .fluidSenseVoice,
+            .appleSpeech,
         ])
-        for extra in ids.dropFirst(5) {
+        for extra in ids.dropFirst(6) {
             #expect(ExternalEngineRegistry.externalCapable.contains(extra))
         }
     }
@@ -276,6 +279,22 @@ struct ListCommandTests {
         let output = core.listModels()
         #expect(output.contains("0.6b-v3"))
         #expect(output.contains("fluid-parakeet"))
+    }
+
+    @Test func `list-models shows the apple-speech row like every other live family`() throws {
+        // #121: the catalog command's live section is documented as "every
+        // bundled non-whisper backend renders its own rows". A grid row the
+        // catalog never prints is undiscoverable — the user cannot learn that
+        // `--backends apple-speech` exists, or that the row is unverified.
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let core = makeCore(engines: [], cacheDir: dir)
+        let output = core.listModels()
+        #expect(output.contains("apple-speech"))
+        #expect(output.contains("system"))
+        // Unverified rows must say so, exactly as fluid-paraformer's does.
+        let line = output.split(separator: "\n").first { $0.contains("apple-speech") }
+        #expect(line?.contains("unverified") == true)
     }
 }
 

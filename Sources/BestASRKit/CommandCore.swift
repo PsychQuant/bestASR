@@ -60,6 +60,11 @@ public struct CommandCore: Sendable {
         var engines: [any Engine] = [
             WhisperKitEngine(), WhisperCppEngine(), ParakeetEngine(),
             ChineseFamilyEngine.paraformer(), ChineseFamilyEngine.sensevoice(),
+            // #121: registered unconditionally. The struct is constructible at
+            // the package's macOS 14 deployment target; its isAvailable() is
+            // the pure macOS-26 gate, so an older host simply reports it as
+            // not installed instead of failing to build or link.
+            AppleSpeechEngine(),
         ]
         for entry in ExternalEngineRegistry().engines {
             engines.append(ExternalProcessEngine(id: entry.id, command: entry.command))
@@ -642,6 +647,9 @@ public struct CommandCore: Sendable {
         let liveFamilies = [
             ModelGrid.backendFluidParakeet, ModelGrid.backendFluidParaformer,
             ModelGrid.backendFluidSenseVoice,
+            // #121: the OS-native backend is bundled too — a catalog row the
+            // catalog never prints is undiscoverable.
+            ModelGrid.backendAppleSpeech,
         ]
         for backend in liveFamilies {
             for row in ModelGrid.rows(backend: backend, priorityCeiling: nil) {

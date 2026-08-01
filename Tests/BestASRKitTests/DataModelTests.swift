@@ -58,11 +58,13 @@ struct DataModelTests {
     @Test func `BackendID enumerates the three bundled engines in stable order`() throws {
         // #35 (spec asr-engine "Common engine interface"): exactly the backends
         // with a bundled runtime — appended at the tail so store enumeration
-        // order stays stable (design D2).
+        // order stays stable (design D2). #121 appended apple-speech at the
+        // tail for the same reason.
         #expect(BackendID.allCases == [
             .whisperKit, .whisperCpp, .fluidParakeet, .fluidParaformer, .fluidSenseVoice,
-            .mlxAudio,
+            .mlxAudio, .appleSpeech,
         ])
+        #expect(BackendID.appleSpeech.rawValue == "apple-speech")
         #expect(BackendID.fluidParakeet.rawValue == "fluid-parakeet")
         // Codable round-trip through the raw value (store records use strings).
         let decoded = try JSONDecoder().decode(

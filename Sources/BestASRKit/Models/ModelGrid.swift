@@ -15,13 +15,16 @@ public enum ModelGrid {
     public static let backendFluidParakeet = "fluid-parakeet"
     public static let backendFluidParaformer = "fluid-paraformer"
     public static let backendFluidSenseVoice = "fluid-sensevoice"
+    public static let backendAppleSpeech = "apple-speech"
 
     static let whisperSizes: [(size: String, memoryGB: Double)] = [
         ("tiny", 1.0), ("base", 1.5), ("small", 2.5),
         ("medium", 5.0), ("large-v3-turbo", 6.0), ("large-v3", 10.0),
     ]
 
-    public static let rows: [ModelRow] = existingBackendRows + fluidParakeetRows + chineseFamilyRows + mlxAudioRows
+    public static let rows: [ModelRow] =
+        existingBackendRows + fluidParakeetRows + chineseFamilyRows + appleSpeechRows
+        + mlxAudioRows
 
     /// Resolve a model ADDRESS to its row (#65): mlx-audio rows are
     /// addressed `family/size` (sizes collide across families — canary 1b vs
@@ -86,6 +89,61 @@ public enum ModelGrid {
             backend: backendFluidSenseVoice, family: "sensevoice", size: "small",
             quantization: "default", hfRepo: "FluidInference/sensevoice-small-coreml",
             languages: ["multi"], estMemoryGB: 1.5, priority: 1, verified: true),
+    ]
+
+    /// The OS-native Apple Speech row (#121, spec model-grid "Full-family
+    /// catalog"). Every field here differs in KIND from the other live rows,
+    /// so each choice is recorded rather than copied:
+    ///
+    /// - `family` "speechanalyzer": Apple publishes no model name — the only
+    ///   honest handle is the framework surface that exposes it
+    ///   (`SpeechAnalyzer` + `SpeechTranscriber`). Inventing a weight name
+    ///   would be a guess dressed as a fact.
+    /// - `size` "system": there is no user-selectable size and no weight file.
+    ///   The model is whatever the installed OS ships, so the address names
+    ///   its provenance instead of a nonexistent parameter count. "system" is
+    ///   unique across the grid, so it collides with nothing in the registry's
+    ///   bare-size memory map or in `--model` resolution.
+    /// - `hfRepo`/`hfRevision` nil: nothing is fetched from HuggingFace. The
+    ///   supply-chain pin for this backend is the OS version itself.
+    /// - `languages`: the 25 base subtags of the 45 locales
+    ///   `SpeechTranscriber.supportedLocales` reported on macOS 27 (probed
+    ///   2026-08-01). NOT "multi" — that sentinel is reserved for the
+    ///   99+/1000+ class (ModelRow doc comment), and #105 is the standing
+    ///   lesson about what mislabeling a bounded set costs: a 25-language
+    ///   parakeet labeled "multi" got proposed for zh/ja/ko audio. Note `mul`
+    ///   is ISO 639-2 "multiple languages" (Apple's `mul_IN` locale) — a real
+    ///   advertised subtag, NOT this field's "multi" sentinel.
+    /// - `estMemoryGB` 2.0: **UNMEASURED PLACEHOLDER.** Apple exposes no model
+    ///   footprint and this project has not measured one; 2.0 sits with the
+    ///   other on-device CoreML/ANE speech rows (parakeet 2.0, paraformer 2.5)
+    ///   and is deliberately conservative, since the value only ever gates
+    ///   cold-start feasibility (design D2: measured data wins once benchmarked).
+    /// - `priority` 1: the tier gates the DEFAULT benchmark sweep, and there is
+    ///   nothing to defer for the measured set — en_* and zh_* assets were
+    ///   pre-installed on the development machine (ja_JP was NOT, and had to be
+    ///   downloaded; "no download" is not a property of this backend), and on
+    ///   a host below macOS 26 `isAvailable()` returns false so enumeration
+    ///   skips it with a note. Paraformer sits at 2 because its output is
+    ///   unusable, not merely because it downloads (whisperkit rows are
+    ///   priority 1 and download on first use). A first-class competitor across
+    ///   all three benchmark languages belongs in the first-run set.
+    /// - `verified` false: the flag means live-measured on this project's
+    ///   corpora (ModelGridTests: "verified false until benchmarked"). Ad-hoc
+    ///   probes proved the API works; they are not a `bestasr benchmark` run,
+    ///   so the honest value is false. It also satisfies the other reading of
+    ///   the field (hf repo checked against the hub) vacuously — there is no
+    ///   repo, and the grid invariant forbids a repo id on an unverified row.
+    static let appleSpeechRows: [ModelRow] = [
+        ModelRow(
+            backend: backendAppleSpeech, family: "speechanalyzer", size: "system",
+            quantization: "default",
+            languages: [
+                "bn", "de", "en", "es", "fr", "gu", "hi", "it", "ja", "kn", "ko", "ks",
+                "mai", "ml", "mr", "mul", "ne", "or", "pa", "pt", "ta", "te", "ur",
+                "yue", "zh",
+            ],
+            estMemoryGB: 2.0, priority: 1, verified: false)
     ]
 
     /// Existing backends: live-validated all session — verified, priority 1.

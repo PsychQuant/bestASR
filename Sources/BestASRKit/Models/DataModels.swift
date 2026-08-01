@@ -17,6 +17,11 @@ public enum BackendID: String, Codable, CaseIterable, Sendable {
     case fluidParaformer = "fluid-paraformer"
     case fluidSenseVoice = "fluid-sensevoice"
     case mlxAudio = "mlx-audio"
+    // #121: the OS-native backend (Speech.framework's SpeechAnalyzer /
+    // SpeechTranscriber, macOS 26+). No download, no dependency — the model
+    // ships with the operating system. Appended at the tail for the same
+    // reason as #35: store enumeration order stays stable (design D2).
+    case appleSpeech = "apple-speech"
 }
 
 // MARK: - Detection
