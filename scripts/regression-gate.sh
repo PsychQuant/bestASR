@@ -24,9 +24,11 @@ BIN="${BESTASR_BIN:-bestasr}"
 DEST="${BESTASR_CORPORA_DIR:-$HOME/.bestasr/corpora}"
 BASELINE="${BESTASR_BASELINE:-$(cd "$(dirname "$0")/.." && pwd)/benchmarks/baseline.json}"
 COMPARE="$(cd "$(dirname "$0")" && pwd)/lib/baseline-compare.py"
+WORKLIST="$(cd "$(dirname "$0")" && pwd)/lib/baseline-worklist.py"
 
 [ -f "$BASELINE" ] || { echo "✗ baseline not found: $BASELINE" >&2; exit 1; }
 [ -f "$COMPARE" ]  || { echo "✗ compare stage missing: $COMPARE" >&2; exit 1; }
+[ -f "$WORKLIST" ] || { echo "✗ worklist stage missing: $WORKLIST" >&2; exit 1; }
 /usr/bin/python3 -c "import json" >/dev/null 2>&1 \
   || { echo "✗ working /usr/bin/python3 required (install Xcode CLT)" >&2; exit 1; }
 
@@ -35,38 +37,16 @@ trap 'rm -rf "$TMP"' EXIT
 mkdir -p "$TMP/results"
 
 # Work list + reference model from the baseline itself (single fixed canary,
-# D2). Validates up front: non-empty baseline, unique corpus names, and
-# filesystem-safe names (corpus values flow into paths below).
-/usr/bin/python3 - "$BASELINE" > "$TMP/worklist.tsv" <<'PY'
-import json, re, sys
+# D2). Both come from lib/baseline-worklist.py, which runs ONE complete field
+# validation pass (non-empty baseline; unique, filesystem-safe corpus names;
+# whitelisted language tags; whitelisted model names) regardless of which
+# stage is being emitted. These were two separate inline heredocs until #116,
+# and each validated only the fields it emitted — which is how `model` reached
+# MODEL_DIR (a `cd` target) and `--models` unchecked (#115). set -euo pipefail
+# turns any gate error below into an abort before the value is ever used.
+/usr/bin/python3 "$WORKLIST" --emit worklist -- "$BASELINE" > "$TMP/worklist.tsv"
 
-entries = json.load(open(sys.argv[1]))
-if not entries:
-    sys.exit("✗ gate error: baseline is empty — nothing to gate")
-seen = set()
-for e in entries:
-    corpus = e["corpus"]
-    if not re.fullmatch(r"[A-Za-z0-9._-]+", corpus) or corpus.startswith("."):
-        sys.exit(f"✗ gate error: unsafe corpus name in baseline: {corpus!r}")
-    if corpus in seen:
-        sys.exit(f"✗ gate error: duplicate corpus in baseline: {corpus}")
-    seen.add(corpus)
-    # language flows into the TSV alongside corpus (line-oriented `read` split
-    # downstream) AND into `--language "$language"` as a CLI arg. Without a
-    # charset whitelist an embedded \n forges a worklist record whose corpus
-    # field never passed the check above (#112). Same fullmatch discipline as
-    # corpus: a language tag is [a-z]{2,3} with an optional region subtag.
-    language = e["language"]
-    if not re.fullmatch(r"[a-z]{2,3}(-[A-Za-z0-9]+)?", language):
-        sys.exit(f"✗ gate error: unsafe language in baseline: {language!r}")
-    print(f"{corpus}\t{language}")
-PY
-
-MODEL=$(/usr/bin/python3 - "$BASELINE" <<'PY'
-import json, sys
-print(json.load(open(sys.argv[1]))[0]["model"])
-PY
-)
+MODEL=$(/usr/bin/python3 "$WORKLIST" --emit model -- "$BASELINE")
 echo "regression gate: reference model = whisperkit/$MODEL, baseline = $BASELINE"
 
 # Model-artifact pin verification (#48): the corpora are digest-pinned
