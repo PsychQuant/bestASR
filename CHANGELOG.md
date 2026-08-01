@@ -115,7 +115,8 @@ All notable changes to bestASR are documented here. The format follows
   deterministic measurement snapshot. Runs the priority-1 runnable candidates
   (default ceiling; `--all-grid` widens to the whole grid) over the **canonical
   community corpora** (`bestasr bench pull`) with `--decode-deterministic`
-  (binding for Whisper-family backends; forwarded elsewhere), so the local
+  (binding for Whisper-family backends; a silent no-op elsewhere — see the
+  `decode_deterministic` entry below), so the local
   store gains a "performance of each model under this pinned version" record
   (measurements carry `app_version` / `macos_version` / machine id). Canonical
   corpora are what `bestasr bench submit` can publish — the bench leaderboard
@@ -132,15 +133,61 @@ All notable changes to bestASR are documented here. The format follows
   `run_kind` (`release-sweep` | `adhoc`) marks how a row was produced, so a
   per-version snapshot's candidate census can be checked mechanically instead
   of assumed; the new `bestasr benchmark --run-kind` flag carries it, and
-  `scripts/release-sweep.sh` stamps `release-sweep`. `decode_deterministic` is
-  **tri-state on purpose**: `true`/`false` only for backends that actually
-  consume `--decode-deterministic` (WhisperKit, whisper.cpp), and `null` for
-  backends where the flag is a silent no-op (mlx-audio) — a row never claims a
-  decode condition its backend ignored. The bench side validates both only when
-  present (`PsychQuant/bestASR-bench@e728f1a`). Whether the determinism axis
-  should become a per-backend enum is tracked in #118.
+  `scripts/release-sweep.sh` stamps `release-sweep`. `decode_deterministic`
+  records the decode condition as a **three-value enum** (#118):
+  `deterministic-enforced` / `fallback-enabled` for backends that actually
+  consume `--decode-deterministic` (WhisperKit, whisper.cpp), and
+  `flag-not-consumed` for backends that ignore it (mlx-audio's is a silent
+  no-op; the Fluid backends have no such knob) — which makes no claim about
+  whether those decodes are reproducible, rather than lying in either
+  direction. An **absent** field still means "legacy row, predates the field";
+  `null` is never written, though a reader accepts it as equivalent to absent.
+  A value the reader does not recognize — including a `decode_deterministic`
+  boolean from the earlier shape of this same unreleased entry — is **rejected**,
+  not coerced; no released version ever wrote one, and no row in either repo or
+  any local store carries one. The bench side validates both only when present
+  (`PsychQuant/bestASR-bench@c93a70e`).
+
+  `--run-kind` also gained a value domain at the CLI (#120): a typo now fails at
+  parse (`exit 64`) instead of surviving into a submission and failing in the
+  bench repo's CI. The stored field stays a plain string on purpose — that
+  vocabulary is human-typed provenance and already incomplete (the regression
+  gate benchmarks with no `--run-kind` at all), so closing it at the row type
+  would trade a loud CI failure for a silently dropped row.
 
 ### Fixed
+
+- **The compare stage no longer renders baseline values unescaped (#117)**:
+  `scripts/lib/baseline-compare.py` interpolated `corpus` / `language` /
+  `metric` straight into the pass/fail lines it prints, and that stdout is the
+  log a human reads to decide whether a release is safe. `metric` was validated
+  **nowhere**: the worklist stage checks corpus and language, and `metric` is
+  the only rendered field that is neither charset-checked nor numeric, so it
+  reaches the log as-is. (`float()` on the numbers is a *conversion*, not a
+  validation — it accepts `NaN` and `Infinity`; see #134.) A committed baseline
+  carrying `"cer\x1b[32m\rFAKE ALL-PASS"` repainted the
+  line into a forged green verdict, with no timing window needed. `metric` now
+  has to be `cer` or `wer`, and every rendered value is wrapped in an escaper
+  that neutralizes C0/DEL/C1 — enough that no value can emit an ANSI sequence or
+  return the cursor. Escaped rather than stripped, so the value stays visible.
+  Two honest limits: the wrapping is explicit at each interpolation, so a new
+  f-string is not covered until someone wraps it; and Unicode format characters
+  (U+2028, bidi overrides) are out of scope — they need no control byte, and are
+  unreachable here only because corpus and language are whitelisted upstream.
+
+- **Baseline field validation extracted to a tested lib, and `model` validated
+  (#116, #115)**: the gate parsed `baseline.json` in two independent inline
+  heredocs — the worklist stage (`corpus` + `language`) and the model stage
+  (`entries[0].model`, validated nowhere). Neither was reachable by a test
+  without running the whole gate, while the compare stage has been a tested lib
+  since #34. `scripts/lib/baseline-worklist.py` now owns the validation
+  (`--emit worklist|model`), and **both modes run the complete field pass** —
+  validating only the emitted field would recreate the divergence that let
+  `model` go unchecked. `model` gains a whitelist: a single path component
+  starting alphanumeric, no `/`, `..` rejected outright. It reaches a `cd`
+  target and a CLI arg, so #112 had not removed the traversal capability — only
+  moved the payload one field over. The extracted worklist output is
+  byte-identical to the heredoc's (pinned by sha in the test).
 
 - **Baseline `language` field validated before the worklist TSV (#112)**:
   `scripts/regression-gate.sh` whitelisted the `corpus` field but wrote

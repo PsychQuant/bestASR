@@ -199,6 +199,83 @@ public enum MetricKind: String, Codable, Sendable {
     case wer
 }
 
+/// What a measurement row may HONESTLY say about the decode that produced it
+/// (#118). Records what we KNOW, not what the backend is — the pre-#118 `Bool?`
+/// overloaded `nil` to mean both "legacy row" and "this backend ignores the
+/// flag". A row's field stays `Optional`: an ABSENT field (nil) means the row
+/// predates the field entirely and makes no claim at all; `nil` is deliberately
+/// NOT one of the cases below.
+///
+/// Wire values are kebab-case and are a cross-repo contract with the bench
+/// validator (bestASR-bench `tools/validate_measurements.py`).
+///
+/// FORWARD COMPAT: decoding is strict — an unrecognized wire value throws, and
+/// both consumers turn that throw into a quiet drop (`BenchmarkStore.load`
+/// records a warning nothing reads; `SubmissionPackager.publishedKeys` uses
+/// `try?`). So adding a case here is a BREAKING change for any older client
+/// still reading the same store, and it fails invisibly rather than loudly.
+/// Adding a fourth case therefore needs a migration story, not just an
+/// `case` line (#131).
+public enum DecodeDeterminism: String, Codable, Sendable {
+    /// The backend consumed `--decode-deterministic` and it was ON — i.e. the
+    /// deterministic *setting was enforced*: temperature-fallback re-decoding
+    /// was disabled for this run. That is what we observed; it is deliberately
+    /// NOT a promise that re-running yields byte-identical text, which also
+    /// depends on runtime, hardware and model revision (#118: never claim more
+    /// than the evidence).
+    case deterministicEnforced = "deterministic-enforced"
+    /// The backend consumed `--decode-deterministic` and it was OFF: temperature
+    /// fallback re-decoding is live, so a re-run may differ.
+    case fallbackEnabled = "fallback-enabled"
+    /// The backend ignores `--decode-deterministic` entirely (mlx-audio treats it
+    /// as a silent no-op; the Fluid backends have no such knob). This makes NO
+    /// claim about whether that backend's decode is actually reproducible — we
+    /// don't know, and saying either "deterministic" or "fallback" would be a
+    /// lie (#118).
+    case flagNotConsumed = "flag-not-consumed"
+
+    /// Backends that actually read `--decode-deterministic`. Adding a backend
+    /// here is the ONE edit that lets its rows start making a determinism claim
+    /// — until then it honestly reports `.flagNotConsumed`.
+    public static let flagConsumingBackends: Set<String> = [
+        ModelGrid.backendWhisperKit, ModelGrid.backendWhisperCpp,
+    ]
+
+    /// The honest gate (#120 item 1): which condition a row measured on
+    /// `backend` may claim, given the flag the user asked for. Non-optional —
+    /// every real measurement can say *something*; the row's optionality is
+    /// reserved for legacy rows that predate the field.
+    public static func forBackend(_ backend: String, flagRequested: Bool) -> DecodeDeterminism {
+        guard flagConsumingBackends.contains(backend) else { return .flagNotConsumed }
+        return flagRequested ? .deterministicEnforced : .fallbackEnabled
+    }
+}
+
+/// How a measurement was produced (#111) — the `run_kind` value domain as the
+/// CLI accepts it (#120 item 2).
+///
+/// SCOPE, deliberately: this constrains the `--run-kind` OPTION, not the stored
+/// field. `MeasurementRow.runKind` / `SubmissionRow.runKind` stay `String?`, so
+/// a library caller can still store a value outside this domain, and bench CI
+/// stays the backstop for that path. That is the opposite choice from
+/// `DecodeDeterminism`, on purpose: that field's domain is *derived* from this
+/// repo's own backend roster (a total function over it), whereas run_kind is
+/// human-typed provenance whose vocabulary is already demonstrably incomplete —
+/// `scripts/regression-gate.sh` benchmarks with no `--run-kind` at all. Closing
+/// this domain at the row type would trade a loud CI failure for a silent
+/// stale-data read (an undecodable row is dropped, promoting a superseded one).
+///
+/// KEEP IN SYNC with the bench validator's `run_kind` set (bestASR-bench
+/// `tools/validate_measurements.py`). There is no mechanical link: a value added
+/// here and not there fails only in the bench repo's CI, and vice versa
+/// (#120 Residue, deliberately unfixed).
+public enum RunKind: String, Codable, Sendable, CaseIterable {
+    /// A sweep driven by `scripts/release-sweep.sh`.
+    case releaseSweep = "release-sweep"
+    /// A one-off local benchmark.
+    case adhoc
+}
+
 /// One (backend × model × quantization) configuration to measure.
 public struct BenchmarkCandidate: Sendable, Equatable, Hashable {
     public let backend: BackendID
