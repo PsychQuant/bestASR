@@ -135,8 +135,15 @@ struct RegressionWorklistTests {
             "large-v3-turbo|cat",  // pipe
             "large-v3-turbo&",  // background
             "owner/repo/extra",  // more than one path segment
+            "owner/repo",  // ANY slash — model is a single path component (#126 verify)
             ".hidden",  // leading dot
             "",  // empty
+            // These two pass the charset+start rules and are caught ONLY by the
+            // `".." in model` substring guard. Every other hostile entry above
+            // fails on some other rule, so without these the guard is unlocked —
+            // deleting that line would leave the suite green (#126 verify, Codex).
+            "a..b",
+            "large-v3..turbo",
         ]
         for model in hostile {
             let r = try run(emit: "model", baseline: [entry(model: model)])
@@ -151,7 +158,10 @@ struct RegressionWorklistTests {
     }
 
     @Test func `legitimate model names are accepted`() throws {
-        for model in ["large-v3-turbo", "openai/whisper-large-v3", "distil-whisper_v3.5"] {
+        // Single path components only. `owner/repo` is deliberately NOT here:
+        // that shape lives in ModelGrid's `hfRepo`, not the baseline `model`
+        // field, and neither sink accepts a slash (#126 verify).
+        for model in ["large-v3-turbo", "distil-whisper_v3.5", "tiny.en"] {
             let r = try run(emit: "model", baseline: [entry(model: model)])
             #expect(r.exit == 0, "rejected legitimate model: \(model) — \(r.stderr)")
             #expect(r.stdout == model + "\n")

@@ -49,21 +49,26 @@ LANGUAGE_RE = re.compile(r"[a-z]{2,3}(-[A-Za-z0-9]+)?")
 # used as a `cd` target) and a CLI arg (`--models "$MODEL"`), so it gets the
 # strictest treatment of the three (#115).
 #
-# A segment is corpus-safe but must additionally START with an alphanumeric,
-# which rejects `.`, `..` and dotfiles as a whole segment. At most ONE internal
-# `/` is allowed so plausible HF-style `owner/repo` names still work, while
-# `a/b/c` and any deeper path do not. `..` anywhere is rejected outright below
-# (belt and braces: the segment rule already blocks `..` as a segment, the
-# substring rule additionally blocks `a..b`). Everything outside the charset —
-# newline, tab, space, `;`, `|`, `&`, `$`, backtick, quotes, redirects, glob —
-# is rejected by the charset alone, and `re.fullmatch` (unlike `$`) does not
-# tolerate a trailing newline.
+# The value must START with an alphanumeric, which rejects `.`, `..` and
+# dotfiles outright, and contains NO `/` at all — a single path component. `..`
+# is additionally rejected as a substring: the start rule already blocks `..` as
+# a whole value, the substring rule additionally blocks `a..b`. Everything
+# outside the charset — newline, tab, space, `;`, `|`, `&`, `$`, backtick,
+# quotes, redirects, glob — is rejected by the charset alone, and
+# `re.fullmatch` (unlike `$`) does not tolerate a trailing newline.
 #
-# Net effect on the path sink: the value can only ever name something one level
-# INSIDE the model cache root; it can never escape it and can never be absolute
-# (a leading `/` fails the alphanumeric-start rule).
-MODEL_SEGMENT = r"[A-Za-z0-9][A-Za-z0-9._-]*"
-MODEL_RE = re.compile(rf"{MODEL_SEGMENT}(/{MODEL_SEGMENT})?")
+# No `/` branch on purpose (#126 verify): HF-style `owner/repo` names live in
+# ModelGrid's `hfRepo` field, NOT in the baseline `model` field this validates.
+# Both sinks reject slashes anyway — `--models` takes `family/size` (whisper/…,
+# see BenchmarkRunner), and a slash in MODEL_DIR yields the unusable
+# `…/openai_whisper-owner/repo`. Allowing `/` bought an empty set of working
+# values while doubling reachable path depth.
+#
+# Net effect on the path sink: the value names a single component directly under
+# the model cache root, and cannot be absolute (a leading `/` fails the
+# alphanumeric-start rule). This is LEXICAL containment — it assumes the cache
+# tree itself holds no hostile symlinks, since `cd` resolves those (see #129).
+MODEL_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
 
 
 def validate(entries):
@@ -103,6 +108,10 @@ def main() -> int:
         "--emit", required=True, choices=("worklist", "model"),
         help="worklist: corpus\\tlanguage TSV; model: the reference model name")
     parser.add_argument("baseline", help="path to benchmarks/baseline.json")
+    # Callers MUST pass the baseline after a `--` terminator (the gate does).
+    # Without it a path beginning with `-` lands in argparse's option slot, and
+    # `--help` there exits 0 having validated NOTHING — a validator must have no
+    # rc=0 path that skips validation (#126 verify, security lens).
     args = parser.parse_args()
 
     with open(args.baseline) as fh:

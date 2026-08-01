@@ -44,9 +44,9 @@ mkdir -p "$TMP/results"
 # and each validated only the fields it emitted — which is how `model` reached
 # MODEL_DIR (a `cd` target) and `--models` unchecked (#115). set -euo pipefail
 # turns any gate error below into an abort before the value is ever used.
-/usr/bin/python3 "$WORKLIST" --emit worklist "$BASELINE" > "$TMP/worklist.tsv"
+/usr/bin/python3 "$WORKLIST" --emit worklist -- "$BASELINE" > "$TMP/worklist.tsv"
 
-MODEL=$(/usr/bin/python3 "$WORKLIST" --emit model "$BASELINE")
+MODEL=$(/usr/bin/python3 "$WORKLIST" --emit model -- "$BASELINE")
 echo "regression gate: reference model = whisperkit/$MODEL, baseline = $BASELINE"
 
 # Model-artifact pin verification (#48): the corpora are digest-pinned
