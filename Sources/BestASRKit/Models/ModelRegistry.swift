@@ -35,6 +35,12 @@ public enum ModelRegistry {
                         || $0.backend == ModelGrid.backendFluidParakeet
                         || $0.backend == ModelGrid.backendFluidParaformer
                         || $0.backend == ModelGrid.backendFluidSenseVoice
+                        // #121: the OS-native row registers here like every
+                        // other live-engine backend. Its estimate is an
+                        // UNMEASURED placeholder (see the grid row's comment);
+                        // the "system" size name collides with nothing, so the
+                        // max-uniquing below never has to arbitrate for it.
+                        || $0.backend == ModelGrid.backendAppleSpeech
                 }
                 .map { ($0.size, $0.estMemoryGB) },
             uniquingKeysWith: max)
@@ -91,6 +97,11 @@ public enum ModelRegistry {
         var liveNonWhisper: Set<String> = [
             ModelGrid.backendFluidParakeet, ModelGrid.backendFluidParaformer,
             ModelGrid.backendFluidSenseVoice,
+            // #121: bundled like the fluid backends, so `--model system`
+            // resolves. Unconditional (not gated on includeExternal) because
+            // this engine ships in-process; the macOS-26 gate is availability,
+            // which the router checks separately.
+            ModelGrid.backendAppleSpeech,
         ]
         // A registered external adapter upgrades its catalog rows to
         // runnable (#51, spec asr-routing) — the caller passes availability.

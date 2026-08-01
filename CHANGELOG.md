@@ -7,6 +7,53 @@ All notable changes to bestASR are documented here. The format follows
 
 ### Added
 
+- **Apple Speech backend (#121)**: `apple-speech` — the OS-native backend
+  (Speech.framework's `SpeechAnalyzer` / `SpeechTranscriber`, macOS 26+). The
+  only backend in the pool with no dependency, no weight download and no
+  supply-chain pin: the model ships with the operating system, so **its version
+  IS the OS version**. Registered unconditionally; `isAvailable()` is a pure
+  macOS-26 gate, so older hosts report it as not installed rather than failing
+  to build. One grid row (`apple-speech · speechanalyzer/system`), priority 1,
+  **`verified: false`** — the API is live-probed but the row is not yet measured
+  on this project's corpora, and `estMemoryGB` 2.0 is an explicit **unmeasured
+  placeholder**.
+
+  Three behaviors were established by live probing, not from the headers, and
+  are load-bearing enough to record here:
+
+  - The `results` `AsyncSequence` must be consumed **before** audio is fed, or
+    results are lost.
+  - A missing locale asset surfaces as `SFSpeechErrorDomain Code=3 "Audio
+    format is not supported"` — a **misleading message**. Proved not to be a
+    format problem (three corpora byte-identical in format behaved differently;
+    the same ja file transcribed fine under `en_US`; installing the ja asset
+    fixed it immediately). The engine therefore checks `installedLocales` and
+    downloads on demand, and never diagnoses from the error text.
+  - The framework exposes **no determinism knob** (`Speech.swiftinterface` has
+    zero hits for temperature/greedy/beam/sampling/seed), so this backend
+    records `flag-not-consumed` for `decode_deterministic` (#118) rather than
+    claiming an enforcement it cannot perform.
+
+  Language is **required**: `SpeechTranscriber` selects its model by locale and
+  has no auto-detect mode, so an unresolved language throws instead of guessing
+  — a ja file decoded under `en_US` yields measured garbage, and a benchmark
+  harness must not admit a silent guess into its evidence base. `zh` maps to
+  `zh_TW` to match the project's Common Voice zh-TW corpora. Per-segment
+  confidence is **derived** (the minimum over Apple's per-run values), so a
+  confident run cannot mask a weak one inside the same cue.
+
+### Fixed
+
+- **`--backend apple-speech` was silently substituted (#121)**: `Router`'s
+  backend-membership list omitted the new backend, so an explicit `--backend
+  apple-speech` was discarded and another backend's output was written under
+  the user's chosen name. The accompanying `unavailable` warning was both
+  **false** (`isAvailable()` returns true on macOS 26+) and invisible without
+  `--explain`. Measured before the fix: the command produced mlx-audio Whisper
+  output in **Simplified** Chinese; after it, genuine Apple Speech output in
+  **Traditional**. `ModelRegistry.isRunnableModel` gained the same membership so
+  `--model system` resolves.
+
 - **Release sweep (#109)**: `scripts/release-sweep.sh` — the per-version
   deterministic measurement snapshot. Runs the priority-1 runnable candidates
   (default ceiling; `--all-grid` widens to the whole grid) over the **canonical

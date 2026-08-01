@@ -45,9 +45,15 @@ public enum Router {
         // the measured tier ranks across families; the cold-start prior below
         // still walks its whisper chain, so an unmeasured family is never
         // proposed without evidence.
+        //
+        // #121: membership here is what makes a backend selectable at all —
+        // omitting an available one discards the user's --backend and writes
+        // another backend's output under it. Position is inert: this is a
+        // membership set (contains / filter), and ColdStartPrior.selectBackend
+        // consults only `.whisperKit`, so appending changes no autonomous route.
         let availableOrdered: [BackendID] = [
             .whisperKit, .whisperCpp, .fluidParakeet, .fluidParaformer, .fluidSenseVoice,
-            .mlxAudio,
+            .mlxAudio, .appleSpeech,
         ].filter {
             availability[$0] == true
         }
