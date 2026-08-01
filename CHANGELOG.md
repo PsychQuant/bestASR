@@ -38,6 +38,20 @@ All notable changes to bestASR are documented here. The format follows
 
 ### Fixed
 
+- **Baseline field validation extracted to a tested lib, and `model` validated
+  (#116, #115)**: the gate parsed `baseline.json` in two independent inline
+  heredocs — the worklist stage (`corpus` + `language`) and the model stage
+  (`entries[0].model`, validated nowhere). Neither was reachable by a test
+  without running the whole gate, while the compare stage has been a tested lib
+  since #34. `scripts/lib/baseline-worklist.py` now owns the validation
+  (`--emit worklist|model`), and **both modes run the complete field pass** —
+  validating only the emitted field would recreate the divergence that let
+  `model` go unchecked. `model` gains a whitelist: a single path component
+  starting alphanumeric, no `/`, `..` rejected outright. It reaches a `cd`
+  target and a CLI arg, so #112 had not removed the traversal capability — only
+  moved the payload one field over. The extracted worklist output is
+  byte-identical to the heredoc's (pinned by sha in the test).
+
 - **Baseline `language` field validated before the worklist TSV (#112)**:
   `scripts/regression-gate.sh` whitelisted the `corpus` field but wrote
   `language` into the same line-oriented TSV unchecked, so an embedded newline
