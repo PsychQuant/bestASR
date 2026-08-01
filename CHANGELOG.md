@@ -38,6 +38,24 @@ All notable changes to bestASR are documented here. The format follows
 
 ### Fixed
 
+- **The compare stage no longer renders baseline values unescaped (#117)**:
+  `scripts/lib/baseline-compare.py` interpolated `corpus` / `language` /
+  `metric` straight into the pass/fail lines it prints, and that stdout is the
+  log a human reads to decide whether a release is safe. `metric` was validated
+  **nowhere**: the worklist stage checks corpus and language, and `metric` is
+  the only rendered field that is neither charset-checked nor numeric, so it
+  reaches the log as-is. (`float()` on the numbers is a *conversion*, not a
+  validation — it accepts `NaN` and `Infinity`; see #134.) A committed baseline
+  carrying `"cer\x1b[32m\rFAKE ALL-PASS"` repainted the
+  line into a forged green verdict, with no timing window needed. `metric` now
+  has to be `cer` or `wer`, and every rendered value is wrapped in an escaper
+  that neutralizes C0/DEL/C1 — enough that no value can emit an ANSI sequence or
+  return the cursor. Escaped rather than stripped, so the value stays visible.
+  Two honest limits: the wrapping is explicit at each interpolation, so a new
+  f-string is not covered until someone wraps it; and Unicode format characters
+  (U+2028, bidi overrides) are out of scope — they need no control byte, and are
+  unreachable here only because corpus and language are whitelisted upstream.
+
 - **Baseline field validation extracted to a tested lib, and `model` validated
   (#116, #115)**: the gate parsed `baseline.json` in two independent inline
   heredocs — the worklist stage (`corpus` + `language`) and the model stage
