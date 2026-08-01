@@ -160,11 +160,11 @@ public struct MeasurementRow: Codable, Sendable, Equatable {
     /// How this measurement was produced: "release-sweep" (scripts/release-sweep.sh)
     /// vs "adhoc" (a one-off local benchmark). nil for legacy rows (#111).
     public let runKind: String?
-    /// Whether temperature-fallback re-decoding was disabled for reproducibility.
-    /// Meaningful only for whisper-family backends that consume the flag; nil for
-    /// backends that ignore it (mlx-audio is a silent no-op, #111/#118) and for
-    /// legacy rows measured before the flag existed.
-    public let decodeDeterministic: Bool?
+    /// What is known about this row's decode: enforced determinism, live
+    /// temperature fallback, or a backend that ignores the flag (#118 — see
+    /// `DecodeDeterminism`). nil ONLY for legacy rows measured before the field
+    /// existed; "this backend ignores the flag" is `.flagNotConsumed`, not nil.
+    public let decodeDeterministic: DecodeDeterminism?
 
     enum CodingKeys: String, CodingKey {
         case modelId = "model_id"
@@ -189,7 +189,7 @@ public struct MeasurementRow: Codable, Sendable, Equatable {
         metricKind: MetricKind, errorRate: Double, rtf: Double, peakMemoryGB: Double,
         warmupSeconds: Double, appVersion: String, macosVersion: String,
         contextErrorRate: Double? = nil, hfRevision: String? = nil,
-        runKind: String? = nil, decodeDeterministic: Bool? = nil
+        runKind: String? = nil, decodeDeterministic: DecodeDeterminism? = nil
     ) {
         self.modelId = modelId
         self.corpusId = corpusId

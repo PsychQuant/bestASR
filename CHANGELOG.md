@@ -28,13 +28,16 @@ All notable changes to bestASR are documented here. The format follows
   `run_kind` (`release-sweep` | `adhoc`) marks how a row was produced, so a
   per-version snapshot's candidate census can be checked mechanically instead
   of assumed; the new `bestasr benchmark --run-kind` flag carries it, and
-  `scripts/release-sweep.sh` stamps `release-sweep`. `decode_deterministic` is
-  **tri-state on purpose**: `true`/`false` only for backends that actually
-  consume `--decode-deterministic` (WhisperKit, whisper.cpp), and `null` for
-  backends where the flag is a silent no-op (mlx-audio) — a row never claims a
-  decode condition its backend ignored. The bench side validates both only when
-  present (`PsychQuant/bestASR-bench@e728f1a`). Whether the determinism axis
-  should become a per-backend enum is tracked in #118.
+  `scripts/release-sweep.sh` stamps `release-sweep`. `decode_deterministic`
+  records the decode condition as a **three-value enum** (#118):
+  `deterministic-enforced` / `fallback-enabled` for backends that actually
+  consume `--decode-deterministic` (WhisperKit, whisper.cpp), and
+  `flag-not-consumed` for backends that ignore it (mlx-audio's is a silent
+  no-op; the Fluid backends have no such knob) — which makes no claim about
+  whether those decodes are reproducible, rather than lying in either
+  direction. An **absent** field still means "legacy row, predates the field";
+  `null` is never written. The bench side validates both only when present
+  (`PsychQuant/bestASR-bench@e728f1a`).
 
 ### Fixed
 

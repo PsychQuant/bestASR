@@ -160,7 +160,9 @@ public struct BenchmarkStore: Sendable {
                 quantization: record.quantization)
             // Legacy flat-cache rows predate the #111 provenance fields — there
             // is no run-kind and no decode-deterministic flag to recover here, so
-            // both stay nil (legacy-safe) rather than being fabricated.
+            // both stay nil (legacy-safe) rather than being fabricated. Under
+            // #118 that nil is unambiguous: "the field did not exist when this
+            // was measured", NOT "this backend ignores the flag".
             let measurement = MeasurementRow(
                 modelId: modelId, corpusId: corpus.corpusId, machineId: machine.machineId,
                 measuredAt: record.measuredAt, metricKind: record.metricKind,

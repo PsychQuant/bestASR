@@ -35,9 +35,10 @@ public struct SubmissionRow: Codable, Sendable, Equatable {
     /// Provenance of the underlying measurement (#111) — carried through so the
     /// published row is self-contained. nil for legacy rows.
     public let runKind: String?
-    /// Deterministic-decode flag as recorded on the measurement (#111); nil for
-    /// backends that ignore it (mlx-audio) and for legacy rows.
-    public let decodeDeterministic: Bool?
+    /// Decode-determinism condition as recorded on the measurement (#111/#118);
+    /// nil ONLY for legacy rows that predate the field — a backend that ignores
+    /// `--decode-deterministic` publishes `.flagNotConsumed`, not nil.
+    public let decodeDeterministic: DecodeDeterminism?
     public let contributor: String
     public let chip: String
     public let unifiedMemoryGB: Double

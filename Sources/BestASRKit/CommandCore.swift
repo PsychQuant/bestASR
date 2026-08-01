@@ -587,12 +587,12 @@ public struct CommandCore: Sendable {
                 contextErrorRate: measured.contextErrorRate,
                 hfRevision: seededRow?.hfRevision,
                 runKind: runKind,
-                // decode_deterministic is meaningful only for whisper-family backends that
-                // actually consume the flag; mlx-audio ignores it (silent no-op, #111/#118),
-                // so record nil there rather than lie.
-                decodeDeterministic:
-                    [ModelGrid.backendWhisperKit, ModelGrid.backendWhisperCpp].contains(record.backend)
-                    ? decodeDeterministic : nil))
+                // The honest gate lives in DecodeDeterminism.forBackend (#120
+                // item 1) so the "never lie" invariant is unit-testable without
+                // running a real backend. Non-optional by construction: a live
+                // measurement always knows something; nil is for legacy rows.
+                decodeDeterministic: .forBackend(
+                    record.backend, flagRequested: decodeDeterministic)))
         }
         }
 

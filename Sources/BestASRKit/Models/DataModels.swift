@@ -194,6 +194,60 @@ public enum MetricKind: String, Codable, Sendable {
     case wer
 }
 
+/// What a measurement row may HONESTLY say about the decode that produced it
+/// (#118). Records what we KNOW, not what the backend is — the pre-#118 `Bool?`
+/// overloaded `nil` to mean both "legacy row" and "this backend ignores the
+/// flag". A row's field stays `Optional`: an ABSENT field (nil) means the row
+/// predates the field entirely and makes no claim at all; `nil` is deliberately
+/// NOT one of the cases below.
+///
+/// Wire values are hyphenated snake-case and are a cross-repo contract with the
+/// bench validator (bestASR-bench `tools/validate_measurements.py`).
+public enum DecodeDeterminism: String, Codable, Sendable {
+    /// The backend consumed `--decode-deterministic` and it was ON: temperature
+    /// fallback re-decoding was disabled, so the same audio yields the same text.
+    case deterministicEnforced = "deterministic-enforced"
+    /// The backend consumed `--decode-deterministic` and it was OFF: temperature
+    /// fallback re-decoding is live, so a re-run may differ.
+    case fallbackEnabled = "fallback-enabled"
+    /// The backend ignores `--decode-deterministic` entirely (mlx-audio treats it
+    /// as a silent no-op; the Fluid backends have no such knob). This makes NO
+    /// claim about whether that backend's decode is actually reproducible — we
+    /// don't know, and saying either "deterministic" or "fallback" would be a
+    /// lie (#118).
+    case flagNotConsumed = "flag-not-consumed"
+
+    /// Backends that actually read `--decode-deterministic`. Adding a backend
+    /// here is the ONE edit that lets its rows start making a determinism claim
+    /// — until then it honestly reports `.flagNotConsumed`.
+    public static let flagConsumingBackends: Set<String> = [
+        ModelGrid.backendWhisperKit, ModelGrid.backendWhisperCpp,
+    ]
+
+    /// The honest gate (#120 item 1): which condition a row measured on
+    /// `backend` may claim, given the flag the user asked for. Non-optional —
+    /// every real measurement can say *something*; the row's optionality is
+    /// reserved for legacy rows that predate the field.
+    public static func forBackend(_ backend: String, flagRequested: Bool) -> DecodeDeterminism {
+        guard flagConsumingBackends.contains(backend) else { return .flagNotConsumed }
+        return flagRequested ? .deterministicEnforced : .fallbackEnabled
+    }
+}
+
+/// How a measurement was produced (#111) — the `run_kind` value domain, and the
+/// Swift side's single source of truth for it (#120 item 2).
+///
+/// KEEP IN SYNC with the bench validator's `run_kind` enum (bestASR-bench
+/// `tools/validate_measurements.py`). There is no mechanical link between the
+/// two definitions: a value added here and not there fails only in the bench
+/// repo's CI, and vice versa (#120 Residue, deliberately unfixed).
+public enum RunKind: String, Codable, Sendable, CaseIterable {
+    /// A sweep driven by `scripts/release-sweep.sh`.
+    case releaseSweep = "release-sweep"
+    /// A one-off local benchmark.
+    case adhoc
+}
+
 /// One (backend × model × quantization) configuration to measure.
 public struct BenchmarkCandidate: Sendable, Equatable, Hashable {
     public let backend: BackendID

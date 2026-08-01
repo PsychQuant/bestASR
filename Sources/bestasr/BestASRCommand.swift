@@ -32,6 +32,14 @@ struct BestASR: AsyncParsableCommand {
 // (Same package as the enum, so no @retroactive.)
 extension HallucinationFilterMode: ExpressibleByArgument {}
 
+// #120 item 2: --run-kind used to take an arbitrary String, so a typo travelled
+// verbatim into the store and only failed in the bench repo's CI — fail-loud at
+// the wrong end. Typing the option rejects unknown values at the CLI boundary
+// (ArgumentParser's usage error, exactly like --hallucination-filter) and lists
+// the domain in --help. The value set itself lives on BestASRKit.RunKind, which
+// carries the "keep in sync with the bench validator" note.
+extension RunKind: ExpressibleByArgument {}
+
 // Command handlers delegate to BestASRKit.CommandCore (design D1: the executable
 // stays a thin argument-parsing shell; behavior lives in the library where the
 // test target can reach it).
@@ -188,12 +196,15 @@ struct Benchmark: AsyncParsableCommand {
             """)
     var decodeDeterministic = false
 
+    // Value domain enforced at parse time (#120 item 2); unset stays nil, which
+    // is a valid state ("no provenance tag"). The domain must stay in sync with
+    // the bench validator's run_kind enum — see BestASRKit.RunKind.
     @Option(
         help: """
-            Provenance tag stamped onto each measurement's run_kind field \
-            (e.g. release-sweep for scripts/release-sweep.sh; omit for ad-hoc runs)
+            Provenance tag stamped onto each measurement's run_kind field: \
+            release-sweep (scripts/release-sweep.sh) | adhoc; omit to leave it unset
             """)
-    var runKind: String?
+    var runKind: RunKind?
 
     @Flag(help: "Emit machine-readable JSON instead of the table")
     var json = false
@@ -212,7 +223,7 @@ struct Benchmark: AsyncParsableCommand {
                     contextDir: contextDir,
                     allGrid: allGrid,
                     decodeDeterministic: decodeDeterministic,
-                    runKind: runKind
+                    runKind: runKind?.rawValue
                 )
             )
         }
