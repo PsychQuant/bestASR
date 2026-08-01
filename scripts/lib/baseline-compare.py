@@ -14,9 +14,14 @@ pipes into it and RegressionBaselineTests exercises it via Process.
 import json
 import sys
 
-# The accuracy metrics the gate knows how to judge. Same vocabulary the bench
-# validator enforces for `metric_kind`, kept as a set here so an unknown value
-# is a loud gate error rather than a label nobody notices (#117).
+# The accuracy metrics the gate knows how to judge. Same vocabulary as Swift's
+# `MetricKind` and the bench validator's `metric_kind`, so an unknown value is a
+# loud gate error rather than a label nobody notices (#117).
+#
+# The three definitions are duplicated with NO coupling test. Adding a third
+# metric on the Swift side without adding it here does not just reject that
+# corpus — the check below returns early, so one legitimate entry would suppress
+# the verdict for every other corpus in the run.
 METRICS = {"cer", "wer"}
 
 # Every C0 control, DEL, and every C1 control, mapped to a visible escape.
@@ -24,19 +29,28 @@ METRICS = {"cer", "wer"}
 # reads to decide whether a release is safe. A `metric` carrying CR + an ANSI
 # SGR sequence can repaint the line — the reproduced payload
 # "cer\x1b[32m\rFAKE ALL-PASS" renders as a green pass over the real verdict
-# (#117). Escaping rather than deleting keeps the offending bytes diagnosable.
+# (#117). Escaping rather than deleting keeps the value visible, so a reader
+# can still see roughly what was there.
 _CONTROL_CHARS = {c: f"\\x{c:02x}" for c in range(0x20)}
 _CONTROL_CHARS[0x7F] = "\\x7f"
 _CONTROL_CHARS.update({c: f"\\x{c:02x}" for c in range(0x80, 0xA0)})
 
 
 def safe(value) -> str:
-    """Render a baseline-supplied value inert for a one-line log message.
+    """Neutralize ANSI/terminal control codes in a baseline-supplied value.
 
-    Defense in depth, deliberately at the RENDER boundary: validation lives in
-    the gate's worklist stage, but this script is a separate entry point that
-    re-validates nothing it is handed. Any field added to these messages later
-    is covered without the author having to remember (#117).
+    Defense in depth at the render boundary: validation lives in the gate's
+    worklist stage, but this script is a separate entry point that re-validates
+    nothing it is handed.
+
+    SCOPE, so callers do not over-trust it: this escapes C0, DEL and C1 —
+    enough that a value cannot emit an ANSI sequence or return the cursor. It
+    does NOT cover Unicode format characters (U+2028/U+2029, bidi overrides),
+    which can reorder or split a line in a Unicode-aware viewer without using
+    any control byte; those are unreachable through the gate today because
+    corpus and language are `fullmatch`ed upstream and metric is bounded above.
+    And it must be called EXPLICITLY at each interpolation — a new f-string
+    added below is not covered until someone wraps it (#117).
     """
     return str(value).translate(_CONTROL_CHARS)
 
