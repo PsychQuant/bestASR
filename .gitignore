@@ -21,3 +21,6 @@ dist/
 # #26 speaker enrollment voice prints — sensitive biometric data, local-only.
 # Never commit voice samples even if a context dir lives inside the repo.
 **/voices/
+
+# IDD tree-lock (idd-tree-lock.sh #183) — per-machine session state, not tracked
+.claude/.idd/tree-lock
