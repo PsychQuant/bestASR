@@ -26,7 +26,14 @@ recommendations**, **stable fallback**, and **clear explanations**.
 ## Requirements
 
 - Apple Silicon Mac (arm64) — Intel Macs and Rosetta are not supported
-- macOS 14 (Sonoma) or later
+- macOS 14 (Sonoma) or later to **run**
+- **Xcode 26 / the macOS 26 SDK to _build_** (since #121). The `apple-speech`
+  backend references `SpeechAnalyzer` / `SpeechTranscriber`, which exist only in
+  that SDK. `@available` keeps the binary running on macOS 14 — it does **not**
+  let an older toolchain compile the file, so building with Xcode 16 fails at
+  type-checking with "cannot find type 'SpeechAnalyzer' in scope". Run-time
+  behavior below macOS 26 is unaffected: `isAvailable()` reports the backend as
+  not installed and it is skipped with a note.
 - Swift 6.3+ (the Xcode built-in toolchain works). **Known issue**: the
   swiftly-managed swift-6.2.4-RELEASE toolchain crashes the compiler
   (signal 6, SIL specialization in the swift-transformers dependency)
