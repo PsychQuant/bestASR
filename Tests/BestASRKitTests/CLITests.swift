@@ -7,14 +7,26 @@ import Testing
 private func makeCore(
     engines: [any Engine],
     cacheDir: URL,
-    host: SystemInfo = Fixtures.m5Max
+    host: SystemInfo = Fixtures.m5Max,
+    languageDetector: (any AudioLanguageDetecting)? = nil
 ) -> CommandCore {
     CommandCore(
         engines: engines,
         detect: { host },
         store: BenchmarkStore(directory: cacheDir.appendingPathComponent("store")),
-        probe: FakeClockProbe.probe()
+        probe: FakeClockProbe.probe(),
+        languageDetector: languageDetector ?? StubLanguageDetector(language: "en")
     )
+}
+
+/// Language detection defaults to `WhisperKitLanguageDetector`, which downloads
+/// and runs a real model. Leaving it in place made these tests depend on a
+/// cached WhisperKit and a network — passing on a developer machine and failing
+/// in CI, where the miss surfaces as a `--language auto` warning on every run.
+/// Stubbing it keeps the suite hermetic, per the file's own contract.
+private struct StubLanguageDetector: AudioLanguageDetecting {
+    let language: String
+    func detectLanguage(audioPath: String) async throws -> String { language }
 }
 
 private enum FakeClockProbe {
