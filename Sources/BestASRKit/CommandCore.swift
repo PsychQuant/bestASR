@@ -5,11 +5,23 @@ public struct TranscribeOutcome: Sendable {
     public let outputPath: String
     public let format: String
     public let explanation: String
+    /// Router warnings, carried SEPARATELY from `explanation` (#136).
+    ///
+    /// They used to exist only folded into that prose block, which the CLI
+    /// prints solely under `--explain` — so a user who asked for one backend
+    /// and silently received another's output saw nothing but "Wrote txt
+    /// transcript to …". `reason` is explanatory detail and can stay behind the
+    /// flag; a warning is what the reader needs in order to trust the file that
+    /// was just written, and cannot.
+    public let warnings: [String]
 
-    public init(outputPath: String, format: String, explanation: String) {
+    public init(
+        outputPath: String, format: String, explanation: String, warnings: [String] = []
+    ) {
         self.outputPath = outputPath
         self.format = format
         self.explanation = explanation
+        self.warnings = warnings
     }
 }
 
@@ -454,7 +466,8 @@ public struct CommandCore: Sendable {
         return TranscribeOutcome(
             outputPath: destination,
             format: format.rawValue,
-            explanation: explanation.joined(separator: "\n")
+            explanation: explanation.joined(separator: "\n"),
+            warnings: rec.warnings
         )
     }
 

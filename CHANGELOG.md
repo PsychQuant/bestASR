@@ -108,6 +108,35 @@ All notable changes to bestASR are documented here. The format follows
 
 ### Fixed
 
+- **Router warnings never reached the user without `--explain` (#136)**: every
+  warning the router produced was folded into the `explanation` prose block,
+  which `bestasr transcribe` printed **only** under `--explain`. So the entire
+  output of a run that silently substituted a different backend was:
+
+  ```
+  Wrote txt transcript to …/cv-zhtw-2.txt
+  ```
+
+  Warnings now print to stderr on the **default** path. The split is the point:
+  `reason` explains a choice and is legitimately opt-in, but a warning is what
+  the reader needs in order to trust the file that was just written. Both arrays
+  already existed on `ASRRecommendation`; only the CLI conflated them.
+
+  ```
+  warning: backend 'fluid-parakeet' model '0.6b-v3' does not list support for
+           language 'zh' — output quality is not established
+  Wrote txt transcript to /tmp/pk.txt
+  ```
+
+  Also unhidden by the same change: the `--backend X is unavailable; selecting
+  automatically` substitution notice (the #121 case), the cold-start
+  memory-downgrade warnings, and the unverified-model notice (#50). `--explain`
+  output is **unchanged**, and warnings are not duplicated when it is passed.
+
+  Pre-existing since the original CLI commit (`471218a`, 2026-07-02), affecting
+  every backend. `diagnose` and `recommend` were already unaffected — the former
+  prints warnings unconditionally, the latter emits them in its JSON.
+
 - **`--backend apple-speech` was silently substituted (#121)**: `Router`'s
   backend-membership list omitted the new backend, so an explicit `--backend
   apple-speech` was discarded and another backend's output was written under

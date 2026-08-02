@@ -150,7 +150,18 @@ struct Transcribe: AsyncParsableCommand {
             )
             print("Wrote \(result.format) transcript to \(result.outputPath)")
             if explain {
+                // --explain already renders the warnings inline, in context
+                // with the reasons — printing them again above would duplicate.
                 FileHandle.standardError.write(Data((result.explanation + "\n").utf8))
+            } else {
+                // #136: warnings print on the DEFAULT path. Reasons explain a
+                // choice and are opt-in; a warning is what the reader needs to
+                // trust the file just written. Hiding these behind --explain
+                // meant `--backend X` could silently deliver backend Y's output
+                // with "Wrote txt transcript to …" as the entire output.
+                for warning in result.warnings {
+                    FileHandle.standardError.write(Data("warning: \(warning)\n".utf8))
+                }
             }
         }
     }

@@ -136,6 +136,52 @@ struct TranscribeCommandTests {
         #expect(outcome.explanation.contains("because"))
         #expect(outcome.explanation.contains("cold start"))
     }
+
+    @Test func `an unavailable requested backend surfaces a warning off the explanation`()
+        async throws
+    {
+        // #136: every router warning was folded into `explanation`, which the
+        // CLI prints ONLY under --explain. So a user who asked for one backend
+        // and silently received another's output saw nothing at all. Measured
+        // during #121: `--backend apple-speech` wrote mlx-audio Whisper output
+        // under the user's chosen name, with `Wrote txt transcript to …` as the
+        // entire output.
+        //
+        // Warnings must therefore be reachable WITHOUT parsing the prose block,
+        // so the CLI can print them on the default path.
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let audio = try makeWavFile(in: dir)
+        let core = makeCore(engines: [MockEngine.fixed(.whisperKit)], cacheDir: dir)
+
+        let request = SelectionRequest(
+            profileName: "auto", backendOverride: "fluid-parakeet",  // not among the mock's engines
+            modelOverride: nil, requestedLanguage: nil)
+        let outcome = try await core.transcribe(
+            audioPath: audio, selection: request, formatName: "txt", outputPath: nil)
+
+        #expect(!outcome.warnings.isEmpty, "the substitution produced no structured warning")
+        #expect(outcome.warnings.contains { $0.contains("fluid-parakeet") })
+        #expect(outcome.warnings.contains { $0.contains("unavailable") })
+        // The explanation keeps carrying them too — --explain output is unchanged.
+        #expect(outcome.explanation.contains("fluid-parakeet"))
+    }
+
+    @Test func `a clean run carries no warnings, so the default path stays quiet`()
+        async throws
+    {
+        // The other half of the contract: warnings print unconditionally, so an
+        // ordinary run must not produce any, or the new output becomes noise
+        // that trains the reader to ignore it.
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let audio = try makeWavFile(in: dir)
+        let core = makeCore(engines: [MockEngine.fixed(.whisperKit)], cacheDir: dir)
+
+        let outcome = try await core.transcribe(
+            audioPath: audio, selection: auto, formatName: "txt", outputPath: nil)
+        #expect(outcome.warnings.isEmpty, "clean run emitted: \(outcome.warnings)")
+    }
 }
 
 struct BenchmarkCommandTests {
