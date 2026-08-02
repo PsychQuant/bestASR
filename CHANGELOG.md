@@ -106,6 +106,45 @@ All notable changes to bestASR are documented here. The format follows
   gate benchmarks with no `--run-kind` at all), so closing it at the row type
   would trade a loud CI failure for a silently dropped row.
 
+### Changed
+
+- **FluidAudio pinned 0.15.4 → 0.15.5 (#122)**: unblocks the Parakeet
+  Unified / TDT-ja evaluation (#123 / #124), whose models exist only in 0.15.5.
+
+  #110 flagged `DownloadUtils → ModelHub` as a breaking change. It is not one
+  *for this repo*: the rewrite is internal to the download layer, and this repo
+  has **zero** references to it — the consumed surface is entirely high-level
+  (`AsrModels.download` / `.load`, `AsrManager`, `ParaformerManager.load`,
+  `SenseVoiceManager.load`, `DiarizerManager`, `ASRResult`). Both open questions
+  the issue left for verification were answered by compiling rather than by
+  reading release notes: the `AsrModels` signatures are unchanged, and the
+  Chinese-family managers this repo uses are not the experimental zh-CN CTC /
+  Qwen3 backends dropped in 0.15.3.
+
+  **Accuracy is unchanged.** Every overlapping before/after pair is identical to
+  the precision the report prints:
+
+  | corpus | backend | 0.15.4 | 0.15.5 |
+  |---|---|---|---|
+  | `jfk` (en) | parakeet | 0.00 % | 0.0 % |
+  | `cv-zhtw-4` | parakeet | 93.55 % | 93.5 % |
+  | `cv-zhtw-1` | sensevoice | 14.08 % | 14.1 % |
+  | `cv-zhtw-2` | sensevoice | 47.22 % | 47.2 % |
+  | `cv-zhtw-4` | sensevoice | 11.29 % | 11.3 % |
+  | `cv-zhtw-1` | paraformer | 178.87 % | 178.9 % |
+  | `cv-zhtw-2` | paraformer | 181.94 % | 181.9 % |
+
+  Throughput moved (e.g. parakeet on `jfk` 161.6× → 126.5×), but these are
+  single runs on a thermally unconstrained laptop and the harness does not
+  average them — the speed column is **not** evidence of a change either way.
+
+  **Comparability caveat, carried from #110's residue**: the measurement schema
+  records `app_version` (bestASR's own) but **not** the FluidAudio version, so
+  these two batches are indistinguishable in the store once written. They are
+  separated here only by capture time. Per the standing rule that a tool version
+  change makes a new *condition*, rows either side of this bump should not be
+  ranked against each other on the strength of the schema alone.
+
 ### Fixed
 
 - **`--backend apple-speech` was silently substituted (#121)**: `Router`'s

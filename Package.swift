@@ -13,7 +13,7 @@ let package = Package(
     dependencies: [
         .package(url: "https://github.com/argmaxinc/WhisperKit.git", from: "0.9.0"),
         // #25 diarization — exact pin per supply-chain discipline (design D3)
-        .package(url: "https://github.com/FluidInference/FluidAudio.git", exact: "0.15.4"),
+        .package(url: "https://github.com/FluidInference/FluidAudio.git", exact: "0.15.5"),
         .package(url: "https://github.com/apple/swift-argument-parser.git", from: "1.3.0"),
         // #80 MCP surface — same SDK family as the che-mcps servers
         .package(
