@@ -125,15 +125,23 @@ All notable changes to bestASR are documented here. The format follows
   - **An unbounded `tolerance`.** This path needs no unusual number at all,
     which is what made it hard to see: `tolerance: 1e308` rendered a 94-point
     regression as an ordinary pass line, indistinguishable from a real one.
-    `tolerance` now has the tightest bound of the three fields — the committed
-    baseline uses 0.02, and 0.5 already accepts a 50-point jump.
+    `tolerance` is now capped at **0.25**, the tightest per-field bound of the
+    three, against a committed baseline that uses 0.02 throughout. Stated
+    plainly, since the point of this change is that the prose must not flatter
+    the gate: both that ceiling and the comparison are *inclusive*, so a
+    regression of exactly 0.25 against a golden of 0 does pass. The bound
+    refuses the absurd values; the tolerance now rendered on every passing line
+    is what exposes the merely-too-lenient ones.
   - **A garbage numeric field** raised `ValueError` mid-run. A traceback is not
-    a verdict; it now fails as a named gate error like every other.
+    a verdict; numeric fields now fail as a named gate error. (Scoped honestly:
+    this covers the *numeric* converter. Malformed document shapes — a
+    top-level array, a missing `corpus` or `language` key — still surface as
+    tracebacks. They all exit non-zero, so none is fail-open, but the class is
+    not uniformly handled and a shape guard after `json.load` is the follow-up.)
 
-  Bounds are deliberately **asymmetric**, because the danger is: `golden` and
-  `tolerance` are hazardous when *large* (both make the comparison vacuous),
-  while `error_rate` is hazardous only when *non-finite* — a large measurement
-  correctly fails, so its ceiling is a garbage filter, not a security boundary.
+  `error_rate` is bounded differently on purpose: it is hazardous only when
+  *non-finite*, because a large measurement correctly **fails**. Its ceiling is
+  a garbage filter, not a security boundary.
 
   A cross-model verification round found four more ways the same verdict could
   come out wrong, each fixed here:
@@ -155,10 +163,85 @@ All notable changes to bestASR are documented here. The format follows
     `float(true)` is 1.0 and a bare `true` passed every bound as an ordinary
     number.
 
-  `TOLERANCE_MAX` also tightened from 0.5 to **0.25** on the same review. No
-  fixed ceiling can separate *generous* from *disabled* on its own, which is why
-  the bound handles the absurd values and the newly-rendered tolerance handles
-  the merely-too-lenient ones.
+  A second verification round found that bounding `tolerance` had closed one
+  handle of a two-handled lever, and named the other:
+
+  - **An inflated `golden` bought exactly the slack a wide `tolerance` was
+    refused.** The decision is `actual - golden > tol`, so the gate passes
+    anything at or below **`golden + tolerance`** — that sum is the effective
+    threshold, and the two fields enter it identically. A `golden` of 2.0 with
+    an honest `tolerance` of 0.02 admitted every physically possible error
+    rate, and the tolerance newly rendered on the pass line read a reassuring
+    `0.0200`, because the number that had moved was not the one being shown.
+    Reproduced against the real committed baseline with a single field edited.
+    The bound is now on **the sum** (`≤ 0.5`, against a committed maximum of
+    0.1749) — the only bound invariant to trading one handle for the other.
+    `golden`'s separate ceiling was **deleted**: with the sum bounded it could
+    never be the guard that fired, and mutation testing put it at 0 of 34
+    assertions. A constant no test can distinguish from its absence is not a
+    guard.
+  - **A truncated comparison still reported success.** Closing the empty case
+    closed cardinality 0, not 1-of-N. Both sides of the comparison derive from
+    the same `baseline.json` — the worklist stage reads it and the assembler
+    iterates it — so deleting entries shrinks the baseline, the work list and
+    the measured set together, and the gate prints `all 1 corpora within
+    tolerance` over a release that verified one twelfth of what it should
+    have. By pure deletion, with no unusual value anywhere. The expected corpus
+    set is now pinned in `benchmarks/baseline-meta.json` and supplied to the
+    compare stage by the gate, so truncating the baseline requires a second,
+    deliberate edit to the file that carries the seeding provenance. A run with
+    no anchor says so on stdout rather than passing quietly — a completeness
+    check that can be skipped by omitting a key is the shape of the hole it
+    closes.
+  - **`OverflowError` escaped the numeric converter.** JSON has no integer
+    width limit, so a bare 400-digit literal parses to an arbitrary-precision
+    `int` and `float()` raises — neither `TypeError` nor `ValueError`. Exits
+    non-zero, so never a bypass, but it reached the log as a stack trace where
+    the verdict belongs. Universal, not version-specific. Rejected values are
+    now also truncated at 120 characters, so a hostile field cannot become the
+    log.
+
+  A third round found that the completeness anchor could be switched off by
+  omitting a key — the shape the fix was written against, one layer out — and
+  that three guards had no test that could tell them from their absence:
+
+  - **The anchor is now an invariant of the gate, not a nicety.**
+    `scripts/regression-gate.sh` knows which baseline it is running, so for the
+    repo's own it now **fails** when `baseline-meta.json` is missing,
+    unreadable, or its `corpora` is absent / null / not a non-empty array of
+    unique strings; an overridden `BESTASR_BASELINE` warns instead. The compare
+    stage keeps tolerating an absent anchor with a printed NOTE, because a stdin
+    filter genuinely cannot know whether it was handed a whole sweep — the
+    invariant belongs where the answer is knowable. This also upgrades the #48
+    model-artifact pin, which used to be skipped **silently** when that same
+    file was missing.
+  - **A satisfied anchor now says so** (`completeness: N corpora pinned by … —
+    verified`). Its only previous evidence was the *absence* of the warning,
+    which asks a reader to already know the warning exists — the same argument
+    this entry makes for rendering the tolerance on passing lines.
+  - **`error_rate: false`** was the one boolean position still able to flip a
+    verdict, and nothing tested it: `float(false)` is `0.0`, a boolean laundered
+    into a *perfect score* rather than a bad one. Every other position became
+    redundantly covered once `golden` was bounded at 0.5 — which had quietly
+    made the existing boolean test vacuous.
+  - `expected_corpora` is shape-checked before use (a bare string would have
+    been iterated character-wise; an int or a nested list raised a traceback),
+    the anchor names the file it actually read rather than the default path, its
+    corpus lists are length-capped, and the sum-bound message renders at 17
+    significant digits so a rejected value cannot print as *equal* to the
+    threshold it exceeded.
+
+  Every guard is non-vacuous, measured by deleting each independently and
+  counting failed assertions: effective-threshold bound **9**, completeness
+  anchor **7**, boolean guard **6**, `isfinite` **5**, `TOLERANCE_MAX` **3**,
+  `OverflowError` **3**, `ERROR_RATE_MAX` **2**, echo cap **2**, and the gate's
+  own anchor wiring **1** — a one-token typo in that shell heredoc used to
+  revert the whole completeness guard with a green suite.
+
+  Those numbers come from **`scripts/mutation-check.sh`**, which is committed
+  alongside them. A count a reader cannot re-run is the same defect as a
+  threshold a reader cannot see, one level out; the script deletes each guard,
+  re-runs the suite, restores the tree, and fails if anything scores zero.
 
   Passing lines now render **the tolerance they were judged against**. Auditing
   a pass is the whole purpose of this log, and the one number that could expose

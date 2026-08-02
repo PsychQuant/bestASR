@@ -32,13 +32,51 @@ import sys
 #
 # Non-finite values defeat the comparison a third way: EVERY comparison against
 # NaN is false, so `diff > tol` is false and the entry "passes".
-GOLDEN_MAX = 2.0  # CER can exceed 1.0 via insertions; beyond 2.0 it is not a baseline
-# The committed baseline uses 0.02 uniformly. 0.25 leaves an order of magnitude
-# of headroom while still refusing a threshold that would wave through a
-# quarter-of-the-transcript regression. No fixed ceiling can separate "generous"
-# from "disabled" on its own, which is why the tolerance is now RENDERED on
-# passing lines too — the bound stops the absurd values, visibility handles the
-# merely-too-lenient ones.
+# The decision is `diff = actual - golden > tol`, i.e. the gate passes anything
+# at or below `golden + tolerance`. THAT SUM is the effective threshold, and the
+# two fields enter it identically — they are one lever with two handles. Bounding
+# only `tolerance` (as the first pass at #134 did) leaves the other handle free:
+# `golden: 2.0` with an honest `tolerance: 0.02` admits every physically possible
+# error rate, and the newly-rendered tolerance reads a reassuring `0.0200` on the
+# rigged line, because the number that moved is not the one being rendered.
+#
+# So the bound that matters is on the sum. It is the only one invariant to
+# trading one handle against the other; a per-field bound will always leave its
+# partner as a partial substitute. The committed baseline's widest entry is
+# `golden 0.1549 + tolerance 0.02 = 0.1749`, so 0.5 leaves 2.9x headroom.
+#
+# The error directions are not comparable, which is why this errs tight: a bound
+# set too tight fails LOUDLY at `swift test`, on every PR, naming the file. A
+# bound set too loose fails SILENTLY at release, as a green line.
+EFFECTIVE_THRESHOLD_MAX = 0.5
+
+# `golden` has no separate CONSTANT, deliberately — it reuses the effective
+# threshold as its per-field ceiling (see `validate_numbers`). The sum bound
+# already forces `golden < EFFECTIVE_THRESHOLD_MAX` (tolerance is strictly
+# positive), so any separate ceiling above 0.5 can never be the guard that
+# fires: mutation testing put the old `GOLDEN_MAX = 2.0` at **0 failed
+# assertions** both before and after this change. It was dead either way, and a
+# constant that no test can distinguish from its absence is not a guard, it is a
+# comment with syntax. Removed rather than propped up with a test written to
+# justify it.
+#
+# The surviving per-field bound on `golden` is a MESSAGE SELECTOR, not a verdict
+# — it exists so an absurd golden reports as an absurd golden rather than as a
+# sum violation. Judged as a verdict guard it would also score zero; that is the
+# wrong instrument for it, and the test that pins it asserts the distinguishing
+# message rather than the field name.
+#
+# (Its stated justification was wrong as well as inert: "CER can exceed 1.0 via
+# insertions" describes a MEASUREMENT, which `ERROR_RATE_MAX` governs. A golden
+# is a pinned expectation chosen by the maintainers. Verified that removing it
+# costs nothing real: an honest golden of 0.05 against a measured 1.5 still
+# fails as a REGRESSION, which is the correct verdict, rather than being
+# rejected as out of bounds.)
+#
+# `tolerance` keeps its own ceiling because it does independent work: `golden 0`
+# with `tolerance 0.4` sums to 0.4 and clears the sum bound, while 0.25 refuses
+# it. `error_rate` keeps its own because the sum bound governs the baseline side
+# only and never touches a measurement.
 TOLERANCE_MAX = 0.25
 ERROR_RATE_MAX = 100.0  # garbage filter only — a real regression must still fail loudly
 
@@ -63,6 +101,11 @@ _CONTROL_CHARS = {c: f"\\x{c:02x}" for c in range(0x20)}
 _CONTROL_CHARS[0x7F] = "\\x7f"
 _CONTROL_CHARS.update({c: f"\\x{c:02x}" for c in range(0x80, 0xA0)})
 
+# Longest rejected value echoed back into the gate log. Comfortably above any
+# legitimate field (the widest committed value is 6 characters) and far below
+# the point where a rejected value becomes the log.
+_MAX_ECHO = 120
+
 
 def safe(value) -> str:
     """Neutralize ANSI/terminal control codes in a baseline-supplied value.
@@ -79,8 +122,30 @@ def safe(value) -> str:
     corpus and language are `fullmatch`ed upstream and metric is bounded above.
     And it must be called EXPLICITLY at each interpolation — a new f-string
     added below is not covered until someone wraps it (#117).
+
+    It also caps length. A rejected value is echoed so a human can see what was
+    wrong with it, and there is no length at which that stops being the point
+    and starts being a flood: a bare 400-digit integer or a multi-megabyte
+    string in `golden` would otherwise be reproduced in full into a CI log
+    somebody has to read (#134 verify). The head is the diagnostic part.
     """
-    return str(value).translate(_CONTROL_CHARS)
+    text = str(value).translate(_CONTROL_CHARS)
+    if len(text) > _MAX_ECHO:
+        return f"{text[:_MAX_ECHO]}… ({len(text)} chars)"
+    return text
+
+
+def _name_list(names, limit=12):
+    """Render a corpus-name list without letting it become the log.
+
+    `safe()` caps each NAME at `_MAX_ECHO`, which does nothing about the number
+    of them: a meta file pinning 300 corpora would emit one 4000-character line.
+    Same flood, one level up.
+    """
+    shown = ", ".join(safe(n) for n in names[:limit])
+    if len(names) > limit:
+        return f"{shown}, … (+{len(names) - limit} more)"
+    return shown
 
 
 def number(value, field, corpus, low, high, *, low_exclusive=False):
@@ -102,7 +167,14 @@ def number(value, field, corpus, low, high, *, low_exclusive=False):
         return None, f"{field} is a boolean, not a measurement (got {safe(value)!r})"
     try:
         number = float(value)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
+        # OverflowError is neither of the other two and had escaped: JSON has no
+        # integer width limit, so a bare 400-digit literal parses to an
+        # arbitrary-precision `int` and `float()` raises. It exits non-zero, so
+        # it was never a bypass — but it reached the CI log as a stack trace
+        # where the verdict belongs, and `regression-gate.sh` does not capture
+        # stderr. Universal, not version-specific: CPython 3.11+'s 4300-digit
+        # int-str cap sits far above this literal and never fires.
         return None, (f"{field} is not a number (got {safe(value)!r})")
     if not math.isfinite(number):
         # Covers nan, inf and -inf, whether they arrived as JSON literals
@@ -128,16 +200,35 @@ def validate_numbers(data):
     problems = []
     for e in data.get("baseline", []):
         corpus = e.get("corpus")
-        _, why = number(e.get("golden"), "golden", corpus, 0.0, GOLDEN_MAX)
+        # `high` is the effective-threshold ceiling: a golden at or above it
+        # cannot be part of any acceptable (golden, tolerance) pair anyway, and
+        # naming the field beats reporting it as a sum violation.
+        golden, why = number(
+            e.get("golden"), "golden", corpus, 0.0, EFFECTIVE_THRESHOLD_MAX)
         if why:
             problems.append((corpus, why))
-        # `tolerance` gets the tightest bound of the three. A tolerance wide
-        # enough to absorb any plausible regression is not a lenient threshold,
-        # it is a disabled gate that still prints a green line.
-        _, why = number(
+        # A tolerance wide enough to absorb any plausible regression is not a
+        # lenient threshold, it is a disabled gate that still prints a green line.
+        tol, why = number(
             e.get("tolerance"), "tolerance", corpus, 0.0, TOLERANCE_MAX, low_exclusive=True)
         if why:
             problems.append((corpus, why))
+        # The bound that actually decides whether the gate can still fail: the
+        # sum is the effective threshold, so neither handle can be traded for
+        # the other. Only checked when both parsed — a NaN golden has already
+        # been reported above and `nan + 0.02 > 0.5` would add nothing but noise.
+        if golden is not None and tol is not None and golden + tol > EFFECTIVE_THRESHOLD_MAX:
+            # {:.17g} rather than {:.4f}: a value rejected for exceeding a bound
+            # must not RENDER as equal to it. `0.4999999999999999 + 2e-16` is
+            # refused and would print "is 0.5000, above … of 0.5" at 4dp — the
+            # same defect this file exists to fix, reproduced inside the guard
+            # that fixes it.
+            problems.append((
+                corpus,
+                f"golden + tolerance is {golden + tol:.17g}, above the maximum effective "
+                f"threshold of {EFFECTIVE_THRESHOLD_MAX:g} — the gate would pass any "
+                f"measurement at or below that, which is not a threshold but a "
+                f"disabled gate"))
     for m in data.get("measured", []):
         _, why = number(m.get("error_rate"), "error_rate", m.get("corpus"), 0.0, ERROR_RATE_MAX)
         if why:
@@ -181,6 +272,64 @@ def main() -> int:
               "passed, it has not run.")
         print("\n✗ regression gate: 1 failure(s).")
         return 1
+
+    # Cardinality 0 was the easy half. The gate reports on whatever it is
+    # handed, and BOTH sides of that are derived from the same baseline.json —
+    # the worklist stage reads it, and the assembler iterates it — so deleting
+    # entries shrinks the baseline, the work list and the measured set
+    # together, and "all 1 corpora within tolerance" is printed over a release
+    # that verified one twelfth of what it should have. Nothing inside a stdin
+    # filter can notice that; the expected set has to arrive from somewhere the
+    # same edit does not reach. `regression-gate.sh` supplies it from
+    # benchmarks/baseline-meta.json, the file that already carries the seeding
+    # provenance — so truncating the baseline now requires a second, deliberate
+    # edit to a file whose name says what it is for (#134 verify).
+    expected = data.get("expected_corpora")
+    if expected is None:
+        # Silence must not read as a clean bill of health. A completeness check
+        # that can be skipped by leaving a key out — quietly — is the same shape
+        # as the hole it closes.
+        print("NOTE: no expected-corpus anchor supplied — completeness of this "
+              "comparison was NOT verified (this run cannot tell a full sweep "
+              "from a truncated one).")
+    elif not isinstance(expected, list) or not all(isinstance(c, str) for c in expected):
+        # Shape-check before `set()`. Without this an int or bool raises
+        # `TypeError: not iterable` and a nested list raises `unhashable type` —
+        # raw tracebacks reachable from a hand-edited field in the very file this
+        # guard made verdict-critical. And a bare string would be iterated
+        # CHARACTER-wise, so `"ab"` would silently mean the corpora {a, b}.
+        print(f"✗ GATE ERROR: the expected-corpus anchor is not a list of strings "
+              f"(got {safe(type(expected).__name__)}) — the completeness check cannot "
+              f"run against it")
+        print("\n✗ regression gate: 1 failure(s).")
+        return 1
+    else:
+        # `anchor_source` names the file the anchor actually came from. The path
+        # is overridable (BESTASR_BASELINE_META), so hardcoding the default would
+        # send a reader to a file this run never read.
+        source = safe(data.get("anchor_source") or "the expected-corpus anchor")
+        present = {e.get("corpus") for e in data.get("baseline", [])}
+        missing = sorted(str(c) for c in set(expected) - present)
+        extra = sorted(str(c) for c in present - set(expected))
+        if missing:
+            print(f"✗ GATE ERROR: baseline is missing {len(missing)} corpus/corpora that "
+                  f"{source} pins: {_name_list(missing)} "
+                  f"— a comparison over a subset is not a pass. Re-seed and update the "
+                  f"provenance record, or restore the entries.")
+            failures += 1
+        if extra:
+            print(f"✗ GATE ERROR: baseline carries {len(extra)} corpus/corpora absent from "
+                  f"{source}: {_name_list(extra)} "
+                  f"— an entry added without re-seeding has no provenance.")
+            failures += 1
+        if failures:
+            print(f"\n✗ regression gate: {failures} failure(s).")
+            return 1
+        # A satisfied guard that prints nothing can only be observed by the
+        # ABSENCE of its warning, which asks the reader to already know it
+        # exists. Same argument this script makes for rendering the tolerance on
+        # passing lines: auditing a pass is what the log is for.
+        print(f"completeness: {len(expected)} corpora pinned by {source} — verified.")
 
     # `metric` is the one rendered field with no validation ANYWHERE — the
     # worklist stage checks corpus and language, nothing checks this. Unlike

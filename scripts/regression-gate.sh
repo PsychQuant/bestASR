@@ -22,7 +22,8 @@ set -euo pipefail
 
 BIN="${BESTASR_BIN:-bestasr}"
 DEST="${BESTASR_CORPORA_DIR:-$HOME/.bestasr/corpora}"
-BASELINE="${BESTASR_BASELINE:-$(cd "$(dirname "$0")/.." && pwd)/benchmarks/baseline.json}"
+DEFAULT_BASELINE="$(cd "$(dirname "$0")/.." && pwd)/benchmarks/baseline.json"
+BASELINE="${BESTASR_BASELINE:-$DEFAULT_BASELINE}"
 COMPARE="$(cd "$(dirname "$0")" && pwd)/lib/baseline-compare.py"
 WORKLIST="$(cd "$(dirname "$0")" && pwd)/lib/baseline-worklist.py"
 
@@ -56,6 +57,54 @@ echo "regression gate: reference model = whisperkit/$MODEL, baseline = $BASELINE
 # benchmark spends minutes producing a misleading accuracy diff. Unpinned
 # metas warn (TOFU): run scripts/pin-reference-model.sh to pin.
 META="${BESTASR_BASELINE_META:-$(dirname "$BASELINE")/baseline-meta.json}"
+
+# The compare stage is a stdin filter: it cannot know whether the payload it was
+# handed is the whole sweep, so when no expected-corpus anchor arrives it prints
+# a NOTE and continues. That is the right call THERE and the wrong stopping point
+# HERE, because this script knows exactly which baseline it is running. For the
+# repo's own baseline the anchor is an invariant, not a nicety — a release run
+# that cannot prove it compared the full corpus set has not passed, it has not
+# run, which is the same sentence #134 is named after. Absent or malformed meta
+# is therefore fatal on the default path and a warning on an overridden one,
+# where a caller has deliberately supplied their own inputs.
+#
+# This also upgrades the model-artifact pin below (#48): a MISSING meta file used
+# to skip that whole block with no message at all. Two verdict-critical inputs now
+# live in this file; neither may vanish quietly.
+META_PROBLEM=""
+if [ ! -f "$META" ]; then
+  META_PROBLEM="missing at $META"
+elif ! /usr/bin/python3 -c "
+import json, sys
+try:
+    meta = json.load(open(sys.argv[1]))
+except Exception as e:
+    sys.exit(f'unreadable ({e.__class__.__name__})')
+if not isinstance(meta, dict):
+    sys.exit('is not a JSON object')
+c = meta.get('corpora')
+if c is None:
+    sys.exit(\"has no 'corpora' key\")
+if not isinstance(c, list) or not c:
+    sys.exit(\"'corpora' is not a non-empty array\")
+if not all(isinstance(x, str) and x.strip() for x in c):
+    sys.exit(\"'corpora' contains a non-string or empty entry\")
+if len(set(c)) != len(c):
+    sys.exit(\"'corpora' contains duplicates\")
+" "$META" 2>"$TMP/meta_why"; then
+  META_PROBLEM="$(cat "$TMP/meta_why")"
+fi
+if [ -n "$META_PROBLEM" ]; then
+  if [ "$BASELINE" = "$DEFAULT_BASELINE" ]; then
+    echo "x gate error: baseline-meta $META_PROBLEM" >&2
+    echo "  the completeness anchor and the model-artifact pin both live in that file;" >&2
+    echo "  without it this run cannot show it compared the full corpus set (#134)" >&2
+    exit 1
+  fi
+  echo "! warning: baseline-meta $META_PROBLEM — completeness NOT anchored" >&2
+  echo "  (tolerated because BESTASR_BASELINE overrides the repo baseline)" >&2
+fi
+
 CACHE_ROOT="${BESTASR_MODEL_CACHE_DIR:-$HOME/Documents/huggingface/models/argmaxinc/whisperkit-coreml}"
 MODEL_DIR="$CACHE_ROOT/openai_whisper-$(echo "$MODEL" | sed 's/-\([^-]*\)$/_\1/')"
 if [ -f "$META" ]; then
@@ -158,11 +207,19 @@ echo ""
 # compare implementation. set -e would kill the script on a failing pipeline
 # BEFORE any assignment ran; capture the status through if/else so the
 # FAILED_RUNS combination stays explicit.
-if /usr/bin/python3 - "$BASELINE" "$TMP/results" <<'PY' | /usr/bin/python3 "$COMPARE"
+if /usr/bin/python3 - "$BASELINE" "$TMP/results" "$META" <<'PY' | /usr/bin/python3 "$COMPARE"
 import json, os, sys
 
 baseline = json.load(open(sys.argv[1]))
 results_dir = sys.argv[2]
+# The expected corpus set travels from the PROVENANCE record, not from the
+# baseline itself — an anchor derived from the file it is meant to check would
+# shrink with it (#134 verify). A meta file without the key is not silently
+# tolerated: compare prints an explicit "completeness NOT verified" note.
+meta_path = sys.argv[3]
+expected = None
+if os.path.exists(meta_path):
+    expected = json.load(open(meta_path)).get("corpora")
 measured = []
 for entry in baseline:
     path = os.path.join(results_dir, entry["corpus"] + ".json")
@@ -178,7 +235,11 @@ for entry in baseline:
         "metric": r["metric_kind"],
         "error_rate": r["error_rate"],
     })
-json.dump({"baseline": baseline, "measured": measured}, sys.stdout)
+payload = {"baseline": baseline, "measured": measured}
+if expected is not None:
+    payload["expected_corpora"] = expected
+    payload["anchor_source"] = meta_path
+json.dump(payload, sys.stdout)
 PY
 then COMPARE_RC=0; else COMPARE_RC=$?; fi
 [ "$FAILED_RUNS" -gt 0 ] && exit 1
