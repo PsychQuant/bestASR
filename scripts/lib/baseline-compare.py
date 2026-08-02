@@ -12,7 +12,29 @@ otherwise. This file is the single compare implementation — the gate script
 pipes into it and RegressionBaselineTests exercises it via Process.
 """
 import json
+import math
 import sys
+
+# Numeric sanity bounds (#134). The gate reported exit 0 on real regressions,
+# which is categorically worse than a noisy log: a gate that says "pass" when it
+# should say "fail" is not a weakened gate, it is an absent one still producing
+# the reassuring output of a present one.
+#
+# The two directions are NOT symmetric, and that asymmetry is what the bounds
+# encode:
+#
+#   * `golden` and `tolerance` are dangerous when LARGE. A huge golden makes
+#     `diff = actual - golden` hugely negative; a huge tolerance makes the
+#     comparison vacuous. Either way every corpus passes.
+#   * `error_rate` is dangerous only when NON-FINITE. A large measured value is
+#     safe — it correctly fails — so its upper bound is a garbage filter, not a
+#     security boundary.
+#
+# Non-finite values defeat the comparison a third way: EVERY comparison against
+# NaN is false, so `diff > tol` is false and the entry "passes".
+GOLDEN_MAX = 2.0  # CER can exceed 1.0 via insertions; beyond 2.0 it is not a baseline
+TOLERANCE_MAX = 0.5  # the committed baseline uses 0.02; 0.5 already accepts a 50-pt jump
+ERROR_RATE_MAX = 100.0  # garbage filter only — a real regression must still fail loudly
 
 # The accuracy metrics the gate knows how to judge. Same vocabulary as Swift's
 # `MetricKind` and the bench validator's `metric_kind`, so an unknown value is a
@@ -55,6 +77,62 @@ def safe(value) -> str:
     return str(value).translate(_CONTROL_CHARS)
 
 
+def number(value, field, corpus, low, high, *, low_exclusive=False):
+    """Convert and bounds-check one numeric baseline/measured field.
+
+    Returns `(value, None)` or `(None, reason)`.
+
+    Validation happens AFTER `float()`, deliberately. Rejecting the literal at
+    parse time (`json.load(parse_constant=...)`) does not close this class:
+    `{"golden": "NaN"}` is a legal JSON *string*, so `parse_constant` never
+    fires, and `float("NaN")` / `float("1e999")` still produce nan / inf. The
+    only reliable place to check is on the resulting float.
+    """
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None, (f"{field} is not a number (got {safe(value)!r})")
+    if not math.isfinite(number):
+        # Covers nan, inf and -inf, whether they arrived as JSON literals
+        # (Python's json accepts bare NaN/Infinity), as strings, or via
+        # overflow from a finite-looking literal such as 1e999.
+        return None, f"{field} is not a finite number (got {safe(value)!r})"
+    if low_exclusive and number <= low:
+        return None, f"{field} must be greater than {low:g} (got {number:g})"
+    if not low_exclusive and number < low:
+        return None, f"{field} must be at least {low:g} (got {number:g})"
+    if number > high:
+        return None, f"{field} must be at most {high:g} (got {number:g})"
+    return number, None
+
+
+def validate_numbers(data):
+    """All numeric-field problems across both sides, as printable messages.
+
+    Every problem is collected rather than returning on the first: a run whose
+    baseline has one bad field usually has more, and reporting them one release
+    at a time is its own kind of gate failure.
+    """
+    problems = []
+    for e in data.get("baseline", []):
+        corpus = e.get("corpus")
+        _, why = number(e.get("golden"), "golden", corpus, 0.0, GOLDEN_MAX)
+        if why:
+            problems.append((corpus, why))
+        # `tolerance` gets the tightest bound of the three. A tolerance wide
+        # enough to absorb any plausible regression is not a lenient threshold,
+        # it is a disabled gate that still prints a green line.
+        _, why = number(
+            e.get("tolerance"), "tolerance", corpus, 0.0, TOLERANCE_MAX, low_exclusive=True)
+        if why:
+            problems.append((corpus, why))
+    for m in data.get("measured", []):
+        _, why = number(m.get("error_rate"), "error_rate", m.get("corpus"), 0.0, ERROR_RATE_MAX)
+        if why:
+            problems.append((m.get("corpus"), why))
+    return problems
+
+
 def main() -> int:
     data = json.load(sys.stdin)
     failures = 0
@@ -86,6 +164,17 @@ def main() -> int:
         print(f"\n✗ regression gate: {failures} failure(s).")
         return 1
 
+    # Numeric sanity BEFORE any comparison (#134). Comparing with a nan or an
+    # unbounded tolerance does not produce a wrong verdict so much as no verdict
+    # at all, so there is nothing to salvage by continuing.
+    for corpus, why in validate_numbers(data):
+        print(f"✗ GATE ERROR: corpus '{safe(corpus)}': {why} — the gate cannot "
+              f"judge a regression against this value")
+        failures += 1
+    if failures:
+        print(f"\n✗ regression gate: {failures} failure(s).")
+        return 1
+
     baseline = {e["corpus"]: e for e in data.get("baseline", [])}
     measured = {m["corpus"]: m for m in data.get("measured", [])}
 
@@ -105,8 +194,14 @@ def main() -> int:
                   f"(+{diff:.4f} > tolerance {tol:.4f})")
             failures += 1
         else:
+            # The tolerance is rendered on the PASSING line too (#134). Auditing
+            # a pass is the whole purpose of this log, and the one number that
+            # could expose a rigged pass — the threshold it was judged against —
+            # used to appear only on failing lines. A reader checking a green run
+            # had no way to see that the bar had been lowered to meet it.
             print(f"✓ {safe(corpus)} [{safe(b['language'])}] {safe(b['metric'])}: "
-                  f"golden {golden:.4f} → measured {actual:.4f} ({diff:+.4f})")
+                  f"golden {golden:.4f} → measured {actual:.4f} "
+                  f"({diff:+.4f} ≤ tolerance {tol:.4f})")
 
     for corpus in baseline:
         if corpus not in measured:

@@ -108,6 +108,38 @@ All notable changes to bestASR are documented here. The format follows
 
 ### Fixed
 
+- **The regression gate reported exit 0 on real regressions (#134)**: three
+  payloads made `scripts/lib/baseline-compare.py` print `✓ all corpora within
+  tolerance` and **exit 0** while a 0.99 measurement sat against a 0.05 golden.
+  This is fail-**open**, and it is categorically worse than a noisy log: a gate
+  that says *pass* when it should say *fail* is not a weakened gate, it is an
+  absent one still producing the reassuring output of a present one.
+
+  - **Non-finite numbers.** Python's `json.load` accepts bare `NaN` /
+    `Infinity`, and *every* comparison against NaN is false — so `diff > tol`
+    was false and the entry "passed". Validation now happens **after**
+    `float()`, which is the only place it works: rejecting the literal at parse
+    time via `parse_constant` does not close the class, because `{"golden":
+    "NaN"}` is a legal JSON *string* that never triggers it while
+    `float("NaN")` still yields nan (likewise `1e999` → inf).
+  - **An unbounded `tolerance`.** This path needs no unusual number at all,
+    which is what made it hard to see: `tolerance: 1e308` rendered a 94-point
+    regression as an ordinary pass line, indistinguishable from a real one.
+    `tolerance` now has the tightest bound of the three fields — the committed
+    baseline uses 0.02, and 0.5 already accepts a 50-point jump.
+  - **A garbage numeric field** raised `ValueError` mid-run. A traceback is not
+    a verdict; it now fails as a named gate error like every other.
+
+  Bounds are deliberately **asymmetric**, because the danger is: `golden` and
+  `tolerance` are hazardous when *large* (both make the comparison vacuous),
+  while `error_rate` is hazardous only when *non-finite* — a large measurement
+  correctly fails, so its ceiling is a garbage filter, not a security boundary.
+
+  Passing lines now render **the tolerance they were judged against**. Auditing
+  a pass is the whole purpose of this log, and the one number that could expose
+  a rigged pass appeared only on *failing* lines — a reader checking a green run
+  had no way to see that the bar had been lowered to meet it.
+
 - **`--backend apple-speech` was silently substituted (#121)**: `Router`'s
   backend-membership list omitted the new backend, so an explicit `--backend
   apple-speech` was discarded and another backend's output was written under
