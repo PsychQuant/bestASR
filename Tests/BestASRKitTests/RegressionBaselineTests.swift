@@ -305,6 +305,46 @@ struct RegressionBaselineTests {
         #expect(r.output.contains("0.0200"), "the tolerance VALUE must be visible, not just the word")
     }
 
+    @Test func `a run that compared nothing is not a pass`() throws {
+        // #134 verify (cross-model leg): with both sides empty every loop is a
+        // no-op, so the gate printed "all 0 corpora within tolerance" and exited
+        // 0. A fetch that produced no measurements, or a worklist that silently
+        // emptied, therefore read as "this release is safe".
+        let r = try runCompareRaw(#"{"baseline":[],"measured":[]}"#)
+        #expect(r.exit != 0, "an empty comparison reported success")
+        #expect(r.output.contains("GATE ERROR"))
+    }
+
+    @Test func `a boolean is not laundered into a measurement`() throws {
+        // `bool` subclasses `int`, so `float(true)` is 1.0 and a bare `true`
+        // passed every bound as an ordinary number.
+        let r = try runCompareRaw(payload(golden: "true", tolerance: "0.02", errorRate: "0.99"))
+        #expect(r.exit != 0)
+        #expect(r.output.contains("GATE ERROR"))
+    }
+
+    @Test func `a measurement is never judged against a different metric's golden`() throws {
+        // metric was validated on the baseline side only and never compared
+        // across, so a WER measurement could be judged against a CER golden —
+        // passing or failing on a number that means something else.
+        let r = try runCompareRaw(
+            #"{"baseline":[{"corpus":"c1","language":"zh","model":"m","metric":"cer","golden":0.05,"tolerance":0.02}],"measured":[{"corpus":"c1","metric":"wer","error_rate":0.06}]}"#)
+        #expect(r.exit != 0, "a wer measurement was judged against a cer golden")
+        #expect(r.output.contains("GATE ERROR"))
+    }
+
+    @Test func `a repeated JSON key cannot hide the real threshold`() throws {
+        // Python keeps the LAST value for a duplicate key, so
+        // {"golden": 0.9, "golden": 0.01} silently becomes 0.01 — a decoy in
+        // the one file whose purpose is to be auditable by reading it. The
+        // duplicate-CORPUS check does not see this: that compares entries, this
+        // is one key repeated inside a single entry.
+        let r = try runCompareRaw(
+            #"{"baseline":[{"corpus":"c1","language":"en","model":"m","metric":"wer","golden":0.9,"golden":0.01,"tolerance":0.02}],"measured":[{"corpus":"c1","metric":"wer","error_rate":0.02}]}"#)
+        #expect(r.exit != 0, "a duplicate key silently took the last value")
+        #expect(r.output.contains("duplicate key"))
+    }
+
     @Test func `the real committed baseline passes the new numeric validation`() throws {
         // The bounds must not reject the file the gate actually runs on.
         let url = Self.repoRoot.appendingPathComponent("benchmarks/baseline.json")

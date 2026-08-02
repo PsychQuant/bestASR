@@ -33,7 +33,13 @@ import sys
 # Non-finite values defeat the comparison a third way: EVERY comparison against
 # NaN is false, so `diff > tol` is false and the entry "passes".
 GOLDEN_MAX = 2.0  # CER can exceed 1.0 via insertions; beyond 2.0 it is not a baseline
-TOLERANCE_MAX = 0.5  # the committed baseline uses 0.02; 0.5 already accepts a 50-pt jump
+# The committed baseline uses 0.02 uniformly. 0.25 leaves an order of magnitude
+# of headroom while still refusing a threshold that would wave through a
+# quarter-of-the-transcript regression. No fixed ceiling can separate "generous"
+# from "disabled" on its own, which is why the tolerance is now RENDERED on
+# passing lines too — the bound stops the absurd values, visibility handles the
+# merely-too-lenient ones.
+TOLERANCE_MAX = 0.25
 ERROR_RATE_MAX = 100.0  # garbage filter only — a real regression must still fail loudly
 
 # The accuracy metrics the gate knows how to judge. Same vocabulary as Swift's
@@ -88,6 +94,12 @@ def number(value, field, corpus, low, high, *, low_exclusive=False):
     fires, and `float("NaN")` / `float("1e999")` still produce nan / inf. The
     only reliable place to check is on the resulting float.
     """
+    # `bool` is a subclass of `int`, so `float(True)` is 1.0 and a bare `true`
+    # would sail through every bound below as a perfectly ordinary number. A
+    # boolean is never a measurement; refusing it removes the type confusion
+    # rather than letting it be laundered into one.
+    if isinstance(value, bool):
+        return None, f"{field} is a boolean, not a measurement (got {safe(value)!r})"
     try:
         number = float(value)
     except (TypeError, ValueError):
@@ -133,9 +145,42 @@ def validate_numbers(data):
     return problems
 
 
+def reject_duplicate_keys(pairs):
+    """`object_pairs_hook` that refuses a JSON object with a repeated key.
+
+    Python keeps the LAST value for a duplicate key, so
+    `{"golden": 0.9, "golden": 0.01}` silently becomes 0.01 — a real threshold
+    hidden behind a decoy in the very file whose purpose is to be auditable by
+    reading it. The duplicate-CORPUS check further down does not see this: that
+    one compares entries, this is one key repeated inside a single entry.
+    """
+    seen = set()
+    for key, _ in pairs:
+        if key in seen:
+            raise ValueError(f"duplicate key {key!r} in a baseline/measured entry")
+        seen.add(key)
+    return dict(pairs)
+
+
 def main() -> int:
-    data = json.load(sys.stdin)
+    try:
+        data = json.load(sys.stdin, object_pairs_hook=reject_duplicate_keys)
+    except ValueError as error:
+        print(f"✗ GATE ERROR: cannot read the comparison input: {safe(error)}")
+        print("\n✗ regression gate: 1 failure(s).")
+        return 1
     failures = 0
+
+    # A run that compared NOTHING is not a pass (#134 verify). With both sides
+    # empty every loop below is a no-op, so the gate printed "all 0 corpora
+    # within tolerance" and exited 0 — a fetch that produced no measurements, or
+    # a worklist that silently emptied, read as "this release is safe".
+    if not data.get("baseline") and not data.get("measured"):
+        print("✗ GATE ERROR: nothing to compare — the baseline and the measured "
+              "set are both empty. A gate that verified no corpora has not "
+              "passed, it has not run.")
+        print("\n✗ regression gate: 1 failure(s).")
+        return 1
 
     # `metric` is the one rendered field with no validation ANYWHERE — the
     # worklist stage checks corpus and language, nothing checks this. Unlike
@@ -183,6 +228,17 @@ def main() -> int:
         if b is None:
             print(f"✗ GATE ERROR: measured corpus '{safe(corpus)}' has no baseline entry "
                   f"— add it to benchmarks/baseline.json (never silently pass)")
+            failures += 1
+            continue
+        # The two sides must be talking about the same yardstick (#134 verify).
+        # `metric` was validated on the baseline side only, and never compared
+        # across — so a WER measurement could be judged against a CER golden and
+        # pass or fail on a number that means something else entirely.
+        if m.get("metric") != b.get("metric"):
+            print(f"✗ GATE ERROR: corpus '{safe(corpus)}' was measured as "
+                  f"{safe(m.get('metric'))!r} but its baseline pins "
+                  f"{safe(b.get('metric'))!r} — these are different metrics and "
+                  f"cannot be compared")
             failures += 1
             continue
         golden, tol = float(b["golden"]), float(b["tolerance"])

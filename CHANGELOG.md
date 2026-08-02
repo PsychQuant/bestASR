@@ -135,6 +135,31 @@ All notable changes to bestASR are documented here. The format follows
   while `error_rate` is hazardous only when *non-finite* — a large measurement
   correctly fails, so its ceiling is a garbage filter, not a security boundary.
 
+  A cross-model verification round found four more ways the same verdict could
+  come out wrong, each fixed here:
+
+  - **A run that compared nothing reported success.** With the baseline and the
+    measured set both empty, every loop was a no-op and the gate printed
+    `all 0 corpora within tolerance` and exited 0 — so a fetch that produced no
+    measurements read as *this release is safe*. A gate that verified no corpora
+    has not passed; it has not run.
+  - **A measurement judged against a different metric's golden.** `metric` was
+    validated on the baseline side and never compared across, so a WER number
+    could be scored against a CER threshold.
+  - **A repeated JSON key hid the real threshold.** Python keeps the *last*
+    value, so `{"golden": 0.9, "golden": 0.01}` silently became 0.01 — a decoy
+    in the one file whose purpose is to be auditable by reading it. The existing
+    duplicate-*corpus* check does not see this: that compares entries, this is
+    one key repeated inside a single entry.
+  - **A boolean laundered into a measurement.** `bool` subclasses `int`, so
+    `float(true)` is 1.0 and a bare `true` passed every bound as an ordinary
+    number.
+
+  `TOLERANCE_MAX` also tightened from 0.5 to **0.25** on the same review. No
+  fixed ceiling can separate *generous* from *disabled* on its own, which is why
+  the bound handles the absurd values and the newly-rendered tolerance handles
+  the merely-too-lenient ones.
+
   Passing lines now render **the tolerance they were judged against**. Auditing
   a pass is the whole purpose of this log, and the one number that could expose
   a rigged pass appeared only on *failing* lines — a reader checking a green run
