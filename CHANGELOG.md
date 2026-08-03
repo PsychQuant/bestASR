@@ -108,42 +108,121 @@ All notable changes to bestASR are documented here. The format follows
 
 ### Changed
 
-- **FluidAudio pinned 0.15.4 → 0.15.5 (#122)**: unblocks the Parakeet
-  Unified / TDT-ja evaluation (#123 / #124), whose models exist only in 0.15.5.
+- **FluidAudio pinned 0.15.4 → 0.15.5 (#122)**: 0.15.5 completes the Parakeet
+  Unified frontend — the CoreML preprocessor bundle is dropped in favour of a
+  native Swift mel extractor, and the streaming encoder gains a per-latency-tier
+  context suffix — which is what #123 needs. **TDT-ja was already reachable at
+  0.15.4**: `AsrModelVersion.tdtJa` and the `parakeet-0.6b-ja-coreml` repo are
+  present and byte-identical there, as are the `Unified*` managers. An earlier
+  version of this entry said the models "exist only in 0.15.5"; that was wrong,
+  and it put #124's *blocked by #122* premise in doubt along with it.
 
   #110 flagged `DownloadUtils → ModelHub` as a breaking change. It is not one
-  *for this repo*: the rewrite is internal to the download layer, and this repo
-  has **zero** references to it — the consumed surface is entirely high-level
-  (`AsrModels.download` / `.load`, `AsrManager`, `ParaformerManager.load`,
-  `SenseVoiceManager.load`, `DiarizerManager`, `ASRResult`). Both open questions
-  the issue left for verification were answered by compiling rather than by
-  reading release notes: the `AsrModels` signatures are unchanged, and the
-  Chinese-family managers this repo uses are not the experimental zh-CN CTC /
-  Qwen3 backends dropped in 0.15.3.
+  *for this repo* — **no compiled call site references either symbol** (verified
+  repo-wide, not inferred from the build) — but two narrower claims in the first
+  version of this entry were false:
 
-  **Accuracy is unchanged.** Every overlapping before/after pair is identical to
-  the precision the report prints:
+  - **The `AsrModels` signatures did change.** Every public entry point took
+    `progressHandler: DownloadUtils.ProgressHandler?` and now takes
+    `progressHandler: ProgressHandler?`, as did every other consumed factory.
+    Source-compatible here only because this repo never passes one — which is a
+    different statement from "unchanged", and the issue's open question asked
+    for the first, not the second.
+  - **The consumed surface is not "entirely high-level."** The enumeration
+    omitted `DiarizerModels.downloadIfNeeded()`, `AudioConverter.resampleAudioFile`,
+    `DiarizerManager.initialize` / `.performCompleteDiarization`, and
+    `AsrModelVersion`. The first of those is a **download-layer entry point**,
+    which undercuts the framing that the download-layer rewrite cannot reach
+    this repo: it reaches it through a facade rather than by name.
 
-  | corpus | backend | 0.15.4 | 0.15.5 |
+  Two behaviour changes on call sites this repo does use went unmentioned and
+  are benign: `AsrModels.download` now performs an extra fetch of the vocab JSON
+  (upstream #748 — the weight manifest already pins both vocab files, so the
+  newly-guaranteed fetch lands *inside* the pinned set), and
+  `performCompleteDiarization` gained a defaulted trailing `progressHandler`.
+
+  **Accuracy: no change detected on the path 0.15.5 actually changes.**
+
+  0.15.5 adds seam-duplicate collapse to the Parakeet TDT chunk merger
+  (`caseVariantCanonicalIds`, `collapseSeamWordDuplicates`, wired into a new
+  branch in `ChunkProcessor`). That branch fires only on audio longer than one
+  ~14.96 s chunk *and* only when the seam duplicate is **case-differing Latin
+  text**. The first version of this entry offered `jfk` (11.0 s — single chunk,
+  the branch is never entered) and a Chinese corpus (no case, so the collapse
+  predicate can essentially never hold) as evidence that accuracy was unchanged.
+  Both are structurally blind to the only behavioural change on that path:
+  identical numbers there were the predicted outcome whether or not anything
+  changed, so they carried no information about it.
+
+  Measured on a corpus that **can** exercise it — `osr-harvard-1`, 33.6 s of
+  English — by building the same tree against each pin in turn:
+
+  | pin | corpus | backend | WER |
   |---|---|---|---|
-  | `jfk` (en) | parakeet | 0.00 % | 0.0 % |
-  | `cv-zhtw-4` | parakeet | 93.55 % | 93.5 % |
-  | `cv-zhtw-1` | sensevoice | 14.08 % | 14.1 % |
-  | `cv-zhtw-2` | sensevoice | 47.22 % | 47.2 % |
-  | `cv-zhtw-4` | sensevoice | 11.29 % | 11.3 % |
-  | `cv-zhtw-1` | paraformer | 178.87 % | 178.9 % |
-  | `cv-zhtw-2` | paraformer | 181.94 % | 181.9 % |
+  | 0.15.4 (`b9d43724`) | `osr-harvard-1` | parakeet | **0.037500** |
+  | 0.15.5 (`19600a48`) | `osr-harvard-1` | parakeet | **0.037500** |
 
-  Throughput moved (e.g. parakeet on `jfk` 161.6× → 126.5×), but these are
-  single runs on a thermally unconstrained laptop and the harness does not
-  average them — the speed column is **not** evidence of a change either way.
+  Bit-identical, not equal-after-rounding. The 0.15.4 side was confirmed to be
+  genuinely 0.15.4 by the *absence* of `collapseSeamWordDuplicates` from the
+  checked-out source, which is stronger evidence than the resolved version
+  string: a stale build artifact can survive a pin change, but code that is not
+  on disk cannot run.
+
+  What this does and does not establish: the changed merge path produces the
+  same transcript on this corpus. It is one corpus on one machine, so it is not
+  a certification — but unlike the earlier table it is a measurement that
+  *could* have come out differently.
+
+  **The earlier table was not a before/after comparison at all**, and is removed
+  rather than repaired. Its "0.15.4" column reconciles to store rows captured
+  `2026-07-05/06` under **app_version 0.10.0**; its "0.15.5" column is the
+  `2026-08-02` batch under **0.16.0** — four weeks and six bestASR versions
+  apart, with no `fluid-*` batch in between. The seven pairs are in fact
+  bit-identical in the store (the mismatched 2 dp / 1 dp rendering obscured
+  that), which is real evidence that those paths are deterministic and unmoved
+  across six app versions; it is simply not evidence about this dependency bump.
+  Issue #122 asked for a sweep on **each side** of the upgrade, and only the
+  after side was ever run.
+
+  Two labelling corrections while the table is being rewritten: the figures are
+  **error rates**, not "accuracy" — values like 178 % are impossible under any
+  bounded accuracy definition, and the earlier heading inverted the direction as
+  well as the meaning. And two of the seven rows were `fluid-paraformer`, which
+  the grid marks `priority: 2, verified: false` and the sweep script excludes by
+  default as "demoted for a known upstream decode bug"; stable numbers from a
+  known-broken backend evidence that the bug is stable, not that quality is
+  preserved.
+
+  Throughput moved (parakeet on `jfk` 161.6× → 126.5×, a 21.7 % single-run
+  decline). One uncontrolled run is not enough to attribute that to the
+  dependency — but calling it "not evidence of a change either way" was too
+  strong. It is weak evidence, and the honest form is that this run cannot
+  attribute the difference, not that no difference was observed.
 
   **Comparability caveat, carried from #110's residue**: the measurement schema
-  records `app_version` (bestASR's own) but **not** the FluidAudio version, so
-  these two batches are indistinguishable in the store once written. They are
-  separated here only by capture time. Per the standing rule that a tool version
-  change makes a new *condition*, rows either side of this bump should not be
-  ranked against each other on the strength of the schema alone.
+  records `app_version` (bestASR's own) but **not** the FluidAudio version, so a
+  row cannot be attributed to a dependency version from the store alone. (An
+  earlier version of this caveat said the two batches were "indistinguishable in
+  the store"; they are not — they differ in `app_version` and in
+  `decode_deterministic`. The sentence described a hypothetical confound while
+  the real one, six app versions, went unstated.) Per the standing rule that a
+  tool version change makes a new *condition*, rows either side of this bump
+  should not be ranked against each other on the strength of the schema alone;
+  the durable fix is a `build_id` or lockfile hash on the row, which is #111 /
+  #118 territory rather than this change's.
+
+  **Not covered here**: the diarizer subtree also moved substantially upstream
+  (`KMeansClustering`, `OfflineReconstruction`, new `ZeroVoteReembedder` /
+  `OfflineEmbeddingExtractor` / `OfflineSortformerDiarizer`), and this repo
+  consumes diarization. No DER row exists on either side of the bump and
+  `scripts/validate-diarization.sh` was not run, so that surface is
+  **unestablished rather than unchanged**. Separately, `weights-manifest.json`
+  still pins `silero-vad-unified-256ms-v6.0.0` while 0.15.5 moved to `v6.2.1` —
+  inert today (this repo has no VAD usage and no seam verifies that repo), and
+  recorded because it demonstrates the pinning mechanism's blind spot: an
+  upstream **rename** degrades a repo from "pinned" to "effectively unverified"
+  without ever failing loudly, since `WeightVerifier` iterates manifest entries
+  only and extra cache files never fail.
 
 ### Fixed
 
