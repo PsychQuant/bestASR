@@ -1,0 +1,27 @@
+{
+  "_comment": "Raw A/B for #122 (FluidAudio 0.15.4 -> 0.15.5). The same tree was built against each pin in turn and run on osr-harvard-1 (33.6 s, English, multi-chunk) \u2014 the corpus that CAN exercise 0.15.5's new seam-duplicate collapse, unlike the jfk/Chinese pairs the first write-up used. Committed because the CHANGELOG's headline measurement was otherwise reproducible only from a temp directory that no longer exists; a number a reader cannot re-derive is the defect this issue is about, one level out.",
+  "corpus": "osr-harvard-1",
+  "corpus_duration_seconds": 33.623125,
+  "language": "en",
+  "measured_at": "2026-08-03",
+  "machine": "Apple M5 Max, macOS 27",
+  "method": "Package.swift pin flipped, swift build, bestasr benchmark --backends fluid-parakeet, pin restored. Which code actually ran was settled on the BINARY, not the checkout: `nm` reports ChunkProcessor.caseVariantCanonicalIds present under the 0.15.5 pin and absent under 0.15.4. The resolved version string does not settle it, and neither does the checked-out source \u2014 a stale build artifact survives both.",
+  "store_note": "The 0.15.4 run also wrote a measurements.jsonl row stamped app_version 0.16.0, which is the version shipping with 0.15.5 \u2014 the schema has no FluidAudio field, so the row could not say what condition produced it. That row was removed rather than left to be ranked against honest ones; this file is where the measurement lives instead.",
+  "results": {
+    "0.15.4": {
+      "backend": "fluid-parakeet",
+      "model": "0.6b-v3",
+      "metric_kind": "wer",
+      "error_rate": 0.0375,
+      "rtf": 0.004364897670877967
+    },
+    "0.15.5": {
+      "backend": "fluid-parakeet",
+      "model": "0.6b-v3",
+      "metric_kind": "wer",
+      "error_rate": 0.0375,
+      "rtf": 0.004597113861405814
+    }
+  },
+  "what_it_shows": "The transcripts are byte-identical, so the case-gated seam collapse never fired here: a clean reading passage produces no case-differing seam duplicate. The run does exercise upstream 0ac0e414's three word-boundary fallbacks, which are not case-gated and run on any multi-chunk audio. Evidence about the merge path in general; not about the case-gated predicate specifically."
+}

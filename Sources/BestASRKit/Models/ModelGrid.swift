@@ -48,7 +48,7 @@ public enum ModelGrid {
     /// engine. Distinct from the mlx-audio parakeet REFERENCE row — same
     /// family, different backend id, and this one enumerates as a benchmark
     /// candidate. Model weights are managed by the pinned FluidAudio release
-    /// (SwiftPM exact: 0.15.4 is the supply-chain anchor; no per-file HF
+    /// (SwiftPM exact: 0.15.5 is the supply-chain anchor; no per-file HF
     /// revision pin at this layer). `verified` = live-measured on-device
     /// (2026-07-06, task 4.1: WER 0.0% / 161.6x realtime on the en probe;
     /// the repo id is the one FluidAudio actually downloaded from).
@@ -76,6 +76,8 @@ public enum ModelGrid {
     ///   is Simplified (metric comparison folds Han, #34 D7; delivery-script
     ///   preference is a separate concern).
     /// - paraformer large-zh: FluidAudio 0.15.4 emits un-detokenized BPE
+    ///   (observed at 0.15.4 and not re-measured at 0.15.5; the ~179-182% CER
+    ///   in the #122 sweep is consistent with it still holding)
     ///   subwords ("n@@个s@@…的的的…", CER 1.67-2.07) — unusable until the
     ///   upstream decode bug is fixed. Wiring kept, priority 2 so the default
     ///   benchmark sweep never pays its download; no repo id on an

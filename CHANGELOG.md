@@ -113,7 +113,9 @@ All notable changes to bestASR are documented here. The format follows
   native Swift mel extractor, and the streaming encoder gains a per-latency-tier
   context suffix — which is what #123 needs. **TDT-ja was already reachable at
   0.15.4**: `AsrModelVersion.tdtJa` and the `parakeet-0.6b-ja-coreml` repo are
-  present and byte-identical there, as are the `Unified*` managers. An earlier
+  present and byte-identical there, and the `Unified*` managers exist there too
+  — they are not byte-identical, which is the point: 0.15.5 rewrites their
+  frontend rather than introducing them. An earlier
   version of this entry said the models "exist only in 0.15.5"; that was wrong,
   and it put #124's *blocked by #122* premise in doubt along with it.
 
@@ -141,18 +143,40 @@ All notable changes to bestASR are documented here. The format follows
   newly-guaranteed fetch lands *inside* the pinned set), and
   `performCompleteDiarization` gained a defaulted trailing `progressHandler`.
 
-  **Accuracy: no change detected on the path 0.15.5 actually changes.**
+  **Accuracy: an identical transcript on a corpus that could have differed.**
 
-  0.15.5 adds seam-duplicate collapse to the Parakeet TDT chunk merger
-  (`caseVariantCanonicalIds`, `collapseSeamWordDuplicates`, wired into a new
-  branch in `ChunkProcessor`). That branch fires only on audio longer than one
-  ~14.96 s chunk *and* only when the seam duplicate is **case-differing Latin
-  text**. The first version of this entry offered `jfk` (11.0 s — single chunk,
-  the branch is never entered) and a Chinese corpus (no case, so the collapse
-  predicate can essentially never hold) as evidence that accuracy was unchanged.
-  Both are structurally blind to the only behavioural change on that path:
-  identical numbers there were the predicted outcome whether or not anything
-  changed, so they carried no information about it.
+  `ChunkProcessor` was touched by **two** upstream commits carrying **five**
+  distinct changes, not the one the first version of this entry named.
+
+  `7e856da4` (#706/#708) contributes two: `caseVariantCanonicalIds` feeds a new
+  post-merge `collapseSeamWordDuplicates` — case-gated, Latin-gated — *and* is
+  threaded into the overlap matcher itself, where `tokensMatch` went from exact
+  token-ID equality to case-folded equality. The second is easy to miss and is
+  the more interesting one: it changes which token pairs anchor the merge, i.e.
+  **where the seam is cut**, rather than what is removed afterwards.
+
+  `0ac0e414` (#683/#759) contributes three word-boundary-safe fallbacks on
+  seam-merge drop paths, keyed off `spliceSafeTokenIds`. Neither case- nor
+  Latin-gated — but all three are **strictly conditional**, differing from 0.15.4
+  only when no splice-safe token exists at the seam. Upstream's own
+  instrumentation in that commit message reports ~67 chunk-merge events over
+  ~15 minutes of deliberately adversarial agglutinative audio hitting the guarded
+  logic on ~70 % of seams and **never falling through to any of the three**. They
+  are defensive.
+
+  The first version of this entry named only the first commit, and wrote off all
+  seven of its rows on that basis. The honest decomposition is narrower:
+
+  | row | path | blind to the merge change? |
+  |---|---|---|
+  | `jfk` parakeet | 11.0 s → **one chunk** | yes — the merger never runs |
+  | `cv-zhtw-4` parakeet | 25.68 s → **two chunks** | **no** — it exercises `0ac0e414`'s fallbacks |
+  | 3 × sensevoice, 2 × paraformer | never enter `ChunkProcessor` at all | yes, but because of the subtree, not because of case |
+
+  So the old table could not support "accuracy is unchanged" — one of its two
+  parakeet rows was structurally blind and the other confounds six bestASR
+  versions — but it was not empty, and the reason five of its rows carried no
+  information was the ASR subtree they run in, not the absence of case.
 
   Measured on a corpus that **can** exercise it — `osr-harvard-1`, 33.6 s of
   English — by building the same tree against each pin in turn:
@@ -162,25 +186,46 @@ All notable changes to bestASR are documented here. The format follows
   | 0.15.4 (`b9d43724`) | `osr-harvard-1` | parakeet | **0.037500** |
   | 0.15.5 (`19600a48`) | `osr-harvard-1` | parakeet | **0.037500** |
 
-  Bit-identical, not equal-after-rounding. The 0.15.4 side was confirmed to be
-  genuinely 0.15.4 by the *absence* of `collapseSeamWordDuplicates` from the
-  checked-out source, which is stronger evidence than the resolved version
-  string: a stale build artifact can survive a pin change, but code that is not
-  on disk cannot run.
+  Bit-identical, not equal-after-rounding. The resolved version string alone
+  would not settle which code actually ran — a stale build artifact can survive
+  a pin change — and neither does the checked-out source, for the same reason.
+  The artifact to interrogate is the **binary**: `nm` on the built `bestasr`
+  reports the `ChunkProcessor.caseVariantCanonicalIds` symbol present under the
+  0.15.5 pin and absent under 0.15.4.
 
-  What this does and does not establish: the changed merge path produces the
-  same transcript on this corpus. It is one corpus on one machine, so it is not
-  a certification — but unlike the earlier table it is a measurement that
-  *could* have come out differently.
+  What this does and does not establish, stated narrowly because two earlier
+  attempts at this paragraph overstated it in opposite directions.
+
+  The transcripts are byte-identical. Worked backwards, that is itself evidence
+  that **none of the five changes was reached**: the collapse is case-gated and a
+  clean reading passage has no case-differing seam duplicate; the three fallbacks
+  differ only where no splice-safe token exists, and any non-degenerate entry
+  would have kept content 0.15.4 dropped; the matcher's case-folding can only
+  move a seam where a case-variant pair exists to anchor on.
+
+  So this run does **not** show that the changed code produces the same output.
+  It shows that a 33.6 s English multi-chunk corpus — one whose shape makes every
+  one of the five reachable in principle, unlike `jfk` or a caseless one — comes
+  out identical, with no evidence that any of them was entered. That is a weaker
+  claim than "accuracy is unchanged" and a stronger one than the removed table
+  could make: it is a measurement that could have come out differently.
+
+  Exercising the collapse deliberately would need audio with a case-variant
+  repetition across a ~15 s boundary; the fallbacks, per upstream, resisted 67
+  adversarial seams. Neither is in this repo's corpus set, and constructing them
+  is #123/#124 work rather than a dependency bump's.
 
   **The earlier table was not a before/after comparison at all**, and is removed
   rather than repaired. Its "0.15.4" column reconciles to store rows captured
   `2026-07-05/06` under **app_version 0.10.0**; its "0.15.5" column is the
   `2026-08-02` batch under **0.16.0** — four weeks and six bestASR versions
-  apart, with no `fluid-*` batch in between. The seven pairs are in fact
-  bit-identical in the store (the mismatched 2 dp / 1 dp rendering obscured
-  that), which is real evidence that those paths are deterministic and unmoved
-  across six app versions; it is simply not evidence about this dependency bump.
+  apart. A `fluid-*` batch does exist in between (24 rows on `2026-07-19` under
+  `0.14.0`), and it shares **zero corpora** with the after-batch, which is what
+  forced the older rows into the "before" column: the choice was constrained by
+  overlap, not made carelessly. The seven pairs are in fact bit-identical in the
+  store (the mismatched 2 dp / 1 dp rendering obscured that), which is real
+  evidence that those paths are deterministic and unmoved across six app
+  versions; it is simply not evidence about this dependency bump.
   Issue #122 asked for a sweep on **each side** of the upgrade, and only the
   after side was ever run.
 

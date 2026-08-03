@@ -21,7 +21,7 @@ The system SHALL provide a `fluid-paraformer` backend backed by FluidAudio's Par
 
 ### Requirement: SenseVoiceEngine conforms to the Engine seam
 
-The system SHALL provide a `fluid-sensevoice` backend backed by FluidAudio's SenseVoiceManager, conforming to the same Engine seam. The pipeline SHALL use SenseVoice's automatic language detection (the upstream default): FluidAudio 0.15.4 does not export the per-language embed-index table, and a wrong guessed index would silently degrade quality — an explicit hint mapping waits for upstream constants. A language request therefore never fails transcription regardless of value.
+The system SHALL provide a `fluid-sensevoice` backend backed by FluidAudio's SenseVoiceManager, conforming to the same Engine seam. The pipeline SHALL use SenseVoice's automatic language detection (the upstream default): FluidAudio does not export the per-language embed-index table (checked through 0.15.5), and a wrong guessed index would silently degrade quality — an explicit hint mapping waits for upstream constants. A language request therefore never fails transcription regardless of value.
 
 #### Scenario: Any language request transcribes via auto-detection
 
