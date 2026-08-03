@@ -148,21 +148,24 @@ struct Transcribe: AsyncParsableCommand {
                 compressionRatioThreshold: compressionRatioThreshold,
                 logProbThreshold: logprobThreshold
             )
+            // #136: warnings print on the DEFAULT path. Reasons explain a
+            // choice and are opt-in; a warning is what the reader needs to trust
+            // the file just written. Hiding these behind --explain meant
+            // `--backend X` could silently deliver backend Y's output with
+            // "Wrote txt transcript to …" as the entire output.
+            //
+            // Emitted BEFORE the success line: stderr is unbuffered and stdout
+            // is at best line-buffered, so warning-first is the only order that
+            // holds under both a terminal and a pipe. The reverse read oddly —
+            // the file was announced as written before the reason to distrust it
+            // appeared — and it made the samples in the CHANGELOG true only when
+            // stdout was redirected.
+            //
+            // The rendering itself lives in BestASRKit so it can be tested at
+            // all; this target has no coverage, which is why the first fix could
+            // delete this whole branch and keep the suite green.
+            TranscribeDiagnostics.emit(for: result, explain: explain)
             print("Wrote \(result.format) transcript to \(result.outputPath)")
-            if explain {
-                // --explain already renders the warnings inline, in context
-                // with the reasons — printing them again above would duplicate.
-                FileHandle.standardError.write(Data((result.explanation + "\n").utf8))
-            } else {
-                // #136: warnings print on the DEFAULT path. Reasons explain a
-                // choice and are opt-in; a warning is what the reader needs to
-                // trust the file just written. Hiding these behind --explain
-                // meant `--backend X` could silently deliver backend Y's output
-                // with "Wrote txt transcript to …" as the entire output.
-                for warning in result.warnings {
-                    FileHandle.standardError.write(Data("warning: \(warning)\n".utf8))
-                }
-            }
         }
     }
 }

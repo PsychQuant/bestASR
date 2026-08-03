@@ -474,3 +474,145 @@ struct ContextCommandTests {
         #expect(reasons.contains { $0.contains("context:") && $0.contains("5 value(s) injected") })
     }
 }
+
+/// The #136 contract at the two layers the original fix left uncovered: which
+/// notices the router classifies as warnings, and whether the CLI's rendering
+/// of them actually reaches stderr.
+struct RouterWarningVisibilityTests {
+
+    /// Capture what `emit` writes, by handing it a real `FILE*` on a temp file.
+    ///
+    /// Deliberately NOT `dup2` on the process's fd 2, which is the more direct
+    /// way to prove the destination and is unsafe inside a test bundle: after
+    /// `close(2)` the next `open()` anywhere in the process receives fd 2, and
+    /// restoring it then closes that resource out from under whoever opened it
+    /// — including the harness's own result channel, which hangs the run. The
+    /// default-destination assertion below covers what this cannot.
+    private func captured(_ body: (UnsafeMutablePointer<FILE>) -> Void) throws -> String {
+        let path = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("idd136-\(UUID().uuidString)").path
+        defer { try? FileManager.default.removeItem(atPath: path) }
+        guard let f = fopen(path, "w") else { throw CocoaError(.fileWriteUnknown) }
+        body(f)
+        fclose(f)
+        return (try? String(contentsOfFile: path, encoding: .utf8)) ?? ""
+    }
+
+    // MARK: - classification (verify F1)
+
+    @Test func `the unverified-model notice is a warning, not a reason`() throws {
+        // Issue #136 names this notice explicitly among the warnings that "were
+        // written to be seen. None is, by default." The first fix separated the
+        // CLI's rendering but left this one in `reason`, so it stayed
+        // --explain-only while the CHANGELOG said it had been unhidden.
+        //
+        // The tell was in the string itself: it began with the token "warning: "
+        // while living in the reasons array — the exact reason/warning
+        // conflation #136 exists to end, one layer below the one it fixed.
+        let rec = try Router.recommend(
+            host: Fixtures.m5Max, profile: .high, requestedLanguage: "zh",
+            backendOverride: "fluid-paraformer", modelOverride: nil,
+            records: [], availability: [.fluidParaformer: true]
+        )
+        #expect(rec.backend == .fluidParaformer)
+        #expect(
+            rec.warnings.contains { $0.contains("unverified") },
+            "the #50 notice is not in warnings: \(rec.warnings)")
+        #expect(
+            !rec.reason.contains { $0.contains("unverified") },
+            "the #50 notice is still duplicated into reasons: \(rec.reason)")
+    }
+
+    @Test func `the unverified-model warning is not double-prefixed`() throws {
+        // The CLI adds its own "warning: " prefix, so a straight move of the
+        // string would render `warning: warning: '…' is unverified`.
+        let rec = try Router.recommend(
+            host: Fixtures.m5Max, profile: .high, requestedLanguage: "zh",
+            backendOverride: "fluid-paraformer", modelOverride: nil,
+            records: [], availability: [.fluidParaformer: true]
+        )
+        let notice = try #require(rec.warnings.first { $0.contains("unverified") })
+        #expect(!notice.lowercased().hasPrefix("warning:"), "double prefix: \(notice)")
+    }
+
+    // MARK: - rendering (verify F2)
+
+    // The original fix asserted only that `TranscribeOutcome.warnings` was
+    // populated — the data was reachable, which is necessary and is not the
+    // acceptance criterion. Deleting the CLI's entire printing branch left all
+    // 447 tests green, reproducing one layer up the exact failure mode the
+    // issue's third acceptance line names.
+    //
+    // Three properties have to hold, and no single assertion covers them:
+    // which lines (branch), how they read (prefix), and WHERE they go. The
+    // last one is why `destination` is a named constant rather than an inlined
+    // `stderr` — a pure test of the rendered strings stays green when they are
+    // sent to stdout, which for anyone piping a transcript is #136 again.
+
+    @Test func `the default path renders each warning with a prefix`() throws {
+        let outcome = TranscribeOutcome(
+            outputPath: "/tmp/x.txt", format: "txt", explanation: "Selected … because:",
+            warnings: ["a", "b"])
+        #expect(
+            TranscribeDiagnostics.lines(for: outcome, explain: false) == ["warning: a", "warning: b"]
+        )
+    }
+
+    @Test func `--explain renders the explanation and never duplicates warnings`() throws {
+        let outcome = TranscribeOutcome(
+            outputPath: "/tmp/x.txt", format: "txt", explanation: "Selected … because:\n  ! a",
+            warnings: ["a"])
+        let lines = TranscribeDiagnostics.lines(for: outcome, explain: true)
+        #expect(lines == ["Selected … because:\n  ! a"])
+        #expect(!lines.contains { $0.hasPrefix("warning:") })
+    }
+
+    @Test func `a clean run renders nothing at all`() throws {
+        let outcome = TranscribeOutcome(
+            outputPath: "/tmp/x.txt", format: "txt", explanation: "", warnings: [])
+        #expect(TranscribeDiagnostics.lines(for: outcome, explain: false).isEmpty)
+    }
+
+    @Test func `diagnostics go to stderr, never stdout`() throws {
+        // The destination assertion. Flipping this constant to `stdout` is a
+        // one-word change that every string-level test above tolerates.
+        #expect(TranscribeDiagnostics.destination == stderr)
+        #expect(TranscribeDiagnostics.destination != stdout)
+    }
+
+    @Test func `emit writes the rendered lines to the stream it is given`() throws {
+        let outcome = TranscribeOutcome(
+            outputPath: "/tmp/x.txt", format: "txt", explanation: "", warnings: ["substituted"])
+        let text = try captured { TranscribeDiagnostics.emit(for: outcome, explain: false, to: $0) }
+        #expect(text == "warning: substituted\n", "got: \(text)")
+    }
+
+    @Test func `emitting nothing writes nothing`() throws {
+        let outcome = TranscribeOutcome(
+            outputPath: "/tmp/x.txt", format: "txt", explanation: "", warnings: [])
+        let text = try captured { TranscribeDiagnostics.emit(for: outcome, explain: false, to: $0) }
+        #expect(text.isEmpty, "a clean run wrote: \(text)")
+    }
+
+    @Test func `a failed write does not turn a successful run into a fatal signal`() throws {
+        // `FileHandle.write(_:)` raises an uncatchable ObjC exception on write
+        // failure, so a closed fd 2 (`2>&-`) turned a completed transcription
+        // into SIGABRT — file already on disk, "Wrote …" already printed, exit
+        // code 134. An early-exiting stderr reader gave SIGPIPE the same way.
+        // Pre-existing API misuse, promoted from --explain-only to the default
+        // path by the #136 fix, and reached through the templates in
+        // plugins/bestasr/skills/ that gate on `$?`.
+        //
+        // A read-only stream reproduces the failing write without touching the
+        // process's own descriptors.
+        let path = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("idd136-ro-\(UUID().uuidString)").path
+        FileManager.default.createFile(atPath: path, contents: Data())
+        defer { try? FileManager.default.removeItem(atPath: path) }
+        let ro = try #require(fopen(path, "r"))
+        defer { fclose(ro) }
+        let outcome = TranscribeOutcome(
+            outputPath: "/tmp/x.txt", format: "txt", explanation: "", warnings: ["x"])
+        TranscribeDiagnostics.emit(for: outcome, explain: false, to: ro)  // must not trap
+    }
+}

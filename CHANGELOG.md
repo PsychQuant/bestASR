@@ -128,14 +128,56 @@ All notable changes to bestASR are documented here. The format follows
   Wrote txt transcript to /tmp/pk.txt
   ```
 
+  Warnings are emitted **before** the success line. stderr is unbuffered and
+  stdout is at best line-buffered, so warning-first is the only order that holds
+  under both a terminal and a pipe; the reverse announced the file as written
+  before the reason to distrust it appeared.
+
   Also unhidden by the same change: the `--backend X is unavailable; selecting
-  automatically` substitution notice (the #121 case), the cold-start
-  memory-downgrade warnings, and the unverified-model notice (#50). `--explain`
-  output is **unchanged**, and warnings are not duplicated when it is passed.
+  automatically` substitution notice (the #121 case) and the cold-start
+  memory-downgrade warnings. `--explain` output is **unchanged**, and warnings
+  are not duplicated when it is passed — the two branches are mutually exclusive
+  by construction, so duplication is not merely absent, it is unrepresentable.
+
+  Verification found that the CLI-layer split had left the classification
+  underneath it half-done, and that the first version of this entry claimed
+  otherwise:
+
+  - **The unverified-model notice (#50)** — which this issue names explicitly —
+    was still `reasons.append`, so it stayed `--explain`-only while this entry
+    said it had been surfaced. The tell was in the string: it began with the
+    literal token `warning: ` while living in the reasons array, which is the
+    same conflation #136 exists to end, one layer below the one it fixed. It is
+    now a warning, without the inline prefix (the CLI adds its own, so a straight
+    move would have rendered `warning: warning: …`).
+  - **The quality-floor bypass notice stays in `reasons`, deliberately.** An
+    earlier draft of this entry listed it as unhidden too. `openspec/specs/asr-routing/spec.md`
+    is normative that an explicitly locked backend "bypasses the floor with a
+    quality warning **in the reasons**", with a scenario governing it — moving it
+    would be a spec change, not a bug fix. A test now pins each placement, and
+    the asymmetry is stated at both sites so the next reader does not take it for
+    an oversight.
+  - **Nothing tested the CLI's printing path**, so deleting the branch outright
+    left the whole suite green — the failure mode this issue's third acceptance
+    line names, reproduced one layer up. The rendering moved into `BestASRKit`
+    as `TranscribeDiagnostics`, and the destination is now asserted by capturing
+    the process's real fd 1 and fd 2: a pure test of the rendered strings cannot
+    see a regression that sends them to **stdout**, which for anyone piping a
+    transcript is #136 again.
+  - **A closed stderr turned a successful run into a fatal signal.**
+    `FileHandle.write(_:)` raises an *uncatchable* Objective-C exception on write
+    failure, so `2>&-` produced SIGABRT (exit 134) and an early-exiting reader
+    such as `2> >(head -n1)` produced SIGPIPE (exit 141) — transcript already on
+    disk, `Wrote …` already printed. Pre-existing API misuse, promoted from
+    `--explain`-only to the default path by this fix, and reachable from the
+    skill templates in `plugins/bestasr/` that gate on `$?`. Now `fputs`.
 
   Pre-existing since the original CLI commit (`471218a`, 2026-07-02), affecting
   every backend. `diagnose` and `recommend` were already unaffected — the former
   prints warnings unconditionally, the latter emits them in its JSON.
+  `benchmark` never calls `Router.recommend` at all, so it has no suppressed
+  router warning either; the issue asked about it and the first write-up
+  answered for `diagnose` instead.
 
 - **`--backend apple-speech` was silently substituted (#121)**: `Router`'s
   backend-membership list omitted the new backend, so an explicit `--backend

@@ -109,7 +109,13 @@ struct RouterCrossFamilyTests {
         )
         #expect(rec.backend == .fluidParaformer)
         #expect(rec.model == "large-zh")
-        #expect(rec.reason.contains { $0.contains("unverified") })
+        // `warnings`, not `reason` (#136 verify). This assertion used to read
+        // `rec.reason` under a test named "…**warns** about unestablished
+        // quality" — name saying one thing, assertion certifying the other. That
+        // is what kept the misclassification alive through #136's first fix: the
+        // notice was not merely in the wrong array, it had a passing test
+        // vouching for the wrong array.
+        #expect(rec.warnings.contains { $0.contains("unverified") })
     }
 
     @Test func `Locking the OS-native backend routes instead of silently substituting`() throws {
