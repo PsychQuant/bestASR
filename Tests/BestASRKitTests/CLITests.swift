@@ -73,11 +73,33 @@ struct RecommendCommandTests {
         let object =
             try JSONSerialization.jsonObject(with: Data(output.utf8)) as? [String: Any]
         let json = try #require(object)
-        for key in ["backend", "model", "quantization", "data_source", "reason", "warnings"] {
+        // The full enumeration the cli spec's `recommend` requirement makes
+        // normative — including `profile` and `language`, which the code has
+        // always emitted and the spec omitted until #136 went looking.
+        for key in [
+            "backend", "model", "quantization", "profile", "language",
+            "data_source", "reason", "warnings",
+        ] {
             #expect(json[key] != nil, "missing key \(key)")
         }
+        // And their SHAPE, not just their presence. A notice that migrates
+        // between `reason` and `warnings` (#136 moved the #50 one) is invisible
+        // to a key-presence check, and so is a field that degrades to a string.
+        for key in ["reason", "warnings"] {
+            #expect(
+                json[key] is [String],
+                "`\(key)` is not an array of strings: \(String(describing: json[key]))")
+        }
         #expect(json["data_source"] as? String == "cold_start_prior")
-        #expect(json["measured"] is NSNull || json["measured"] == nil)
+        // Absent, not null. `JSONEncoder` omits a nil optional rather than
+        // encoding `null`, so a consumer keying on `"measured" in obj` and one
+        // keying on `obj["measured"] is None` do not agree. The spec said
+        // "null otherwise" until this assertion was tightened enough to
+        // contradict it; the payload is the shipped surface, so the spec moved.
+        #expect(
+            json["measured"] == nil,
+            "`measured` should be absent without benchmark data, not \(String(describing: json["measured"]))"
+        )
     }
 
     @Test func `recommend reflects benchmark data when the cache has a usable record`() async throws {
@@ -621,28 +643,64 @@ struct RouterWarningVisibilityTests {
     }
 }
 
-/// Link 6: that the CLI still *invokes* the tested rendering, unguarded, in the
-/// right order.
+/// Link 6: that the CLI still *invokes* the tested rendering, unguarded, with
+/// nothing before or after it inside the block.
 ///
 /// The rest of the #136 suite covers which lines are produced, how they read,
-/// and where `emit` writes. None of that observes whether
+/// and where the bytes land. None of that observes whether
 /// `Sources/bestasr/BestASRCommand.swift` calls any of it — and #136 was a
 /// wiring bug, not a rendering bug: the reported behaviour is an `if explain`
 /// guard at the call site. Measured before this test existed: re-adding that
 /// guard, deleting the call, redirecting it to stdout, or moving it after the
 /// success line each left **456/456 green**.
 ///
-/// Why a source-level lock rather than executing the command: `Transcribe.run()`
-/// calls `CommandCore.live()` unconditionally, which hard-codes six engines plus
-/// `ExternalEngineRegistry`. There is no injection seam, and `$HOME` is not one
-/// either — `NSHomeDirectory()` ignores it on Darwin, so a subprocess test aimed
-/// at a fake home silently loads the developer's real `~/.bestasr/engines.json`
-/// and can spawn a real model. A subprocess CLI test on this path is
-/// non-hermetic by construction today; building the seam that would fix that is
-/// a larger and more debatable change than the gap it closes.
+/// **This is a text pin and cannot be anything else here.** Proving the line
+/// *executes* means running the executable, and `Transcribe.run()` calls
+/// `CommandCore.live()` unconditionally — six hard-wired engines plus
+/// `ExternalEngineRegistry`. `$HOME` is not a seam either: `NSHomeDirectory()`
+/// ignores it on Darwin, so a subprocess test aimed at a fake home silently
+/// loads the developer's real `~/.bestasr/engines.json` and can spawn a real
+/// model. What a text pin can and cannot do is stated per-assertion below;
+/// the *behavioural* half — that the defaults this call relies on really put
+/// diagnostics on fd 2 — is `TranscribeDiagnosticsDefaultStreamTests`, which
+/// runs a process.
+///
+/// The first version of this lock searched for the call text anywhere in the
+/// file and for one literal guard spelling. Round 3 measured six regressions
+/// that passed it, all **461/461 green**: `if (explain) {` (two parentheses),
+/// `guard explain else { return }`, `let shouldReport = explain`, the call
+/// wrapped in `/* … */` (which left `transcribe` printing *nothing at all*,
+/// because a block comment deletes the call while leaving the searched-for text
+/// in the file), a `print("Wrote …")` inserted before it, and — in the other
+/// direction — renaming the local `result`, a pure refactor, turned it **red**.
+/// The anchor below is positional instead of textual, which inverts both error
+/// modes.
 struct TranscribeDiagnosticsWiringTests {
 
-    @Test func `the CLI reports through the tested path, unguarded and before nothing else`()
+    /// Index just past the `)` that closes the call whose `(` ends `marker`.
+    ///
+    /// Counts depth, so nested calls in the argument list are fine. It would be
+    /// confused by a parenthesis inside a string literal; neither call this test
+    /// anchors on contains one, and a future one would fail loudly here rather
+    /// than pass silently.
+    private func indexPastCall(in s: String, openedBy marker: String) -> String.Index? {
+        guard let m = s.range(of: marker) else { return nil }
+        var depth = 1
+        var i = m.upperBound
+        while i < s.endIndex {
+            switch s[i] {
+            case "(": depth += 1
+            case ")":
+                depth -= 1
+                if depth == 0 { return s.index(after: i) }
+            default: break
+            }
+            i = s.index(after: i)
+        }
+        return nil
+    }
+
+    @Test func `the diagnostics call is the transcribe block's last statement, unguarded`()
         throws
     {
         let url = URL(fileURLWithPath: #filePath)
@@ -650,10 +708,14 @@ struct TranscribeDiagnosticsWiringTests {
             .appendingPathComponent("Sources/bestasr/BestASRCommand.swift")
         let source = try String(contentsOf: url, encoding: .utf8)
 
-        // Strip comments and all whitespace so reflowing the call or inserting a
-        // comment between statements stays green — those are refactors, not
-        // regressions. (Safe here: this file contains no `://` inside a string
-        // literal, which is the one shape this stripping would mangle.)
+        // Strip line comments and all whitespace, so reflowing the call or
+        // inserting a comment between statements stays green — those are
+        // refactors, not regressions. Block comments are deliberately NOT
+        // stripped: commenting the call out is a regression, and leaving `/*`
+        // in the text is exactly how the previous version of this test was
+        // defeated. (The `//` strip would mangle a `://` inside a string
+        // literal; this file contains none, and the assertion below would fail
+        // loudly rather than silently if one appeared.)
         let stripped = source
             .components(separatedBy: "\n")
             .map { line -> String in
@@ -663,21 +725,140 @@ struct TranscribeDiagnosticsWiringTests {
             .joined()
             .filter { !$0.isWhitespace }
 
-        #expect(
-            stripped.contains("TranscribeDiagnostics.report(result,explain:explain)"),
+        let advice = """
+            If that was deliberate — the call restructured, or the transcribe \
+            call reshaped — re-pin this assertion to the new shape. If it was not, \
+            #136 is back: warnings stop reaching stderr on the default path while \
+            every other test in this suite stays green.
             """
-            The transcribe command no longer reports through TranscribeDiagnostics.report \
-            with no stream override. If that was deliberate — the call was renamed, \
-            restructured, or moved — re-pin this assertion to the new shape. If it was not, \
-            #136 is back: warnings stop reaching stderr on the default path and every other \
-            test in this suite stays green.
+
+        // Anchor on the statement the call must follow, not on the call's own
+        // text. Nothing may sit between them: that single fact rejects every
+        // guard spelling (`if explain`, `if (explain)`, `guard … else`, a
+        // hoisted `let`), a block comment, an inserted `print`, and deletion —
+        // without naming `result`, `explain`, or any argument label, so renames
+        // and reflows stay green.
+        guard
+            let afterTranscribe = indexPastCall(
+                in: stripped, openedBy: "CommandCore.live().transcribe(")
+        else {
+            Issue.record("could not locate the `CommandCore.live().transcribe(...)` call. \(advice)")
+            return
+        }
+        let tail = String(stripped[afterTranscribe...])
+
+        #expect(
+            tail.hasPrefix("TranscribeDiagnostics.report("),
+            """
+            The diagnostics call no longer follows the transcribe call directly — something \
+            is between them, or it is gone. \(advice)
             """)
 
-        // The guard that IS the reported bug. `report` is unconditional; making
-        // it conditional on `explain` restores #136 byte-for-byte.
+        // And nothing after it, so a second success line cannot be printed
+        // ahead of or behind the tested one. Asserted rather than implied: the
+        // previous test claimed this in its name and checked nothing.
+        guard
+            tail.hasPrefix("TranscribeDiagnostics.report("),
+            let afterReport = indexPastCall(in: tail, openedBy: "TranscribeDiagnostics.report(")
+        else { return }
         #expect(
-            !stripped.contains("ifexplain{TranscribeDiagnostics"),
-            "the diagnostics call is guarded by `explain` again — that is #136 verbatim")
+            String(tail[afterReport...]).hasPrefix("}"),
+            """
+            A statement was added after the diagnostics call. Anything printed there lands \
+            after the success line, which is the ordering `report` exists to own. \(advice)
+            """)
+    }
+}
+
+/// The behavioural half of link 6: that `report`'s stream *defaults* — the two
+/// values the CLI actually relies on, since it passes neither — really put
+/// diagnostics on fd 2 and the success line on fd 1 in a real process.
+///
+/// Every other test in this file passes both streams explicitly, so none of them
+/// executes those defaults. Round 3 measured the consequence: changing
+/// `err: … = destination` to `= stdout` in the declaration alone, with the call
+/// site untouched, sends every warning to **stdout** — #136's original scenario —
+/// and leaves **461/461 green**. `destination == stderr` stayed green (the
+/// constant was unchanged), the stream-pair test stayed green (it overrides both
+/// streams), and the wiring lock stayed green — and in fact *mandates* the
+/// no-override call shape, so it guarantees production goes through the
+/// untested default. Flipping `out:` the other way took the success line off
+/// stdout, also green.
+///
+/// So this spawns a process. `bestasr-diagnostics-probe` is a dozen lines that
+/// build a `TranscribeOutcome` from argv and call `report` **passing no
+/// streams** — no `CommandCore.live()`, no model, no `$HOME` dependence. It
+/// cannot show that `Transcribe.run()` calls `report` (that is the text pin
+/// above), but it does show that a byte reached fd 2, which nothing previously
+/// did.
+struct TranscribeDiagnosticsDefaultStreamTests {
+
+    private final class Anchor: NSObject {}
+
+    /// The products directory, via the loaded test bundle. `Bundle.main` and
+    /// `argv[0]` both point into the toolchain's `swiftpm-testing-helper`, not
+    /// the build, and `Bundle.allBundles` is populated lazily enough that
+    /// scanning it first can miss the `.xctest` entry entirely — measured.
+    private var probeURL: URL {
+        Bundle(for: Anchor.self).bundleURL
+            .deletingLastPathComponent()
+            .appendingPathComponent("bestasr-diagnostics-probe")
+    }
+
+    private func runProbe(
+        explain: Bool, explanation: String = "", warnings: [String] = []
+    ) throws -> (out: String, err: String) {
+        let probe = probeURL
+        try #require(
+            FileManager.default.isExecutableFile(atPath: probe.path),
+            """
+            \(probe.path) is missing. It is a test fixture built by the package \
+            (target `bestasr-diagnostics-probe`, a dependency of this test target); \
+            if it is absent the build is not what this test assumes.
+            """)
+
+        let process = Process()
+        process.executableURL = probe
+        process.arguments =
+            [explain ? "1" : "0", "/tmp/idd136-probe.txt", "txt", explanation] + warnings
+        let outPipe = Pipe(), errPipe = Pipe()
+        process.standardOutput = outPipe
+        process.standardError = errPipe
+        try process.run()
+        // Read before waiting. Sequential reads are safe only because the
+        // payload is a few hundred bytes, far under the pipe buffer; a larger
+        // fixture would need concurrent draining to avoid deadlock.
+        let outData = outPipe.fileHandleForReading.readDataToEndOfFile()
+        let errData = errPipe.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        return (String(decoding: outData, as: UTF8.self), String(decoding: errData, as: UTF8.self))
+    }
+
+    @Test func `with no streams passed, warnings reach fd 2 and the success line fd 1`() throws {
+        let (out, err) = try runProbe(
+            explain: false, warnings: ["backend 'x' is unavailable; selecting automatically"])
+
+        #expect(err.contains("warning: backend 'x' is unavailable; selecting automatically"))
+        #expect(
+            !out.contains("warning:"),
+            """
+            A warning reached fd 1. Someone piping a transcript now gets diagnostics mixed \
+            into it and an empty stderr — that is #136, reachable by changing `report`'s \
+            `err:` default without touching the call site.
+            """)
+
+        #expect(out.contains("Wrote txt transcript to /tmp/idd136-probe.txt"))
+        #expect(
+            !err.contains("Wrote txt transcript to"),
+            "the success line left fd 1; a caller redirecting stdout now gets an empty file")
+    }
+
+    @Test func `with no streams passed, the explanation reaches fd 2 as well`() throws {
+        let (out, err) = try runProbe(explain: true, explanation: "Selected whisperkit because …")
+
+        #expect(err.contains("Selected whisperkit because …"))
+        #expect(!out.contains("Selected whisperkit"))
+        #expect(out.contains("Wrote txt transcript to"))
     }
 }
 
@@ -760,5 +941,62 @@ struct TranscribeReportTests {
         let io = try capture { TranscribeDiagnostics.report(outcome, explain: false, out: $0, err: $1) }
         #expect(io.err.isEmpty, "a clean run wrote to stderr: \(io.err)")
         #expect(io.out == "Wrote txt transcript to /tmp/x.txt\n")
+    }
+}
+
+/// The writer both reporting channels share.
+///
+/// `TranscribeReportTests` covers it through the diagnostics path. This suite
+/// pins it directly, because the *other* caller — the CLI's typed-failure
+/// channel — is where a NUL is actually reachable: `ExternalProcessEngine`
+/// embeds an external adapter's stderr verbatim into `TranscriptionError`, and
+/// adapters are third-party programs registered from `~/.bestasr/engines.json`
+/// (#51). An intermediate version of the #136 fix put that channel on `fputs`,
+/// which truncates there.
+struct ConsoleLineTests {
+
+    private func captured(_ body: (UnsafeMutablePointer<FILE>) -> Void) throws -> String {
+        let path = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("idd136-cl-\(UUID().uuidString)").path
+        defer { try? FileManager.default.removeItem(atPath: path) }
+        let f = try #require(fopen(path, "w"))
+        body(f)
+        fclose(f)
+        return (try? String(contentsOfFile: path, encoding: .utf8)) ?? ""
+    }
+
+    @Test func `an embedded NUL neither truncates the line nor swallows its terminator`() throws {
+        let text = try captured { f in
+            ConsoleLine.write("error: adapter said boom\u{0}DETAIL\n", to: f)
+            ConsoleLine.write("error: second failure\n", to: f)
+        }
+
+        #expect(text.contains("DETAIL"), "the text after the NUL was lost: \(text.debugDescription)")
+        let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
+            .filter { $0.hasPrefix("error:") }
+        #expect(
+            lines.count == 2,
+            """
+            expected two physical `error:` lines, got \(lines.count) — the terminator was \
+            swallowed and the next message glued onto this one: \(text.debugDescription)
+            """)
+    }
+
+    @Test func `writing to an unwritable stream does not raise`() throws {
+        // The property `FileHandle.write(_:)` lacks. It asserts nothing because
+        // the failure mode is a trap: if this returns, it held. (SIGPIPE is a
+        // different signal on a different path and is NOT covered — see
+        // `ConsoleLine`'s documentation.)
+        let path = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("idd136-ro-\(UUID().uuidString)").path
+        FileManager.default.createFile(atPath: path, contents: Data())
+        defer { try? FileManager.default.removeItem(atPath: path) }
+        let ro = try #require(fopen(path, "r"))
+        defer { fclose(ro) }
+        ConsoleLine.write("error: this cannot be written\n", to: ro)
+    }
+
+    @Test func `an empty string writes nothing`() throws {
+        #expect(try captured { ConsoleLine.write("", to: $0) }.isEmpty)
     }
 }

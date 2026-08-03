@@ -15,16 +15,25 @@ import Foundation
 /// The split below is deliberate. `lines(for:explain:)` is pure, so the branch
 /// and the prefix are cheap to assert — but a test of it alone cannot see a
 /// regression that sends the same strings to *stdout*, which for anyone piping
-/// a transcript is #136 again. `emit(for:explain:)` is therefore the thing the
-/// CLI calls, and `destination` is a named constant so a test can assert it.
+/// a transcript is #136 again. `emit(for:explain:to:)` adds the destination.
 ///
-/// What that pair does NOT establish is that the CLI still calls `emit` at all,
-/// or calls it without an override, or before the success line. Those are
-/// properties of the *wiring*, and #136 was a wiring bug: a call-site `if
-/// explain` guard. Re-adding that guard restored the reported behaviour
-/// verbatim with the whole suite green, which is why `report(_:explain:out:err:)`
-/// exists — it moves both statements behind one testable call — and why a
-/// source-level lock pins the single line that invokes it.
+/// `report(_:explain:out:err:)` is what the CLI calls; `emit` has no production
+/// caller of its own. `report` exists because neither of the two above
+/// establishes that the CLI still calls any of this, or without an override, or
+/// before the success line. Those are properties of the *wiring*, and #136 was a
+/// wiring bug: a call-site `if explain` guard. Re-adding that guard restored the
+/// reported behaviour verbatim with the whole suite green, so `report` moves
+/// both statements behind one testable call and a source-level lock pins its
+/// position at the call site.
+///
+/// Three layers, and it took three rounds to notice they were not the same
+/// layer: *what* is rendered (`lines`), *where* it goes (`emit` + `destination`),
+/// and *whether the CLI invokes it* (`report` + the lock). A fourth was hiding
+/// between the third and the second — `report`'s stream **defaults**, which the
+/// CLI relies on by passing neither and which every test overrode. Changing
+/// `err:`'s default alone put every warning on stdout with the whole suite
+/// green. `bestasr-diagnostics-probe` now executes those defaults in a real
+/// process so a test can watch which fd each byte reaches.
 public enum TranscribeDiagnostics {
 
     /// The lines a run should surface, in order. Pure: no I/O, no globals.
@@ -48,6 +57,14 @@ public enum TranscribeDiagnostics {
     /// and a one-word change to `stdout` would reintroduce #136 for anyone
     /// piping a transcript while every string-level assertion stayed green.
     ///
+    /// That protection was fitted one level away from where production reads,
+    /// though, and the gap it left was real: `report` names this constant as its
+    /// `err:` default, the CLI passes no streams, and *changing the default*
+    /// leaves this assertion green because the constant itself is untouched.
+    /// Measured: **461/461 green** with every warning on stdout. Asserting a
+    /// constant only helps where something asserts that the constant is what
+    /// runs — which is now `TranscribeDiagnosticsDefaultStreamTests`.
+    ///
     /// The alternative — redirecting the process's real fd 2 around a call —
     /// tests the same property more directly and must not be used *here*:
     /// inside a test bundle, `close(2)` hands fd 2 to whatever the harness opens
@@ -57,35 +74,19 @@ public enum TranscribeDiagnostics {
 
     /// Writes those lines to `stream`.
     ///
-    /// C stdio rather than `FileHandle.standardError.write(_:)`: the latter
-    /// raises an *uncatchable* Objective-C exception when the write fails, so a
-    /// closed fd 2 (`2>&-`) or a stderr reader that exits early
-    /// (`2> >(head -n1)`) turned a **successful** transcription into SIGABRT or
-    /// SIGPIPE — transcript already on disk, `Wrote …` already printed, exit
-    /// code 134 or 141. The misuse predates #136, but #136 promoted it from
-    /// `--explain`-only to the default path, and this repo ships skill
+    /// Through `ConsoleLine`, which documents why neither
+    /// `FileHandle.write(_:)` nor `fputs` is usable here and what the choice
+    /// does not buy. The misuse it replaces predates #136, but #136 promoted it
+    /// from `--explain`-only to the default path, and this repo ships skill
     /// templates that gate on `$?`. An exit code that stops describing what
     /// happened is the same defect this issue is named after, one layer out.
-    /// Note that both the write and the `fflush` failures are ignored, on purpose:
-    /// this is a diagnostics channel and a lost warning is a better outcome
-    /// than a dead process holding a finished transcript. The trade is real
-    /// though — under `2>&-` a run now discards every warning and exits 0,
-    /// where before it aborted, so a caller gating on `$?` with a closed fd 2
-    /// gets a transcript whose warning was destroyed without trace.
     public static func emit(
         for outcome: TranscribeOutcome, explain: Bool,
         to stream: UnsafeMutablePointer<FILE> = destination
     ) {
         for line in lines(for: outcome, explain: explain) {
-            // fwrite over the UTF-8 bytes, not fputs: fputs takes a
-            // NUL-terminated C string, so an embedded U+0000 truncates the line
-            // AND swallows its terminator, gluing consecutive warnings into one
-            // physical line. Unreachable from argv, but `TranscribeOutcome` is
-            // public and the old `Data(…utf8)` path had no such limit.
-            var bytes = Array((line + "\n").utf8)
-            _ = fwrite(&bytes, 1, bytes.count, stream)
+            ConsoleLine.write(line + "\n", to: stream)
         }
-        fflush(stream)
     }
 
     /// Everything a completed `transcribe` run reports: diagnostics first, then
@@ -104,8 +105,7 @@ public enum TranscribeDiagnostics {
         err: UnsafeMutablePointer<FILE> = destination
     ) {
         emit(for: outcome, explain: explain, to: err)
-        var line = Array("Wrote \(outcome.format) transcript to \(outcome.outputPath)\n".utf8)
-        _ = fwrite(&line, 1, line.count, out)
-        fflush(out)
+        ConsoleLine.write(
+            "Wrote \(outcome.format) transcript to \(outcome.outputPath)\n", to: out)
     }
 }

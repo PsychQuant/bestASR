@@ -208,13 +208,20 @@ tests:
 ---
 ### Requirement: recommend command emits JSON only
 
-`bestasr recommend <audio>` SHALL print exactly one JSON object describing the recommendation to standard output and SHALL NOT run transcription, exiting 0 on success. The JSON SHALL contain `backend`, `model`, `quantization`, `data_source` (`measured` or `cold_start_prior`), a `measured` field carrying metric kind, error rate, and RTF when the data source is measured (null otherwise), `reason`, and `warnings`. The two arrays are distinct surfaces and notices move between them as classification is corrected (#136 reclassified the unverified-model notice from `reason` to `warnings`), so a consumer that needs every notice SHALL read both.
+`bestasr recommend <audio>` SHALL print exactly one JSON object describing the recommendation to standard output and SHALL NOT run transcription, exiting 0 on success. The JSON SHALL contain `backend`, `model`, `quantization`, `profile`, `language`, `data_source` (`measured` or `cold_start_prior`), `reason`, and `warnings`. When the data source is `measured` it SHALL additionally contain a `measured` object carrying metric kind, error rate, and RTF; when it is not, that key SHALL be **absent** rather than null. `reason` explains the choice; `warnings` carries what bears on whether the output can be trusted. Both SHALL be arrays of strings, present even when empty, and the JSON SHALL carry every notice across the two — neither is a complete diagnostic on its own.
 
 #### Scenario: recommend output is machine-readable
 
 - **WHEN** the user runs `bestasr recommend sample.wav`
-- **THEN** standard output is a single JSON object containing `backend`, `model`, `quantization`, `data_source`, `measured`, and `reason`
+- **THEN** standard output is a single JSON object containing `backend`, `model`, `quantization`, `profile`, `language`, `data_source`, `reason`, and `warnings`
+- **AND** `reason` and `warnings` are both arrays of strings
 - **AND** no transcript is produced
+
+#### Scenario: the measured key is absent without benchmark data
+
+- **WHEN** the machine-local cache holds no usable record and the user runs `bestasr recommend sample.wav`
+- **THEN** `data_source` is `cold_start_prior`
+- **AND** the JSON has no `measured` key at all
 
 #### Scenario: recommend reflects benchmark data when present
 

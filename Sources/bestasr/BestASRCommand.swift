@@ -50,14 +50,17 @@ func runMapped(_ body: () async throws -> Void) async throws {
     do {
         try await body()
     } catch let error as BestASRError {
-        // fputs, not FileHandle.write: the latter raises an uncatchable ObjC
-        // exception, so a closed fd 2 turned a reported FAILURE into SIGABRT
-        // too. #136 fixed the diagnostics channel and left this one — the
-        // "sole channel for typed failures" — on the old API.
-        fputs("error: \(error.errorDescription ?? "failed")\n", stderr)
+        // Same writer as the diagnostics channel. An intermediate version of
+        // this fix used `fputs` here — which stops the SIGABRT but truncates at
+        // an embedded NUL, and this is the channel where a NUL is *reachable*:
+        // an external adapter's stderr goes verbatim into
+        // `TranscriptionError.message`, and adapters are third-party programs
+        // (#51). See `ConsoleLine`.
+        ConsoleLine.write("error: \(error.errorDescription ?? "failed")\n", to: stderr)
         throw ExitCode(error.exitCode)
     } catch let error as TranscriptionError {
-        fputs("error: \(error.errorDescription ?? "transcription failed")\n", stderr)
+        ConsoleLine.write(
+            "error: \(error.errorDescription ?? "transcription failed")\n", to: stderr)
         throw ExitCode(1)
     }
 }
@@ -157,19 +160,23 @@ struct Transcribe: AsyncParsableCommand {
             // `--backend X` could silently deliver backend Y's output with
             // "Wrote txt transcript to …" as the entire output.
             //
-            // Emitted BEFORE the success line: stderr is unbuffered and stdout
-            // is at best line-buffered, so warning-first is the only order that
-            // holds under both a terminal and a pipe. The reverse read oddly —
-            // the file was announced as written before the reason to distrust it
-            // appeared — and it made the samples in the CHANGELOG true only when
-            // stdout was redirected.
+            // Emitted BEFORE the success line, as a presentation choice, not a
+            // buffering necessity: `report` flushes both streams, so under
+            // `2>&1` the observed order is simply the call order — measured
+            // stable in both directions on a pty, a pipe and a file. (An earlier
+            // draft of this comment claimed warning-first was the *only* order
+            // that holds; it is not, and the probe that would have shown it was
+            // the same one that later did.) The reverse reads oddly — the file
+            // announced as written before the reason to distrust it — and across
+            // two separate pipes nothing is guaranteed either way.
             //
             // Both statements live in BestASRKit so their ORDER is tested code
             // rather than two adjacent lines here. This target has no coverage,
             // which is why an `if explain` guard could be re-added around the
             // previous version of this call and restore #136 verbatim with the
             // whole suite green. `TranscribeDiagnosticsWiringTests` pins this
-            // exact line; if you restructure it, re-pin it there deliberately.
+            // call's POSITION — directly after the transcribe call, with nothing
+            // after it — so re-shaping either statement re-pins deliberately.
             TranscribeDiagnostics.report(result, explain: explain)
         }
     }
