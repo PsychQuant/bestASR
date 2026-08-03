@@ -50,11 +50,14 @@ func runMapped(_ body: () async throws -> Void) async throws {
     do {
         try await body()
     } catch let error as BestASRError {
-        FileHandle.standardError.write(Data("error: \(error.errorDescription ?? "failed")\n".utf8))
+        // fputs, not FileHandle.write: the latter raises an uncatchable ObjC
+        // exception, so a closed fd 2 turned a reported FAILURE into SIGABRT
+        // too. #136 fixed the diagnostics channel and left this one — the
+        // "sole channel for typed failures" — on the old API.
+        fputs("error: \(error.errorDescription ?? "failed")\n", stderr)
         throw ExitCode(error.exitCode)
     } catch let error as TranscriptionError {
-        FileHandle.standardError.write(
-            Data("error: \(error.errorDescription ?? "transcription failed")\n".utf8))
+        fputs("error: \(error.errorDescription ?? "transcription failed")\n", stderr)
         throw ExitCode(1)
     }
 }
@@ -161,11 +164,13 @@ struct Transcribe: AsyncParsableCommand {
             // appeared — and it made the samples in the CHANGELOG true only when
             // stdout was redirected.
             //
-            // The rendering itself lives in BestASRKit so it can be tested at
-            // all; this target has no coverage, which is why the first fix could
-            // delete this whole branch and keep the suite green.
-            TranscribeDiagnostics.emit(for: result, explain: explain)
-            print("Wrote \(result.format) transcript to \(result.outputPath)")
+            // Both statements live in BestASRKit so their ORDER is tested code
+            // rather than two adjacent lines here. This target has no coverage,
+            // which is why an `if explain` guard could be re-added around the
+            // previous version of this call and restore #136 verbatim with the
+            // whole suite green. `TranscribeDiagnosticsWiringTests` pins this
+            // exact line; if you restructure it, re-pin it there deliberately.
+            TranscribeDiagnostics.report(result, explain: explain)
         }
     }
 }

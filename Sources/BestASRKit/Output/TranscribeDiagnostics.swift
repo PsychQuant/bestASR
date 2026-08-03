@@ -16,7 +16,15 @@ import Foundation
 /// and the prefix are cheap to assert — but a test of it alone cannot see a
 /// regression that sends the same strings to *stdout*, which for anyone piping
 /// a transcript is #136 again. `emit(for:explain:)` is therefore the thing the
-/// CLI calls, and the destination is asserted by redirecting fd 2 around it.
+/// CLI calls, and `destination` is a named constant so a test can assert it.
+///
+/// What that pair does NOT establish is that the CLI still calls `emit` at all,
+/// or calls it without an override, or before the success line. Those are
+/// properties of the *wiring*, and #136 was a wiring bug: a call-site `if
+/// explain` guard. Re-adding that guard restored the reported behaviour
+/// verbatim with the whole suite green, which is why `report(_:explain:out:err:)`
+/// exists — it moves both statements behind one testable call — and why a
+/// source-level lock pins the single line that invokes it.
 public enum TranscribeDiagnostics {
 
     /// The lines a run should surface, in order. Pure: no I/O, no globals.
@@ -58,6 +66,12 @@ public enum TranscribeDiagnostics {
     /// `--explain`-only to the default path, and this repo ships skill
     /// templates that gate on `$?`. An exit code that stops describing what
     /// happened is the same defect this issue is named after, one layer out.
+    /// Note that both `fputs` and `fflush` failures are ignored, on purpose:
+    /// this is a diagnostics channel and a lost warning is a better outcome
+    /// than a dead process holding a finished transcript. The trade is real
+    /// though — under `2>&-` a run now discards every warning and exits 0,
+    /// where before it aborted, so a caller gating on `$?` with a closed fd 2
+    /// gets a transcript whose warning was destroyed without trace.
     public static func emit(
         for outcome: TranscribeOutcome, explain: Bool,
         to stream: UnsafeMutablePointer<FILE> = destination
@@ -66,5 +80,25 @@ public enum TranscribeDiagnostics {
             fputs(line + "\n", stream)
         }
         fflush(stream)
+    }
+
+    /// Everything a completed `transcribe` run reports: diagnostics first, then
+    /// the success line.
+    ///
+    /// Both statements live here rather than at the call site so the *ordering*
+    /// is a property of tested code rather than of two adjacent lines nobody
+    /// asserts on. Warnings precede the success line because stderr is
+    /// unbuffered while stdout is at best line-buffered — under `2>&1` that
+    /// makes warning-first the order a merged reader sees. (Across two separate
+    /// pipes there is no global ordering guarantee at all, which is why this is
+    /// a presentation choice and not a cross-stream contract.)
+    public static func report(
+        _ outcome: TranscribeOutcome, explain: Bool,
+        out: UnsafeMutablePointer<FILE> = stdout,
+        err: UnsafeMutablePointer<FILE> = destination
+    ) {
+        emit(for: outcome, explain: explain, to: err)
+        fputs("Wrote \(outcome.format) transcript to \(outcome.outputPath)\n", out)
+        fflush(out)
     }
 }

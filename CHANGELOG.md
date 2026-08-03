@@ -160,17 +160,54 @@ All notable changes to bestASR are documented here. The format follows
   - **Nothing tested the CLI's printing path**, so deleting the branch outright
     left the whole suite green — the failure mode this issue's third acceptance
     line names, reproduced one layer up. The rendering moved into `BestASRKit`
-    as `TranscribeDiagnostics`, and the destination is now asserted by capturing
-    the process's real fd 1 and fd 2: a pure test of the rendered strings cannot
-    see a regression that sends them to **stdout**, which for anyone piping a
-    transcript is #136 again.
+    as `TranscribeDiagnostics`. A pure test of the rendered strings cannot see a
+    regression that sends them to **stdout**, so the destination is a named
+    constant that a test asserts, and `report(_:explain:out:err:)` puts both
+    streams under test together.
+
+    That still left the *wiring* uncovered, and #136 was a wiring bug: a
+    call-site `if explain` guard. Re-adding that guard to the fixed code
+    restored the reported behaviour **verbatim with the whole suite green** —
+    the first round's failure mode, one layer out. A source-level lock now pins
+    the single line that invokes `report`, and refuses the four regressions
+    measured against it (guarded, deleted, stream-overridden, reordered) while
+    tolerating comments, reflows and renames. It cannot prove a byte reached
+    fd 2 — the constant and the stream-pair test do that; its only job is that
+    the CLI still calls them.
+
+    Executing the command instead was tried and abandoned: `Transcribe.run()`
+    calls `CommandCore.live()` unconditionally, there is no injection seam, and
+    `$HOME` is not one either — `NSHomeDirectory()` ignores it on Darwin, so a
+    subprocess test aimed at a fake home silently loads the developer's real
+    `~/.bestasr/engines.json` and can spawn a real model.
   - **A closed stderr turned a successful run into a fatal signal.**
     `FileHandle.write(_:)` raises an *uncatchable* Objective-C exception on write
     failure, so `2>&-` produced SIGABRT (exit 134) and an early-exiting reader
     such as `2> >(head -n1)` produced SIGPIPE (exit 141) — transcript already on
     disk, `Wrote …` already printed. Pre-existing API misuse, promoted from
     `--explain`-only to the default path by this fix, and reachable from the
-    skill templates in `plugins/bestasr/` that gate on `$?`. Now `fputs`.
+    skill templates in `plugins/bestasr/` that gate on `$?`. Both the
+    diagnostics channel and `runMapped`'s `error:` line now use `fputs`.
+
+    Two honest limits on that. It fixes the **uncatchable-exception** class
+    (`EBADF` on a closed descriptor); it does **not** suppress `SIGPIPE`, which
+    is a signal raised by the underlying write and is unaffected by which API
+    calls it — a stderr reader that exits early can still take the process down,
+    and now does so *before* the success line rather than after. And ignoring
+    the write result trades a loud failure for a silent one: under `2>&-` a run
+    discards every warning and exits 0, where before it aborted. That is the
+    better trade, but a caller gating on `$?` with a closed fd 2 now trusts a
+    transcript whose warning was destroyed without trace.
+
+  **One external surface changed and is worth naming.** Moving the #50 notice
+  from `reason` to `warnings` migrates it between fields of the `recommend`
+  JSON — which `openspec/specs/cli/spec.md` describes normatively (it enumerates
+  `reason`; it does not mention `warnings`) and which
+  `BestASRMCPCore/Server.swift` returns verbatim as an MCP tool result. A
+  repo-wide sweep finds no consumer parsing that payload, but the actual
+  consumers are agents on the far side of the MCP boundary, where a sweep cannot
+  look. The payload still carries the notice and `reason` is still non-empty, so
+  nothing breaks; a client keying on `reason` specifically would stop seeing it.
 
   Pre-existing since the original CLI commit (`471218a`, 2026-07-02), affecting
   every backend. `diagnose` and `recommend` were already unaffected — the former

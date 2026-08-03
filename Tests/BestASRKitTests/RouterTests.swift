@@ -101,7 +101,10 @@ struct RouterCrossFamilyTests {
         // #50 verify M6: --backend fluid-paraformer with no records falls back
         // to its catalog model (large-zh, priority 2, unverified — upstream
         // decode bug). The route succeeds (explicit user choice) but the
-        // reasons must carry the unverified warning, not silently proceed.
+        // WARNINGS must carry the unverified notice, not silently proceed.
+        // (#136 verify: this comment said "reasons" for one round after the
+        // assertion below was corrected — the same name-says-one-thing defect
+        // the fix was about, left sitting above the line that fixed it.)
         let rec = try Router.recommend(
             host: Fixtures.m5Max, profile: .high, requestedLanguage: "zh",
             backendOverride: "fluid-paraformer", modelOverride: nil,

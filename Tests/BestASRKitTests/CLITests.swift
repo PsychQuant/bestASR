@@ -616,3 +616,109 @@ struct RouterWarningVisibilityTests {
         TranscribeDiagnostics.emit(for: outcome, explain: false, to: ro)  // must not trap
     }
 }
+
+/// Link 6: that the CLI still *invokes* the tested rendering, unguarded, in the
+/// right order.
+///
+/// The rest of the #136 suite covers which lines are produced, how they read,
+/// and where `emit` writes. None of that observes whether
+/// `Sources/bestasr/BestASRCommand.swift` calls any of it — and #136 was a
+/// wiring bug, not a rendering bug: the reported behaviour is an `if explain`
+/// guard at the call site. Measured before this test existed: re-adding that
+/// guard, deleting the call, redirecting it to stdout, or moving it after the
+/// success line each left **456/456 green**.
+///
+/// Why a source-level lock rather than executing the command: `Transcribe.run()`
+/// calls `CommandCore.live()` unconditionally, which hard-codes six engines plus
+/// `ExternalEngineRegistry`. There is no injection seam, and `$HOME` is not one
+/// either — `NSHomeDirectory()` ignores it on Darwin, so a subprocess test aimed
+/// at a fake home silently loads the developer's real `~/.bestasr/engines.json`
+/// and can spawn a real model. A subprocess CLI test on this path is
+/// non-hermetic by construction today; building the seam that would fix that is
+/// a larger and more debatable change than the gap it closes.
+struct TranscribeDiagnosticsWiringTests {
+
+    @Test func `the CLI reports through the tested path, unguarded and before nothing else`()
+        throws
+    {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Sources/bestasr/BestASRCommand.swift")
+        let source = try String(contentsOf: url, encoding: .utf8)
+
+        // Strip comments and all whitespace so reflowing the call or inserting a
+        // comment between statements stays green — those are refactors, not
+        // regressions. (Safe here: this file contains no `://` inside a string
+        // literal, which is the one shape this stripping would mangle.)
+        let stripped = source
+            .components(separatedBy: "\n")
+            .map { line -> String in
+                guard let r = line.range(of: "//") else { return line }
+                return String(line[line.startIndex..<r.lowerBound])
+            }
+            .joined()
+            .filter { !$0.isWhitespace }
+
+        #expect(
+            stripped.contains("TranscribeDiagnostics.report(result,explain:explain)"),
+            """
+            The transcribe command no longer reports through TranscribeDiagnostics.report \
+            with no stream override. If that was deliberate — the call was renamed, \
+            restructured, or moved — re-pin this assertion to the new shape. If it was not, \
+            #136 is back: warnings stop reaching stderr on the default path and every other \
+            test in this suite stays green.
+            """)
+
+        // The guard that IS the reported bug. `report` is unconditional; making
+        // it conditional on `explain` restores #136 byte-for-byte.
+        #expect(
+            !stripped.contains("ifexplain{TranscribeDiagnostics"),
+            "the diagnostics call is guarded by `explain` again — that is #136 verbatim")
+    }
+}
+
+/// `report` puts both streams under test at once, which is the only place the
+/// success line gets any assertion at all.
+struct TranscribeReportTests {
+
+    private func capture(
+        _ body: (UnsafeMutablePointer<FILE>, UnsafeMutablePointer<FILE>) -> Void
+    ) throws -> (out: String, err: String) {
+        let dir = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("idd136-rep-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let op = dir.appendingPathComponent("out").path
+        let ep = dir.appendingPathComponent("err").path
+        guard let fo = fopen(op, "w"), let fe = fopen(ep, "w") else {
+            throw CocoaError(.fileWriteUnknown)
+        }
+        body(fo, fe)
+        fclose(fo)
+        fclose(fe)
+        // Read before the defer removes the directory; `String(contentsOfFile:)`
+        // throwing would otherwise be indistinguishable from "wrote nothing".
+        let out = try String(contentsOfFile: op, encoding: .utf8)
+        let err = try String(contentsOfFile: ep, encoding: .utf8)
+        return (out, err)
+    }
+
+    @Test func `warnings go to stderr and the success line to stdout, warnings first`() throws {
+        let outcome = TranscribeOutcome(
+            outputPath: "/tmp/x.srt", format: "srt", explanation: "", warnings: ["substituted"])
+        let io = try capture { TranscribeDiagnostics.report(outcome, explain: false, out: $0, err: $1) }
+        #expect(io.err == "warning: substituted\n")
+        #expect(io.out == "Wrote srt transcript to /tmp/x.srt\n")
+        // Ordering is a property of `report`, so it is asserted where it lives
+        // rather than inferred from two adjacent statements at the call site.
+        #expect(!io.out.contains("warning:"), "a warning leaked onto stdout")
+    }
+
+    @Test func `a clean run still announces the transcript`() throws {
+        let outcome = TranscribeOutcome(
+            outputPath: "/tmp/x.txt", format: "txt", explanation: "", warnings: [])
+        let io = try capture { TranscribeDiagnostics.report(outcome, explain: false, out: $0, err: $1) }
+        #expect(io.err.isEmpty, "a clean run wrote to stderr: \(io.err)")
+        #expect(io.out == "Wrote txt transcript to /tmp/x.txt\n")
+    }
+}
