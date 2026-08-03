@@ -594,7 +594,7 @@ struct RouterWarningVisibilityTests {
         #expect(text.isEmpty, "a clean run wrote: \(text)")
     }
 
-    @Test func `a failed write does not turn a successful run into a fatal signal`() throws {
+    @Test func `an unwritable stream does not raise, unlike the old FileHandle API`() throws {
         // `FileHandle.write(_:)` raises an uncatchable ObjC exception on write
         // failure, so a closed fd 2 (`2>&-`) turned a completed transcription
         // into SIGABRT — file already on disk, "Wrote …" already printed, exit
@@ -603,8 +603,12 @@ struct RouterWarningVisibilityTests {
         // path by the #136 fix, and reached through the templates in
         // plugins/bestasr/skills/ that gate on `$?`.
         //
-        // A read-only stream reproduces the failing write without touching the
-        // process's own descriptors.
+        // A read-only stream reproduces the EBADF-class failure without
+        // touching the process's own descriptors. Scoped deliberately: this
+        // covers the uncatchable-exception class, NOT SIGPIPE — that is a
+        // signal from the underlying write and no choice of stdio API
+        // suppresses it, so an early-exiting reader can still take the process
+        // down. The test name used to claim the wider property.
         let path = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("idd136-ro-\(UUID().uuidString)").path
         FileManager.default.createFile(atPath: path, contents: Data())
@@ -712,6 +716,42 @@ struct TranscribeReportTests {
         // Ordering is a property of `report`, so it is asserted where it lives
         // rather than inferred from two adjacent statements at the call site.
         #expect(!io.out.contains("warning:"), "a warning leaked onto stdout")
+    }
+
+    @Test func `the warning precedes the success line when both share a stream`() throws {
+        // Ordering is only observable when the two land in the same place, which
+        // is the `2>&1` case the claim is about. Captured separately it is
+        // invisible — two files have no relative order — so this is the one
+        // assertion that can fail if `report` is reordered.
+        let dir = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("idd136-ord-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let path = dir.appendingPathComponent("merged").path
+        let merged = try #require(fopen(path, "w"))
+        let outcome = TranscribeOutcome(
+            outputPath: "/tmp/x.srt", format: "srt", explanation: "", warnings: ["substituted"])
+        TranscribeDiagnostics.report(outcome, explain: false, out: merged, err: merged)
+        fclose(merged)
+        let text = try String(contentsOfFile: path, encoding: .utf8)
+        let w = try #require(text.range(of: "warning: substituted"))
+        let s = try #require(text.range(of: "Wrote srt transcript"))
+        #expect(w.lowerBound < s.lowerBound, "the success line came first: \(text)")
+    }
+
+    @Test func `an embedded NUL neither truncates a warning nor glues the next one to it`() throws {
+        // `fputs` stops at the first NUL and drops the newline with it, so two
+        // warnings arrived as one physical line with the tail of the first
+        // missing. `TranscribeOutcome` is public, so this is reachable by a
+        // library caller even though argv cannot carry a NUL.
+        let outcome = TranscribeOutcome(
+            outputPath: "/tmp/x.txt", format: "txt", explanation: "",
+            warnings: ["abc\u{0}def", "second"])
+        let io = try capture { TranscribeDiagnostics.report(outcome, explain: false, out: $0, err: $1) }
+        #expect(io.err.contains("def"), "the warning was truncated at the NUL: \(io.err)")
+        #expect(
+            io.err.components(separatedBy: "\n").filter { $0.hasPrefix("warning:") }.count == 2,
+            "the two warnings were glued into one line: \(io.err)")
     }
 
     @Test func `a clean run still announces the transcript`() throws {

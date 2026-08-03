@@ -123,8 +123,7 @@ All notable changes to bestASR are documented here. The format follows
   already existed on `ASRRecommendation`; only the CLI conflated them.
 
   ```
-  warning: backend 'fluid-parakeet' model '0.6b-v3' does not list support for
-           language 'zh' — output quality is not established
+  warning: backend 'fluid-parakeet' model '0.6b-v3' does not list support for language 'zh' — output quality is not established
   Wrote txt transcript to /tmp/pk.txt
   ```
 
@@ -187,7 +186,10 @@ All notable changes to bestASR are documented here. The format follows
     disk, `Wrote …` already printed. Pre-existing API misuse, promoted from
     `--explain`-only to the default path by this fix, and reachable from the
     skill templates in `plugins/bestasr/` that gate on `$?`. Both the
-    diagnostics channel and `runMapped`'s `error:` line now use `fputs`.
+    diagnostics channel and `runMapped`'s `error:` line now use C stdio; the
+    diagnostics path writes raw UTF-8 bytes rather than a C string, because
+    `fputs` stops at an embedded NUL and swallows the line's terminator with it,
+    gluing consecutive warnings together.
 
     Two honest limits on that. It fixes the **uncatchable-exception** class
     (`EBADF` on a closed descriptor); it does **not** suppress `SIGPIPE`, which

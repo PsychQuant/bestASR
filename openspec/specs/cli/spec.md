@@ -208,7 +208,7 @@ tests:
 ---
 ### Requirement: recommend command emits JSON only
 
-`bestasr recommend <audio>` SHALL print exactly one JSON object describing the recommendation to standard output and SHALL NOT run transcription, exiting 0 on success. The JSON SHALL contain `backend`, `model`, `quantization`, `data_source` (`measured` or `cold_start_prior`), a `measured` field carrying metric kind, error rate, and RTF when the data source is measured (null otherwise), and `reason`.
+`bestasr recommend <audio>` SHALL print exactly one JSON object describing the recommendation to standard output and SHALL NOT run transcription, exiting 0 on success. The JSON SHALL contain `backend`, `model`, `quantization`, `data_source` (`measured` or `cold_start_prior`), a `measured` field carrying metric kind, error rate, and RTF when the data source is measured (null otherwise), `reason`, and `warnings`. The two arrays are distinct surfaces and notices move between them as classification is corrected (#136 reclassified the unverified-model notice from `reason` to `warnings`), so a consumer that needs every notice SHALL read both.
 
 #### Scenario: recommend output is machine-readable
 

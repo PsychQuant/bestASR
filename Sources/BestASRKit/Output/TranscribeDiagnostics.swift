@@ -57,7 +57,7 @@ public enum TranscribeDiagnostics {
 
     /// Writes those lines to `stream`.
     ///
-    /// `fputs` rather than `FileHandle.standardError.write(_:)`: the latter
+    /// C stdio rather than `FileHandle.standardError.write(_:)`: the latter
     /// raises an *uncatchable* Objective-C exception when the write fails, so a
     /// closed fd 2 (`2>&-`) or a stderr reader that exits early
     /// (`2> >(head -n1)`) turned a **successful** transcription into SIGABRT or
@@ -66,7 +66,7 @@ public enum TranscribeDiagnostics {
     /// `--explain`-only to the default path, and this repo ships skill
     /// templates that gate on `$?`. An exit code that stops describing what
     /// happened is the same defect this issue is named after, one layer out.
-    /// Note that both `fputs` and `fflush` failures are ignored, on purpose:
+    /// Note that both the write and the `fflush` failures are ignored, on purpose:
     /// this is a diagnostics channel and a lost warning is a better outcome
     /// than a dead process holding a finished transcript. The trade is real
     /// though — under `2>&-` a run now discards every warning and exits 0,
@@ -77,7 +77,13 @@ public enum TranscribeDiagnostics {
         to stream: UnsafeMutablePointer<FILE> = destination
     ) {
         for line in lines(for: outcome, explain: explain) {
-            fputs(line + "\n", stream)
+            // fwrite over the UTF-8 bytes, not fputs: fputs takes a
+            // NUL-terminated C string, so an embedded U+0000 truncates the line
+            // AND swallows its terminator, gluing consecutive warnings into one
+            // physical line. Unreachable from argv, but `TranscribeOutcome` is
+            // public and the old `Data(…utf8)` path had no such limit.
+            var bytes = Array((line + "\n").utf8)
+            _ = fwrite(&bytes, 1, bytes.count, stream)
         }
         fflush(stream)
     }
@@ -98,7 +104,8 @@ public enum TranscribeDiagnostics {
         err: UnsafeMutablePointer<FILE> = destination
     ) {
         emit(for: outcome, explain: explain, to: err)
-        fputs("Wrote \(outcome.format) transcript to \(outcome.outputPath)\n", out)
+        var line = Array("Wrote \(outcome.format) transcript to \(outcome.outputPath)\n".utf8)
+        _ = fwrite(&line, 1, line.count, out)
         fflush(out)
     }
 }
