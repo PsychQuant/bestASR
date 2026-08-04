@@ -686,250 +686,6 @@ struct RouterWarningVisibilityTests {
     }
 }
 
-/// Link 6: that the CLI still *invokes* the tested rendering, unguarded, with
-/// nothing before or after it inside the block.
-///
-/// The rest of the #136 suite covers which lines are produced, how they read,
-/// and where the bytes land. None of that observes whether
-/// `Sources/bestasr/BestASRCommand.swift` calls any of it — and #136 was a
-/// wiring bug, not a rendering bug: the reported behaviour is an `if explain`
-/// guard at the call site. Measured before this test existed: re-adding that
-/// guard, deleting the call, redirecting it to stdout, or moving it after the
-/// success line each left **456/456 green**.
-///
-/// **This is a text pin and cannot be anything else here.** Proving the line
-/// *executes* means running the executable, and `Transcribe.run()` calls
-/// `CommandCore.live()` unconditionally — six hard-wired engines plus
-/// `ExternalEngineRegistry`. `$HOME` is not a seam either: `NSHomeDirectory()`
-/// ignores it on Darwin, so a subprocess test aimed at a fake home silently
-/// loads the developer's real `~/.bestasr/engines.json` and can spawn a real
-/// model. What a text pin can and cannot do is stated per-assertion below;
-/// the *behavioural* half — that the defaults this call relies on really put
-/// diagnostics on fd 2 — is `TranscribeDiagnosticsDefaultStreamTests`, which
-/// runs a process.
-///
-/// The first version of this lock searched for the call text anywhere in the
-/// file and for one literal guard spelling. Round 3 measured six regressions
-/// that passed it, all **461/461 green**: `if (explain) {` (two parentheses),
-/// `guard explain else { return }`, `let shouldReport = explain`, the call
-/// wrapped in `/* … */` (which left `transcribe` printing *nothing at all*,
-/// because a block comment deletes the call while leaving the searched-for text
-/// in the file), a `print("Wrote …")` inserted before it, and — in the other
-/// direction — renaming the local `result`, a pure refactor, turned it **red**.
-/// The anchor below is positional instead of textual, which inverts both error
-/// modes.
-struct TranscribeDiagnosticsWiringTests {
-
-    /// Index just past the `)` that closes the call whose `(` ends `marker`.
-    ///
-    /// Counts depth, so nested calls in the argument list are fine. It would be
-    /// confused by a parenthesis inside a string literal; neither call this test
-    /// anchors on contains one, and a future one would fail loudly here rather
-    /// than pass silently.
-    /// Removes every construct that can hide a token from a `range(of:)` search:
-    /// line comments, block comments, and string literals (single and triple
-    /// quoted). A LEXER, not a parser — it knows Swift's four token-hiding forms
-    /// and nothing else about the language.
-    ///
-    /// Literal-stripping is what stops a decoy: a one-line
-    /// `let note = "… CommandCore.live().transcribe(a) TranscribeDiagnostics.report(r, explain: e) …"`
-    /// planted above the real call, with the real call deleted, left every
-    /// anchor below satisfied and the whole suite green — `transcribe` printing
-    /// nothing at all. Dropping block comments **entirely** (rather than leaving
-    /// `/*` behind) is what makes commenting the call out a regression while a
-    /// comment merely sitting BETWEEN the two statements stays green — the
-    /// previous version got exactly one of those two right.
-    ///
-    /// Residual, stated rather than hidden: raw string delimiters (`#"…"#`) and
-    /// a quote inside a string interpolation are not modelled. Neither appears
-    /// in the pinned file, and either would make an anchor fail loudly here
-    /// rather than pass silently.
-    static func stripHiddenTokens(_ s: String) -> String {
-        let a = Array(s)
-        var out = ""
-        var i = 0
-        func has(_ t: [Character], _ at: Int) -> Bool {
-            guard at + t.count <= a.count else { return false }
-            for k in 0..<t.count where a[at + k] != t[k] { return false }
-            return true
-        }
-        let slashSlash: [Character] = ["/", "/"], slashStar: [Character] = ["/", "*"]
-        let starSlash: [Character] = ["*", "/"], triple: [Character] = ["\"", "\"", "\""]
-        while i < a.count {
-            if has(slashSlash, i) {
-                while i < a.count && a[i] != "\n" { i += 1 }
-                continue
-            }
-            if has(slashStar, i) {
-                var depth = 1
-                i += 2
-                while i < a.count && depth > 0 {
-                    if has(slashStar, i) { depth += 1; i += 2; continue }
-                    if has(starSlash, i) { depth -= 1; i += 2; continue }
-                    i += 1
-                }
-                continue
-            }
-            if has(triple, i) {
-                i += 3
-                while i < a.count && !has(triple, i) {
-                    if a[i] == "\\" { i += 2; continue }
-                    i += 1
-                }
-                i = min(i + 3, a.count)
-                continue
-            }
-            if a[i] == "\"" {
-                i += 1
-                while i < a.count && a[i] != "\"" && a[i] != "\n" {
-                    if a[i] == "\\" { i += 2; continue }
-                    i += 1
-                }
-                if i < a.count && a[i] == "\"" { i += 1 }
-                continue
-            }
-            out.append(a[i])
-            i += 1
-        }
-        return out
-    }
-
-    private func indexPastCall(in s: String, openedBy marker: String) -> String.Index? {
-        guard let m = s.range(of: marker) else { return nil }
-        var depth = 1
-        var i = m.upperBound
-        while i < s.endIndex {
-            switch s[i] {
-            case "(": depth += 1
-            case ")":
-                depth -= 1
-                if depth == 0 { return s.index(after: i) }
-            default: break
-            }
-            i = s.index(after: i)
-        }
-        return nil
-    }
-
-    @Test func `the diagnostics call is the transcribe block's last statement, unguarded`()
-        throws
-    {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Sources/bestasr/BestASRCommand.swift")
-        let source = try String(contentsOf: url, encoding: .utf8)
-
-        // Strip every token-hiding construct, then all whitespace, so reflowing
-        // the call or putting a comment of ANY kind between the statements stays
-        // green — those are refactors, not regressions. An earlier version
-        // stripped only `//` and deliberately left block comments in place,
-        // reasoning that commenting the call out should stay a regression. That
-        // got exactly one of the two cases right: it turned a plain
-        // documentation edit red, and it let a decoy through. Dropping block
-        // comments and string literals entirely gets both — a commented-out call
-        // disappears with its comment, so `tail` is `}` and the anchor fails.
-        let stripped = Self.stripHiddenTokens(source).filter { !$0.isWhitespace }
-
-        let advice = """
-            If that was deliberate — the call restructured, or the transcribe \
-            call reshaped — re-pin this assertion to the new shape. If it was not, \
-            #136 is back: warnings stop reaching stderr on the default path while \
-            every other test in this suite stays green.
-            """
-
-        // Anchor on the statement the call must follow, not on the call's own
-        // text. Nothing may sit between them: that single fact rejects every
-        // guard spelling (`if explain`, `if (explain)`, `guard … else`, a
-        // hoisted `let`), a block comment, an inserted `print`, and deletion —
-        // without naming `result`, `explain`, or any argument label, so renames
-        // and reflows stay green.
-        guard
-            let afterTranscribe = indexPastCall(
-                in: stripped, openedBy: "CommandCore.live().transcribe(")
-        else {
-            Issue.record("could not locate the `CommandCore.live().transcribe(...)` call. \(advice)")
-            return
-        }
-        let tail = String(stripped[afterTranscribe...])
-
-        // (A) Nothing may sit between the closure's `{` and the transcribe
-        // binding. The round-4 lock anchored only on what FOLLOWS the transcribe
-        // call, so `guard explain else { return }` hoisted ABOVE it made the
-        // whole block conditional — #136 restored — while every assertion below
-        // stayed green. Matched by shape, not by the local's name.
-        guard let callStart = stripped.range(of: "CommandCore.live().transcribe(") else { return }
-        let head = String(stripped[..<callStart.lowerBound])
-        guard let openBody = head.range(of: "runMapped{", options: .backwards) else {
-            Issue.record("could not locate the enclosing `runMapped {` block. \(advice)")
-            return
-        }
-        let between = String(head[openBody.upperBound...])
-        #expect(
-            between.range(
-                of: "^let[A-Za-z_][A-Za-z0-9_]*=tryawait$", options: .regularExpression) != nil,
-            """
-            Something sits between `runMapped {` and the transcribe binding (got \"\(between)\"). \
-            A guard there makes the whole reporting block conditional. \(advice)
-            """)
-
-        #expect(
-            tail.hasPrefix("TranscribeDiagnostics.report("),
-            """
-            The diagnostics call no longer follows the transcribe call directly — something \
-            is between them, or it is gone. \(advice)
-            """)
-
-        // And nothing after it, so a second success line cannot be printed
-        // ahead of or behind the tested one. Asserted rather than implied: the
-        // previous test claimed this in its name and checked nothing.
-        guard
-            tail.hasPrefix("TranscribeDiagnostics.report("),
-            let afterReport = indexPastCall(in: tail, openedBy: "TranscribeDiagnostics.report(")
-        else { return }
-
-        // (B) The call must pass NO stream override. `report`'s defaults are the
-        // only thing `TranscribeDiagnosticsDefaultStreamTests` can observe, so
-        // an override at the call site silently takes production off the tested
-        // path: `out: stderr, err: stdout` restores #136 with the whole suite
-        // green. Round 3's lock caught this only because its needle was the full
-        // call text — which is why renaming `result` turned it red. Labels are
-        // part of `report`'s signature; the local's name is not.
-        let argsOpen = tail.range(of: "TranscribeDiagnostics.report(")!.upperBound
-        let args = String(tail[argsOpen..<tail.index(before: afterReport)])
-        #expect(
-            !args.contains("out:") && !args.contains("err:"),
-            """
-            The diagnostics call overrides a stream (arguments: \"\(args)\"). Production then \
-            no longer executes the defaults the probe test measures. \(advice)
-            """)
-        // And it must FORWARD `explain`, not decide it. Asserting the label
-        // alone is not enough: `report(result, explain: false)` contains
-        // `explain:` and turns `--explain` into a no-op, while
-        // `explain: true` makes the default path print the whole explanation
-        // block and drops the literal `warning:` token the skill templates key
-        // on. Both measured green against the label-only check.
-        //
-        // This does pin the flag property's name — but that name is not an
-        // internal detail: ArgumentParser derives `--explain` from it, so
-        // renaming it changes the CLI's public surface and should be a
-        // deliberate re-pin. The local binding (`result`) is still unnamed here,
-        // which is the rename that round 4 set out to tolerate.
-        #expect(
-            args.contains("explain:explain"),
-            """
-            The diagnostics call no longer forwards the `--explain` flag (arguments: \"\(args)\"). \
-            A hardcoded value here silently disables `--explain` or silently drops the \
-            `warning:` prefix from the default path. \(advice)
-            """)
-        #expect(
-            String(tail[afterReport...]).hasPrefix("}"),
-            """
-            A statement was added after the diagnostics call. Anything printed there lands \
-            after the success line, which is the ordering `report` exists to own. \(advice)
-            """)
-    }
-}
-
 /// The behavioural half of link 6: that `report`'s stream *defaults* — the two
 /// values the CLI actually relies on, since it passes neither — really put
 /// diagnostics on fd 2 and the success line on fd 1 in a real process.
@@ -985,7 +741,7 @@ struct TranscribeDiagnosticsDefaultStreamTests {
         let process = Process()
         process.executableURL = probe
         process.arguments =
-            [explain ? "1" : "0", "/tmp/idd136-probe.txt", "txt", explanation] + warnings
+            ["report", explain ? "1" : "0", "/tmp/idd136-probe.txt", "txt", explanation] + warnings
         let outPipe = Pipe(), errPipe = Pipe()
         process.standardOutput = outPipe
         process.standardError = errPipe
@@ -1023,40 +779,6 @@ struct TranscribeDiagnosticsDefaultStreamTests {
             """)
     }
 
-    /// The probe only measures the DEFAULTS while it passes no streams. Measured
-    /// on the round-4 tree: editing the fixture to `report(…, out: stdout, err: stderr)`
-    /// and then flipping `report`'s `err:` default to `stdout` restored #136 in
-    /// production at **466/466 green** — the two tests that would have caught it
-    /// were this one (no longer executing the defaults) and the wiring lock
-    /// (which pins the CLI's call, not the fixture's).
-    @Test func `the probe passes no stream arguments, so it executes the defaults`() throws {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Sources/bestasr-diagnostics-probe/main.swift")
-        let src = try String(contentsOf: url, encoding: .utf8)
-        let stripped = TranscribeDiagnosticsWiringTests.stripHiddenTokens(src)
-            .filter { !$0.isWhitespace }
-        guard let open = stripped.range(of: "TranscribeDiagnostics.report(") else {
-            Issue.record("the probe no longer calls `TranscribeDiagnostics.report`")
-            return
-        }
-        var depth = 1
-        var i = open.upperBound
-        while i < stripped.endIndex, depth > 0 {
-            if stripped[i] == "(" { depth += 1 }
-            if stripped[i] == ")" { depth -= 1; if depth == 0 { break } }
-            i = stripped.index(after: i)
-        }
-        let args = String(stripped[open.upperBound..<i])
-        #expect(
-            !args.contains("out:") && !args.contains("err:"),
-            """
-            The probe passes a stream explicitly (arguments: \"\(args)\"). It then measures \
-            its own arguments instead of `report`'s defaults, and the defaults — which are \
-            what production reads — go back to being executed by nothing.
-            """)
-    }
-
     @Test func `with no streams passed, the explanation reaches fd 2 as well`() throws {
         let (out, err, status) = try runProbe(
             explain: true, explanation: "Selected whisperkit because …")
@@ -1066,6 +788,199 @@ struct TranscribeDiagnosticsDefaultStreamTests {
         #expect(
             out == "Wrote txt transcript to /tmp/idd136-probe.txt\n",
             "fd 1: \(out.debugDescription)")
+    }
+}
+
+/// Link 6, executed: that the `transcribe` command itself puts warnings on
+/// fd 2 and the success line on fd 1, on the default path.
+///
+/// For four rounds this was a source-text pin over `BestASRCommand.swift`,
+/// because `Transcribe.run()` called `CommandCore.live()` unconditionally and
+/// `NSHomeDirectory()` ignores `$HOME` on Darwin, so the command could not be
+/// run under test. Each round the pin was shown through on an axis nobody had
+/// encoded: the guard's spelling, then the stream labels, then the payload
+/// argument, then whether `--explain` still existed as a flag. Every one of
+/// those is measured here by running the command and reading the descriptors,
+/// which has to be told nothing.
+///
+/// A subprocess rather than in-process `dup2`: capturing the process's real
+/// fd 1 and fd 2 in-process is visible to every other test running at the same
+/// time — measured at 3 polluted runs in 10 under the default parallel
+/// `swift test`, 0 in 6 under `--no-parallel` at four times the wall clock.
+/// CI and `scripts/release.sh` both run bare `swift test`, so `--no-parallel`
+/// is not a property that survives.
+struct TranscribeCommandWiringTests {
+
+    private final class Anchor: NSObject {}
+
+    private var probeURL: URL {
+        Bundle(for: Anchor.self).bundleURL
+            .deletingLastPathComponent()
+            .appendingPathComponent("bestasr-diagnostics-probe")
+    }
+
+    private func runTranscribe(
+        _ args: [String], engineError: String? = nil
+    ) throws -> (out: String, err: String, status: Int32, dir: URL) {
+        let dir = try makeTempDir()
+        let audio = try makeWavFile(in: dir)
+        let probe = probeURL
+        try #require(FileManager.default.isExecutableFile(atPath: probe.path), "\(probe.path) is missing")
+
+        let process = Process()
+        process.executableURL = probe
+        process.arguments =
+            ["transcribe", dir.appendingPathComponent("store").path, "--", audio]
+            + ["--output", dir.appendingPathComponent("out.txt").path] + args
+        if let engineError {
+            // Through a file, not the environment: the payload under test has an
+            // embedded NUL and `environ` entries are NUL-terminated C strings —
+            // `Process` aborts with an uncaught NSException trying to form one.
+            let errFile = dir.appendingPathComponent("engine-error.bin")
+            try Data(engineError.utf8).write(to: errFile)
+            var env = ProcessInfo.processInfo.environment
+            env["BESTASR_PROBE_ENGINE_ERROR_FILE"] = errFile.path
+            process.environment = env
+        }
+        let outPipe = Pipe(), errPipe = Pipe()
+        process.standardOutput = outPipe
+        process.standardError = errPipe
+        try process.run()
+        let outData = outPipe.fileHandleForReading.readDataToEndOfFile()
+        let errData = errPipe.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        return (
+            String(decoding: outData, as: UTF8.self), String(decoding: errData, as: UTF8.self),
+            process.terminationStatus, dir)
+    }
+
+    /// The whole of #136 in one assertion: ask for a backend the fake does not
+    /// have, and the substitution warning must reach fd 2 without `--explain`
+    /// while the success line stays on fd 1.
+    ///
+    /// This is what a guard around the reporting call, a rebuilt `TranscribeOutcome`
+    /// that drops `warnings`, an overridden `err:`, a hardcoded `explain:`, a
+    /// deleted call, a decoy elsewhere in the file, or an unlabelled overload all
+    /// look like: nothing on fd 2.
+    @Test func `the default path puts the substitution warning on fd 2`() throws {
+        let io = try runTranscribe(["--backend", "fluid-parakeet"])
+        defer { try? FileManager.default.removeItem(at: io.dir) }
+
+        #expect(io.status == 0, "the command exited \(io.status); fd 2 was: \(io.err)")
+        #expect(
+            io.err.hasPrefix("warning: requested backend 'fluid-parakeet' is unavailable"),
+            """
+            fd 2 did not carry the substitution warning. That is #136: the user asked for one \
+            backend, received another's output, and nothing said so. fd 2 was \(io.err.debugDescription)
+            """)
+        #expect(
+            !io.out.contains("warning:"),
+            "a warning reached fd 1 and is now inside the piped transcript: \(io.out.debugDescription)")
+        #expect(
+            io.out.hasPrefix("Wrote txt transcript to "),
+            "fd 1 did not carry the success line: \(io.out.debugDescription)")
+    }
+
+    /// Ordering, on the real command rather than on `report` in isolation.
+    @Test func `the warning precedes the success line`() throws {
+        let io = try runTranscribe(["--backend", "fluid-parakeet"])
+        defer { try? FileManager.default.removeItem(at: io.dir) }
+        // Separate descriptors cannot be compared for order, so this asserts the
+        // property that is actually observable: each stream carries its own line
+        // and neither carries the other's. `TranscribeReportTests` owns the
+        // relative order, over a shared stream.
+        #expect(io.err.contains("warning:") && !io.err.contains("Wrote "))
+        #expect(io.out.contains("Wrote ") && !io.out.contains("warning:"))
+    }
+
+    /// `--explain` must still exist as a flag, and must still change what is
+    /// rendered. A `var explain: Bool { false }` that replaces the `@Flag`
+    /// leaves the call site's text identical and is invisible to any source pin;
+    /// here the parse fails and the probe exits 65.
+    @Test func `--explain is a real flag and switches the rendering`() throws {
+        let io = try runTranscribe(["--backend", "fluid-parakeet", "--explain"])
+        defer { try? FileManager.default.removeItem(at: io.dir) }
+
+        #expect(
+            io.status == 0,
+            "the command rejected `--explain` (exit \(io.status)): \(io.err.debugDescription)")
+        #expect(
+            io.err.contains("Selected ") && io.err.contains("because"),
+            "fd 2 did not carry the explanation block: \(io.err.debugDescription)")
+        #expect(
+            !io.err.hasPrefix("warning: "),
+            """
+            Under --explain the notices belong inside the explanation block, not as \
+            top-level `warning:` lines as well: \(io.err.debugDescription)
+            """)
+    }
+
+    /// A clean run says nothing on fd 2 — the property that makes the warning
+    /// meaningful when it does appear.
+    @Test func `a clean run leaves fd 2 empty`() throws {
+        let io = try runTranscribe([])
+        defer { try? FileManager.default.removeItem(at: io.dir) }
+
+        #expect(io.status == 0)
+        #expect(io.err.isEmpty, "a clean run wrote to fd 2: \(io.err.debugDescription)")
+        #expect(io.out.hasPrefix("Wrote txt transcript to "))
+    }
+
+    /// The OTHER typed-failure branch. `runMapped` has two, and driving one
+    /// says nothing about the other — round 5 found the count-of-two source pin
+    /// could not tell them apart either, and an executed test inherits the same
+    /// blind spot unless it walks both paths. A missing audio file raises
+    /// `BestASRError.usage`; the engine stub raises `TranscriptionError`.
+    @Test func `a usage failure also reports on fd 2`() throws {
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let probe = probeURL
+        try #require(FileManager.default.isExecutableFile(atPath: probe.path))
+
+        let process = Process()
+        process.executableURL = probe
+        process.arguments = [
+            "transcribe", dir.appendingPathComponent("store").path, "--",
+            dir.appendingPathComponent("does-not-exist.wav").path,
+        ]
+        let outPipe = Pipe(), errPipe = Pipe()
+        process.standardOutput = outPipe
+        process.standardError = errPipe
+        try process.run()
+        let out = String(decoding: outPipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+        let err = String(decoding: errPipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+        process.waitUntilExit()
+
+        #expect(process.terminationStatus == 2, "expected the usage exit code")
+        #expect(
+            err.hasPrefix("error: "),
+            "fd 2 did not carry the usage error: \(err.debugDescription)")
+        #expect(
+            !out.contains("error:"),
+            "the error line reached fd 1: \(out.debugDescription)")
+    }
+
+    /// The typed-failure channel: still on fd 2, still through `ConsoleLine`.
+    ///
+    /// The NUL is the point. An external adapter's stderr reaches
+    /// `TranscriptionError.message` verbatim (#51), and `fputs` truncates there
+    /// and swallows the terminator. Reverting that line to `fputs`, or sending
+    /// it to stdout, both show up here as bytes in the wrong shape or the wrong
+    /// place — neither is visible to a test of the writer alone.
+    @Test func `a typed failure reports on fd 2 without truncating at a NUL`() throws {
+        let io = try runTranscribe([], engineError: "adapter exited 3: boom\u{0}TRAILING-DETAIL")
+        defer { try? FileManager.default.removeItem(at: io.dir) }
+
+        #expect(io.status == 1, "expected the mapped exit code, got \(io.status)")
+        #expect(
+            io.err.hasPrefix("error: ") && io.err.contains("TRAILING-DETAIL"),
+            """
+            fd 2 lost the text after the NUL, so the error channel truncates again: \
+            \(io.err.debugDescription)
+            """)
+        #expect(
+            !io.out.contains("error:"),
+            "the error line reached fd 1 and is now inside the transcript: \(io.out.debugDescription)")
     }
 }
 
@@ -1236,46 +1151,4 @@ struct ConsoleLineTests {
             """)
     }
 
-    /// That the CLI's typed-failure channel still routes through this writer.
-    ///
-    /// Everything above pins the writer's behaviour. None of it observes whether
-    /// `runMapped` still calls it — and measured on the previous commit,
-    /// reverting those two lines to `fputs` left the whole suite green while
-    /// silently restoring the NUL truncation this round fixed. That is the same
-    /// shape as #136 itself, and the same shape the wiring lock above exists for:
-    /// a helper with tests, called from a line nothing asserts on.
-    ///
-    /// A source pin rather than an executed one, for the same reason as the
-    /// wiring lock: `runMapped` lives in the executable target, whose failure
-    /// paths cannot be driven without `CommandCore.live()`.
-    @Test func `the CLI's error channel still routes through ConsoleLine`() throws {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Sources/bestasr/BestASRCommand.swift")
-        let stripped = TranscribeDiagnosticsWiringTests
-            .stripHiddenTokens(try String(contentsOf: url, encoding: .utf8))
-            .filter { !$0.isWhitespace }
-
-        // Both `catch` branches. Counted, not merely present: converting one and
-        // leaving the other is exactly how this asymmetry arose in the first
-        // place.
-        let writes = stripped.components(separatedBy: "ConsoleLine.write(").count - 1
-        #expect(
-            writes == 2,
-            """
-            Expected both typed-failure branches to write through ConsoleLine, found \(writes). \
-            If a branch was added or removed deliberately, re-pin this count.
-            """)
-
-        // The two APIs ConsoleLine exists to replace. `fputs` truncates at an
-        // embedded NUL — reachable here, because an external adapter's stderr is
-        // embedded verbatim into TranscriptionError (#51) — and
-        // FileHandle.write(_:) raises an uncatchable exception on a closed fd 2.
-        #expect(
-            !stripped.contains("fputs("),
-            "a write reverted to `fputs`, which truncates at an embedded NUL")
-        #expect(
-            !stripped.contains("FileHandle.standardError"),
-            "a write reverted to FileHandle, which traps instead of failing")
-    }
 }

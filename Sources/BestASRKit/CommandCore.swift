@@ -63,9 +63,28 @@ public struct CommandCore: Sendable {
         self.languageDetector = languageDetector
     }
 
+    /// Test seam for `live()` (#136).
+    ///
+    /// The `transcribe` command's own wiring — that it reports at all, on the
+    /// default path, to the right descriptor — was asserted for four rounds by
+    /// reading `BestASRCommand.swift` as text, because `live()` hard-wires six
+    /// engines plus the external registry and `NSHomeDirectory()` ignores
+    /// `$HOME` on Darwin, so there was no way to run the command under test.
+    /// Each round the text pin was shown through on an axis it had not been
+    /// told about: guard spelling, then stream labels, then the payload
+    /// argument, then whether `--explain` still existed. An executed test needs
+    /// to be told none of them.
+    ///
+    /// `@TaskLocal` rather than a settable global: the binding is scoped to the
+    /// task that sets it, so parallel tests cannot see each other's injection
+    /// and nothing has to be restored. Production never sets it, so `live()`
+    /// keeps its exact previous behaviour — this is the only line that reads it.
+    @TaskLocal public static var injected: CommandCore?
+
     /// The production wiring: real engines, real detection, real store.
     public static func live() -> CommandCore {
-        {
+        if let injected { return injected }
+        return {
         // Registered external adapters (#51, spec external-engine-protocol)
         // join the pool next to the bundled engines; with no registry config
         // this is exactly the bundled set.
