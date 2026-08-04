@@ -221,8 +221,11 @@ public enum Router {
                 // Contrast the quality-floor bypass notice above, which stays in
                 // `reasons` deliberately: `openspec/specs/asr-routing/spec.md` is
                 // normative that it belongs there and a scenario governs it, so
-                // moving that one would be a spec change, not a bug fix. No spec
-                // governs this notice's placement.
+                // moving that one would be a spec change, not a bug fix. That is
+                // why `cli/spec.md` describes the split as editorial rather than
+                // as a classification rule — read as a rule it would place the
+                // quality-floor notice ("output quality is not established") in
+                // `warnings`, contradicting `asr-routing`.
                 warnings.append(
                     "'\(catalogFallback)' on \(backend.rawValue) is unverified "
                         + "on this machine — quality is not established (#50)")

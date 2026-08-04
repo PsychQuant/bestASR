@@ -63,8 +63,12 @@ let package = Package(
             dependencies: ["BestASRGUICore"],
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
-        // Test fixture, deliberately NOT in `products`: nothing ships it and
-        // `swift run` will not surface it, but `swift test` builds it so
+        // Test fixture, deliberately NOT in `products`, so nothing ships it:
+        // `release-app.sh` and `release-mcp.sh` build per-product and
+        // `install.sh` copies two named binaries. (`swift run
+        // bestasr-diagnostics-probe` *does* work — `swift run` takes target
+        // names, not just product names — but that is a developer convenience,
+        // not a distribution path.) `swift test` builds it so
         // `TranscribeDiagnosticsDefaultStreamTests` can spawn it. It exists to
         // execute `TranscribeDiagnostics.report`'s stream defaults in a real
         // process — see its source for why the real CLI cannot stand in (#136).
@@ -82,8 +86,11 @@ let package = Package(
                 // CLI parse regression tests (#101: ArgumentParser negative-value
                 // form) — SwiftPM links executable targets into tests since 5.5.
                 "bestasr",
-                // Not linked for symbols — depended on so `swift test` builds it
-                // into the products directory, where the test spawns it.
+                // Depended on so `swift test` builds it into the products
+                // directory, where the test spawns it as a subprocess. SwiftPM
+                // also links its objects into the test bundle (`nm` finds
+                // `_bestasr_diagnostics_probe_main` there); no test references
+                // any of its symbols, but the dependency is not symbol-free.
                 "bestasr-diagnostics-probe",
                 .product(name: "WhisperKit", package: "WhisperKit"),
             ],

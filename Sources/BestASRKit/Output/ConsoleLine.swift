@@ -21,6 +21,14 @@ import Foundation
 /// adapter emitting `printf 'boom\0DETAIL' >&2` truncated the reported error and
 /// glued the following one to it, measured end-to-end.
 ///
+/// Scope, because the narrative above reads wider than it is: this covers the
+/// two channels `transcribe` reports through — router diagnostics and the CLI's
+/// typed failures. Five other sites in this package still call
+/// `FileHandle.standardError.write(_:)` and still abort under `2>&-`, one of
+/// them (`ExternalProcessEngine`'s registry warning) on every `transcribe` run.
+/// Converting them is a separate change with its own risk; what is fixed here
+/// is the channel #136 promoted to the default path, not the class.
+///
 /// The write and the flush results are both ignored, on purpose: these are
 /// reporting channels, and a lost line beats a dead process holding a finished
 /// transcript. The honest cost is that under `2>&-` a run now discards its

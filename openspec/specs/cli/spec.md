@@ -208,20 +208,20 @@ tests:
 ---
 ### Requirement: recommend command emits JSON only
 
-`bestasr recommend <audio>` SHALL print exactly one JSON object describing the recommendation to standard output and SHALL NOT run transcription, exiting 0 on success. The JSON SHALL contain `backend`, `model`, `quantization`, `profile`, `language`, `data_source` (`measured` or `cold_start_prior`), `reason`, and `warnings`. When the data source is `measured` it SHALL additionally contain a `measured` object carrying metric kind, error rate, and RTF; when it is not, that key SHALL be **absent** rather than null. `reason` explains the choice; `warnings` carries what bears on whether the output can be trusted. Both SHALL be arrays of strings, present even when empty, and the JSON SHALL carry every notice across the two — neither is a complete diagnostic on its own.
+`bestasr recommend <audio>` SHALL print exactly one JSON object describing the recommendation to standard output and SHALL NOT run transcription, exiting 0 on success. The JSON SHALL contain `backend`, `model`, `quantization`, `profile`, `data_source` (`measured` or `cold_start_prior`), `reason`, and `warnings`. Two keys are conditional and SHALL be **absent** rather than null when they do not apply: `measured` (an object carrying metric kind, error rate, and RTF) is present only when the data source is `measured`, and `language` only when a language was resolved — `--language auto` with detection unavailable resolves to none. `reason` explains the choice and `warnings` flags what bears on trusting the output; the split is editorial, not a classification rule — some trust-bearing notices live in `reason` where another spec places them (see `asr-routing`'s quality-floor bypass). Both SHALL be arrays of strings, present even when empty, and a consumer that needs every notice SHALL read both.
 
 #### Scenario: recommend output is machine-readable
 
 - **WHEN** the user runs `bestasr recommend sample.wav`
-- **THEN** standard output is a single JSON object containing `backend`, `model`, `quantization`, `profile`, `language`, `data_source`, `reason`, and `warnings`
+- **THEN** standard output is a single JSON object containing `backend`, `model`, `quantization`, `profile`, `data_source`, `reason`, and `warnings`
 - **AND** `reason` and `warnings` are both arrays of strings
 - **AND** no transcript is produced
 
-#### Scenario: the measured key is absent without benchmark data
+#### Scenario: conditional keys are absent rather than null
 
-- **WHEN** the machine-local cache holds no usable record and the user runs `bestasr recommend sample.wav`
+- **WHEN** the machine-local cache holds no usable record and language detection is unavailable
 - **THEN** `data_source` is `cold_start_prior`
-- **AND** the JSON has no `measured` key at all
+- **AND** the JSON has no `measured` key and no `language` key at all
 
 #### Scenario: recommend reflects benchmark data when present
 

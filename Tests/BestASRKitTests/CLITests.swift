@@ -73,15 +73,18 @@ struct RecommendCommandTests {
         let object =
             try JSONSerialization.jsonObject(with: Data(output.utf8)) as? [String: Any]
         let json = try #require(object)
-        // The full enumeration the cli spec's `recommend` requirement makes
-        // normative — including `profile` and `language`, which the code has
-        // always emitted and the spec omitted until #136 went looking.
+        // The unconditional enumeration the cli spec's `recommend` requirement
+        // makes normative — including `profile`, which the code has always
+        // emitted and the spec omitted until #136 went looking.
         for key in [
-            "backend", "model", "quantization", "profile", "language",
+            "backend", "model", "quantization", "profile",
             "data_source", "reason", "warnings",
         ] {
             #expect(json[key] != nil, "missing key \(key)")
         }
+        // `language` is conditional, and present here because this fixture
+        // resolves one. See the absent case below.
+        #expect(json["language"] as? String == "en")
         // And their SHAPE, not just their presence. A notice that migrates
         // between `reason` and `warnings` (#136 moved the #50 one) is invisible
         // to a key-presence check, and so is a field that degrades to a string.
@@ -100,6 +103,43 @@ struct RecommendCommandTests {
             json["measured"] == nil,
             "`measured` should be absent without benchmark data, not \(String(describing: json["measured"]))"
         )
+    }
+
+    /// The conditional keys are absent, not null — and `language` is one of them.
+    ///
+    /// `JSONEncoder` omits a nil optional rather than encoding `null`, so a
+    /// consumer keying on `"language" in obj` and one keying on
+    /// `obj["language"] is None` do not agree. The spec listed `language` as an
+    /// unconditional SHALL until this test existed; the tightening that caught
+    /// the same error for `measured` could not see it, because every other
+    /// fixture in this file injects a detector that always resolves.
+    @Test func `language and measured are absent when neither resolves`() async throws {
+        struct FailingDetector: AudioLanguageDetecting {
+            func detectLanguage(audioPath: String) async throws -> String {
+                throw BestASRError.usage("detection unavailable")
+            }
+        }
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let audio = try makeWavFile(in: dir)
+        let core = makeCore(
+            engines: [MockEngine.fixed(.whisperKit)], cacheDir: dir,
+            languageDetector: FailingDetector())
+
+        let output = try await core.recommendJSON(audioPath: audio, selection: auto)
+        let json = try #require(
+            try JSONSerialization.jsonObject(with: Data(output.utf8)) as? [String: Any])
+
+        #expect(json["data_source"] as? String == "cold_start_prior")
+        #expect(
+            json["language"] == nil,
+            "`language` should be absent when none resolved, not \(String(describing: json["language"]))"
+        )
+        #expect(json["measured"] == nil)
+        // The unconditional keys are still all there.
+        for key in ["backend", "model", "quantization", "profile", "reason", "warnings"] {
+            #expect(json[key] != nil, "missing key \(key)")
+        }
     }
 
     @Test func `recommend reflects benchmark data when the cache has a usable record`() async throws {
@@ -197,7 +237,10 @@ struct TranscribeCommandTests {
         #expect(!outcome.warnings.isEmpty, "the substitution produced no structured warning")
         #expect(outcome.warnings.contains { $0.contains("fluid-parakeet") })
         #expect(outcome.warnings.contains { $0.contains("unavailable") })
-        // The explanation keeps carrying them too — --explain output is unchanged.
+        // The explanation keeps carrying them too, so nothing is lost by the
+        // move and nothing is duplicated. Not "unchanged": the #50 notice
+        // renders as `  ! …` rather than `  - warning: …` now that it lives in
+        // `warnings`. Three rounds asserted the stronger claim; it is false.
         #expect(outcome.explanation.contains("fluid-parakeet"))
     }
 
@@ -683,6 +726,74 @@ struct TranscribeDiagnosticsWiringTests {
     /// confused by a parenthesis inside a string literal; neither call this test
     /// anchors on contains one, and a future one would fail loudly here rather
     /// than pass silently.
+    /// Removes every construct that can hide a token from a `range(of:)` search:
+    /// line comments, block comments, and string literals (single and triple
+    /// quoted). A LEXER, not a parser — it knows Swift's four token-hiding forms
+    /// and nothing else about the language.
+    ///
+    /// Literal-stripping is what stops a decoy: a one-line
+    /// `let note = "… CommandCore.live().transcribe(a) TranscribeDiagnostics.report(r, explain: e) …"`
+    /// planted above the real call, with the real call deleted, left every
+    /// anchor below satisfied and the whole suite green — `transcribe` printing
+    /// nothing at all. Dropping block comments **entirely** (rather than leaving
+    /// `/*` behind) is what makes commenting the call out a regression while a
+    /// comment merely sitting BETWEEN the two statements stays green — the
+    /// previous version got exactly one of those two right.
+    ///
+    /// Residual, stated rather than hidden: raw string delimiters (`#"…"#`) and
+    /// a quote inside a string interpolation are not modelled. Neither appears
+    /// in the pinned file, and either would make an anchor fail loudly here
+    /// rather than pass silently.
+    static func stripHiddenTokens(_ s: String) -> String {
+        let a = Array(s)
+        var out = ""
+        var i = 0
+        func has(_ t: [Character], _ at: Int) -> Bool {
+            guard at + t.count <= a.count else { return false }
+            for k in 0..<t.count where a[at + k] != t[k] { return false }
+            return true
+        }
+        let slashSlash: [Character] = ["/", "/"], slashStar: [Character] = ["/", "*"]
+        let starSlash: [Character] = ["*", "/"], triple: [Character] = ["\"", "\"", "\""]
+        while i < a.count {
+            if has(slashSlash, i) {
+                while i < a.count && a[i] != "\n" { i += 1 }
+                continue
+            }
+            if has(slashStar, i) {
+                var depth = 1
+                i += 2
+                while i < a.count && depth > 0 {
+                    if has(slashStar, i) { depth += 1; i += 2; continue }
+                    if has(starSlash, i) { depth -= 1; i += 2; continue }
+                    i += 1
+                }
+                continue
+            }
+            if has(triple, i) {
+                i += 3
+                while i < a.count && !has(triple, i) {
+                    if a[i] == "\\" { i += 2; continue }
+                    i += 1
+                }
+                i = min(i + 3, a.count)
+                continue
+            }
+            if a[i] == "\"" {
+                i += 1
+                while i < a.count && a[i] != "\"" && a[i] != "\n" {
+                    if a[i] == "\\" { i += 2; continue }
+                    i += 1
+                }
+                if i < a.count && a[i] == "\"" { i += 1 }
+                continue
+            }
+            out.append(a[i])
+            i += 1
+        }
+        return out
+    }
+
     private func indexPastCall(in s: String, openedBy marker: String) -> String.Index? {
         guard let m = s.range(of: marker) else { return nil }
         var depth = 1
@@ -708,22 +819,16 @@ struct TranscribeDiagnosticsWiringTests {
             .appendingPathComponent("Sources/bestasr/BestASRCommand.swift")
         let source = try String(contentsOf: url, encoding: .utf8)
 
-        // Strip line comments and all whitespace, so reflowing the call or
-        // inserting a comment between statements stays green — those are
-        // refactors, not regressions. Block comments are deliberately NOT
-        // stripped: commenting the call out is a regression, and leaving `/*`
-        // in the text is exactly how the previous version of this test was
-        // defeated. (The `//` strip would mangle a `://` inside a string
-        // literal; this file contains none, and the assertion below would fail
-        // loudly rather than silently if one appeared.)
-        let stripped = source
-            .components(separatedBy: "\n")
-            .map { line -> String in
-                guard let r = line.range(of: "//") else { return line }
-                return String(line[line.startIndex..<r.lowerBound])
-            }
-            .joined()
-            .filter { !$0.isWhitespace }
+        // Strip every token-hiding construct, then all whitespace, so reflowing
+        // the call or putting a comment of ANY kind between the statements stays
+        // green — those are refactors, not regressions. An earlier version
+        // stripped only `//` and deliberately left block comments in place,
+        // reasoning that commenting the call out should stay a regression. That
+        // got exactly one of the two cases right: it turned a plain
+        // documentation edit red, and it let a decoy through. Dropping block
+        // comments and string literals entirely gets both — a commented-out call
+        // disappears with its comment, so `tail` is `}` and the anchor fails.
+        let stripped = Self.stripHiddenTokens(source).filter { !$0.isWhitespace }
 
         let advice = """
             If that was deliberate — the call restructured, or the transcribe \
@@ -747,6 +852,26 @@ struct TranscribeDiagnosticsWiringTests {
         }
         let tail = String(stripped[afterTranscribe...])
 
+        // (A) Nothing may sit between the closure's `{` and the transcribe
+        // binding. The round-4 lock anchored only on what FOLLOWS the transcribe
+        // call, so `guard explain else { return }` hoisted ABOVE it made the
+        // whole block conditional — #136 restored — while every assertion below
+        // stayed green. Matched by shape, not by the local's name.
+        guard let callStart = stripped.range(of: "CommandCore.live().transcribe(") else { return }
+        let head = String(stripped[..<callStart.lowerBound])
+        guard let openBody = head.range(of: "runMapped{", options: .backwards) else {
+            Issue.record("could not locate the enclosing `runMapped {` block. \(advice)")
+            return
+        }
+        let between = String(head[openBody.upperBound...])
+        #expect(
+            between.range(
+                of: "^let[A-Za-z_][A-Za-z0-9_]*=tryawait$", options: .regularExpression) != nil,
+            """
+            Something sits between `runMapped {` and the transcribe binding (got \"\(between)\"). \
+            A guard there makes the whole reporting block conditional. \(advice)
+            """)
+
         #expect(
             tail.hasPrefix("TranscribeDiagnostics.report("),
             """
@@ -761,6 +886,41 @@ struct TranscribeDiagnosticsWiringTests {
             tail.hasPrefix("TranscribeDiagnostics.report("),
             let afterReport = indexPastCall(in: tail, openedBy: "TranscribeDiagnostics.report(")
         else { return }
+
+        // (B) The call must pass NO stream override. `report`'s defaults are the
+        // only thing `TranscribeDiagnosticsDefaultStreamTests` can observe, so
+        // an override at the call site silently takes production off the tested
+        // path: `out: stderr, err: stdout` restores #136 with the whole suite
+        // green. Round 3's lock caught this only because its needle was the full
+        // call text — which is why renaming `result` turned it red. Labels are
+        // part of `report`'s signature; the local's name is not.
+        let argsOpen = tail.range(of: "TranscribeDiagnostics.report(")!.upperBound
+        let args = String(tail[argsOpen..<tail.index(before: afterReport)])
+        #expect(
+            !args.contains("out:") && !args.contains("err:"),
+            """
+            The diagnostics call overrides a stream (arguments: \"\(args)\"). Production then \
+            no longer executes the defaults the probe test measures. \(advice)
+            """)
+        // And it must FORWARD `explain`, not decide it. Asserting the label
+        // alone is not enough: `report(result, explain: false)` contains
+        // `explain:` and turns `--explain` into a no-op, while
+        // `explain: true` makes the default path print the whole explanation
+        // block and drops the literal `warning:` token the skill templates key
+        // on. Both measured green against the label-only check.
+        //
+        // This does pin the flag property's name — but that name is not an
+        // internal detail: ArgumentParser derives `--explain` from it, so
+        // renaming it changes the CLI's public surface and should be a
+        // deliberate re-pin. The local binding (`result`) is still unnamed here,
+        // which is the rename that round 4 set out to tolerate.
+        #expect(
+            args.contains("explain:explain"),
+            """
+            The diagnostics call no longer forwards the `--explain` flag (arguments: \"\(args)\"). \
+            A hardcoded value here silently disables `--explain` or silently drops the \
+            `warning:` prefix from the default path. \(advice)
+            """)
         #expect(
             String(tail[afterReport...]).hasPrefix("}"),
             """
@@ -780,10 +940,15 @@ struct TranscribeDiagnosticsWiringTests {
 /// site untouched, sends every warning to **stdout** — #136's original scenario —
 /// and leaves **461/461 green**. `destination == stderr` stayed green (the
 /// constant was unchanged), the stream-pair test stayed green (it overrides both
-/// streams), and the wiring lock stayed green — and in fact *mandates* the
-/// no-override call shape, so it guarantees production goes through the
-/// untested default. Flipping `out:` the other way took the success line off
-/// stdout, also green.
+/// streams), and the wiring lock stayed green. Flipping `out:` the other way
+/// took the success line off stdout, also green.
+///
+/// This test only measures the defaults for as long as the call sites keep
+/// reading them, and that is now asserted rather than assumed — at the CLI by
+/// the wiring lock's label pin, and at the fixture by
+/// `the probe passes no stream arguments…` below. An earlier version of this
+/// comment claimed the lock already guaranteed it; for one commit it did not,
+/// and adding `err: stdout` at the call site restored #136 with the suite green.
 ///
 /// So this spawns a process. `bestasr-diagnostics-probe` is a dozen lines that
 /// build a `TranscribeOutcome` from argv and call `report` **passing no
@@ -807,7 +972,7 @@ struct TranscribeDiagnosticsDefaultStreamTests {
 
     private func runProbe(
         explain: Bool, explanation: String = "", warnings: [String] = []
-    ) throws -> (out: String, err: String) {
+    ) throws -> (out: String, err: String, status: Int32) {
         let probe = probeURL
         try #require(
             FileManager.default.isExecutableFile(atPath: probe.path),
@@ -831,34 +996,76 @@ struct TranscribeDiagnosticsDefaultStreamTests {
         let outData = outPipe.fileHandleForReading.readDataToEndOfFile()
         let errData = errPipe.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
-        return (String(decoding: outData, as: UTF8.self), String(decoding: errData, as: UTF8.self))
+        return (
+            String(decoding: outData, as: UTF8.self), String(decoding: errData, as: UTF8.self),
+            process.terminationStatus)
     }
 
     @Test func `with no streams passed, warnings reach fd 2 and the success line fd 1`() throws {
-        let (out, err) = try runProbe(
+        let (out, err, status) = try runProbe(
             explain: false, warnings: ["backend 'x' is unavailable; selecting automatically"])
 
-        #expect(err.contains("warning: backend 'x' is unavailable; selecting automatically"))
+        #expect(status == 0, "the probe exited \(status); its output no longer describes a clean run")
+        // EXACT, not `contains`: a `contains` pair cannot see anything EXTRA on a
+        // stream. Measured on the round-4 tree — a raw, unprefixed copy of every
+        // warning written to stdout on the default path only (`if out == stdout`)
+        // left all 466 tests green, because this test's negative checks the
+        // PREFIXED form and the tests that check exact content pass both streams
+        // explicitly and so never execute the defaults.
         #expect(
-            !out.contains("warning:"),
+            err == "warning: backend 'x' is unavailable; selecting automatically\n",
+            "fd 2 carried something other than exactly the warning: \(err.debugDescription)")
+        #expect(
+            out == "Wrote txt transcript to /tmp/idd136-probe.txt\n",
             """
-            A warning reached fd 1. Someone piping a transcript now gets diagnostics mixed \
-            into it and an empty stderr — that is #136, reachable by changing `report`'s \
-            `err:` default without touching the call site.
+            fd 1 carried something other than exactly the success line: \(out.debugDescription). \
+            Anything extra here is mixed into a piped transcript — that is #136.
             """)
+    }
 
-        #expect(out.contains("Wrote txt transcript to /tmp/idd136-probe.txt"))
+    /// The probe only measures the DEFAULTS while it passes no streams. Measured
+    /// on the round-4 tree: editing the fixture to `report(…, out: stdout, err: stderr)`
+    /// and then flipping `report`'s `err:` default to `stdout` restored #136 in
+    /// production at **466/466 green** — the two tests that would have caught it
+    /// were this one (no longer executing the defaults) and the wiring lock
+    /// (which pins the CLI's call, not the fixture's).
+    @Test func `the probe passes no stream arguments, so it executes the defaults`() throws {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Sources/bestasr-diagnostics-probe/main.swift")
+        let src = try String(contentsOf: url, encoding: .utf8)
+        let stripped = TranscribeDiagnosticsWiringTests.stripHiddenTokens(src)
+            .filter { !$0.isWhitespace }
+        guard let open = stripped.range(of: "TranscribeDiagnostics.report(") else {
+            Issue.record("the probe no longer calls `TranscribeDiagnostics.report`")
+            return
+        }
+        var depth = 1
+        var i = open.upperBound
+        while i < stripped.endIndex, depth > 0 {
+            if stripped[i] == "(" { depth += 1 }
+            if stripped[i] == ")" { depth -= 1; if depth == 0 { break } }
+            i = stripped.index(after: i)
+        }
+        let args = String(stripped[open.upperBound..<i])
         #expect(
-            !err.contains("Wrote txt transcript to"),
-            "the success line left fd 1; a caller redirecting stdout now gets an empty file")
+            !args.contains("out:") && !args.contains("err:"),
+            """
+            The probe passes a stream explicitly (arguments: \"\(args)\"). It then measures \
+            its own arguments instead of `report`'s defaults, and the defaults — which are \
+            what production reads — go back to being executed by nothing.
+            """)
     }
 
     @Test func `with no streams passed, the explanation reaches fd 2 as well`() throws {
-        let (out, err) = try runProbe(explain: true, explanation: "Selected whisperkit because …")
+        let (out, err, status) = try runProbe(
+            explain: true, explanation: "Selected whisperkit because …")
 
-        #expect(err.contains("Selected whisperkit because …"))
-        #expect(!out.contains("Selected whisperkit"))
-        #expect(out.contains("Wrote txt transcript to"))
+        #expect(status == 0, "the probe exited \(status)")
+        #expect(err == "Selected whisperkit because …\n", "fd 2: \(err.debugDescription)")
+        #expect(
+            out == "Wrote txt transcript to /tmp/idd136-probe.txt\n",
+            "fd 1: \(out.debugDescription)")
     }
 }
 
@@ -998,5 +1205,77 @@ struct ConsoleLineTests {
 
     @Test func `an empty string writes nothing`() throws {
         #expect(try captured { ConsoleLine.write("", to: $0) }.isEmpty)
+    }
+
+    /// That it flushes — which is the premise of the ordering argument, not an
+    /// implementation detail.
+    ///
+    /// `report`'s documentation and the CLI's call-site comment both say
+    /// warning-first is a presentation choice rather than a buffering
+    /// necessity, *because* every write is flushed. Deleting the `fflush` left
+    /// the whole suite green: the ordering test passes one `FILE*` as both
+    /// streams, so write order is call order regardless of flushing, and every
+    /// other test reads after `fclose`. This one reads a fully-buffered stream
+    /// while it is still open, so only a real flush satisfies it.
+    @Test func `write flushes, so the line is on disk before the stream closes`() throws {
+        let path = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("idd136-flush-\(UUID().uuidString)").path
+        defer { try? FileManager.default.removeItem(atPath: path) }
+        let f = try #require(fopen(path, "w"))
+        defer { fclose(f) }
+
+        ConsoleLine.write("visible before close\n", to: f)
+
+        let onDisk = (try? String(contentsOfFile: path, encoding: .utf8)) ?? ""
+        #expect(
+            onDisk == "visible before close\n",
+            """
+            Nothing reached the file while the stream was open (read \(onDisk.debugDescription)). \
+            A regular-file stream is fully buffered, so this means the write was not flushed — \
+            and the documented reason warning-first holds under `2>&1` no longer applies.
+            """)
+    }
+
+    /// That the CLI's typed-failure channel still routes through this writer.
+    ///
+    /// Everything above pins the writer's behaviour. None of it observes whether
+    /// `runMapped` still calls it — and measured on the previous commit,
+    /// reverting those two lines to `fputs` left the whole suite green while
+    /// silently restoring the NUL truncation this round fixed. That is the same
+    /// shape as #136 itself, and the same shape the wiring lock above exists for:
+    /// a helper with tests, called from a line nothing asserts on.
+    ///
+    /// A source pin rather than an executed one, for the same reason as the
+    /// wiring lock: `runMapped` lives in the executable target, whose failure
+    /// paths cannot be driven without `CommandCore.live()`.
+    @Test func `the CLI's error channel still routes through ConsoleLine`() throws {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Sources/bestasr/BestASRCommand.swift")
+        let stripped = TranscribeDiagnosticsWiringTests
+            .stripHiddenTokens(try String(contentsOf: url, encoding: .utf8))
+            .filter { !$0.isWhitespace }
+
+        // Both `catch` branches. Counted, not merely present: converting one and
+        // leaving the other is exactly how this asymmetry arose in the first
+        // place.
+        let writes = stripped.components(separatedBy: "ConsoleLine.write(").count - 1
+        #expect(
+            writes == 2,
+            """
+            Expected both typed-failure branches to write through ConsoleLine, found \(writes). \
+            If a branch was added or removed deliberately, re-pin this count.
+            """)
+
+        // The two APIs ConsoleLine exists to replace. `fputs` truncates at an
+        // embedded NUL — reachable here, because an external adapter's stderr is
+        // embedded verbatim into TranscriptionError (#51) — and
+        // FileHandle.write(_:) raises an uncatchable exception on a closed fd 2.
+        #expect(
+            !stripped.contains("fputs("),
+            "a write reverted to `fputs`, which truncates at an embedded NUL")
+        #expect(
+            !stripped.contains("FileHandle.standardError"),
+            "a write reverted to FileHandle, which traps instead of failing")
     }
 }

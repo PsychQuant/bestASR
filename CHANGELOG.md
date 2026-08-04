@@ -178,23 +178,49 @@ All notable changes to bestASR are documented here. The format follows
     restored the reported behaviour **verbatim with the whole suite green** —
     the first round's failure mode, one layer out.
 
-    The first attempt at closing that searched the file for the call's text and
-    for one literal guard spelling, and this entry claimed it refused four
-    regressions while tolerating renames. Measured, it did neither reliably.
-    **Six regressions passed it at 461/461 green**: `if (explain) {` (two
-    parentheses), `guard explain else { return }`, a hoisted
-    `let shouldReport = explain`, the call wrapped in `/* … */` — which left
-    `transcribe` printing *nothing at all*, because a block comment deletes the
-    call while leaving the searched-for text in the file — a `print("Wrote …")`
-    inserted ahead of it, and, in the other direction, renaming the local
-    `result` turned it **red**. Every error mode was backwards.
+    Closing that took three attempts, and the second one is worth recording
+    because it failed in a way the first did not.
 
-    The lock is now positional rather than textual: it walks to the closing
-    paren of the `transcribe(...)` call and asserts the diagnostics call follows
-    it immediately, with nothing after it before the block ends. That names no
-    variable and no argument label, so renames and reflows stay green, while
-    anything inserted on either side fails. Measured: **all eight regressions
-    above red (1 assertion each); rename and reflow green.**
+    **Attempt 1** searched the file for the call's text and for one literal
+    guard spelling. **Five** regressions walked past it at 461/461 green:
+    `if (explain) {` (two parentheses), `guard explain else { return }`, a
+    hoisted `let shouldReport = explain`, the call wrapped in `/* … */` — which
+    left `transcribe` printing *nothing at all*, because a block comment deletes
+    the call while leaving the searched-for text in the file — and a
+    `print("Wrote …")` inserted ahead of it. In the other direction, renaming
+    the local `result` turned it **red**, which is a pure refactor.
+
+    **Attempt 2** made the anchor positional to fix that rename: walk to the
+    closing paren of the `transcribe(...)` call, require the diagnostics call
+    immediately after it, require nothing after that. The rename tolerance was
+    real. So was the cost, and it went unnoticed because the mutation battery
+    only re-ran what the *previous* lock had failed to catch: the old needle was
+    the whole call text, so it implicitly forbade extra arguments, and the new
+    one names none. **Adding `err: stdout` at the call site restored #136 at
+    466/466 green** — the same edit is red one commit earlier. `explain: false`
+    and `explain: true` were green too. Three further holes came with it: a
+    `guard` hoisted *above* the transcribe call (the anchor only looks after
+    it), a decoy string literal or `/* historical note */` planted earlier in
+    the file combined with deleting the real call, and — separately — the
+    probe's own call shape, which nothing pinned, so two innocuous-looking edits
+    restored #136 at 466/466.
+
+    **Attempt 3** is what ships. The anchor now runs over a token-hiding lexer
+    (line comments, block comments, string literals — a lexer, not a parser),
+    extends backwards to `runMapped {` requiring exactly one binding between,
+    and pins the argument *labels*: no `out:`/`err:`, and `explain:explain`
+    forwarded rather than decided. The probe fixture gets the same label pin.
+    Measured across **28 mutations**: the eleven above red, the fourteen every
+    earlier guard caught still red, and rename, reflow and a block comment
+    between the statements green — that last one was a false failure until now.
+
+    **What no text pin can do**, stated because three rounds of this entry
+    implied otherwise: its coverage is exactly the lexical block it anchors to.
+    Hoisting the same `guard` one level further out — into `run()`, above
+    `runMapped` — is green under every version above, and no finite set of
+    anchors changes that. Extracting the command body so the branch becomes
+    executable code is filed separately; it would shrink the residue to a single
+    delegation line, not remove it.
 
     A source-level lock still cannot prove the line *executes*. It is not asked
     to: `TranscribeDiagnosticsDefaultStreamTests` covers that half — see below.
@@ -206,9 +232,12 @@ All notable changes to bestASR are documented here. The format follows
   - **The destination was decided by two default arguments that nothing
     executed.** `report` declares `out: = stdout` and `err: = destination`; the
     CLI passes neither, and every test passed both explicitly. So the two values
-    production actually used were covered by nothing — and the wiring lock, by
-    requiring the call to carry no stream override, *guaranteed* production went
-    through them. Changing `err:`'s default alone, with the call site untouched,
+    production actually used were covered by nothing — while the wiring lock, by
+    matching the whole call text, happened to forbid an override, which is what
+    made the defaults load-bearing in the first place. (That property was lost
+    for one commit when the lock went positional, and is now asserted
+    deliberately rather than as a side effect of the needle's shape.) Changing
+    `err:`'s default alone, with the call site untouched,
     put every warning on **stdout** — #136's original scenario — at 461/461
     green, with `destination == stderr` green, the stream-pair test green and
     the lock green. This entry previously named those two tests as what proves a

@@ -94,11 +94,12 @@ public enum TranscribeDiagnostics {
     ///
     /// Both statements live here rather than at the call site so the *ordering*
     /// is a property of tested code rather than of two adjacent lines nobody
-    /// asserts on. Warnings precede the success line because stderr is
-    /// unbuffered while stdout is at best line-buffered — under `2>&1` that
-    /// makes warning-first the order a merged reader sees. (Across two separate
-    /// pipes there is no global ordering guarantee at all, which is why this is
-    /// a presentation choice and not a cross-stream contract.)
+    /// asserts on. Warnings precede the success line as a presentation choice:
+    /// the reverse announces the file as written before the reason to distrust
+    /// it. It is not a buffering necessity — `ConsoleLine` flushes every write,
+    /// so under `2>&1` the observed order is simply the call order, measured
+    /// stable in both directions on a pty, a pipe and a file. (Across two
+    /// separate pipes there is no global ordering guarantee either way.)
     public static func report(
         _ outcome: TranscribeOutcome, explain: Bool,
         out: UnsafeMutablePointer<FILE> = stdout,
