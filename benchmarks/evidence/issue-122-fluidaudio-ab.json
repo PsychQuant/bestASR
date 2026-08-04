@@ -1,27 +1,63 @@
 {
-  "_comment": "Raw A/B for #122 (FluidAudio 0.15.4 -> 0.15.5). The same tree was built against each pin in turn and run on osr-harvard-1 (33.6 s, English, multi-chunk) \u2014 the corpus that CAN exercise 0.15.5's new seam-duplicate collapse, unlike the jfk/Chinese pairs the first write-up used. Committed because the CHANGELOG's headline measurement was otherwise reproducible only from a temp directory that no longer exists; a number a reader cannot re-derive is the defect this issue is about, one level out.",
-  "corpus": "osr-harvard-1",
-  "corpus_duration_seconds": 33.623125,
-  "language": "en",
-  "measured_at": "2026-08-03",
-  "machine": "Apple M5 Max, macOS 27",
-  "method": "Package.swift pin flipped, swift build, bestasr benchmark --backends fluid-parakeet, pin restored. Which code actually ran was settled on the BINARY, not the checkout: `nm` reports ChunkProcessor.caseVariantCanonicalIds present under the 0.15.5 pin and absent under 0.15.4. The resolved version string does not settle it, and neither does the checked-out source \u2014 a stale build artifact survives both.",
-  "store_note": "The 0.15.4 run also wrote a measurements.jsonl row stamped app_version 0.16.0, which is the version shipping with 0.15.5 \u2014 the schema has no FluidAudio field, so the row could not say what condition produced it. That row was removed rather than left to be ranked against honest ones; this file is where the measurement lives instead.",
-  "results": {
+  "_comment": "A/B for #122 (FluidAudio 0.15.4 -> 0.15.5). The same tree was built against each pin in turn and run on osr-harvard-1 (33.6 s, English, multi-chunk) — the corpus whose seams can reach 0.15.5's changed merge code, unlike the jfk/Chinese pairs the first write-up used. An earlier version of this file stored only two error rates, which cannot establish its own headline: two equal WERs do not imply equal transcripts (0.0375 = 3/80, and more than one transcript yields three edits). It also asserted that upstream 0ac0e414's fallbacks were exercised, which measurement refutes. Everything below is a hash a reader can recompute or a count a reader can reproduce.",
+
+  "corpus": {
+    "name": "osr-harvard-1",
+    "duration_seconds": 33.623125,
+    "language": "en",
+    "audio_sha256": "0ed4ea79ee09b36f40235992b5bc03009f23167c0525930ddeafee0c04716a49",
+    "reference_sha256": "644c935af618dde484af146260166bb8c8d9be244ff467b1964b99d48d81c35e"
+  },
+
+  "metric": {
+    "kind": "wer",
+    "edits": 3,
+    "reference_words": 80,
+    "value": 0.0375,
+    "_note": "Numerator and denominator are recorded so the value can be re-derived rather than trusted. The three edits are `it's -> it is` (one substitution plus one insertion) and `parked -> park` (one substitution), identical on both arms."
+  },
+
+  "method": {
+    "command": "<realpath of built bestasr> transcribe <audio> --backend fluid-parakeet --model 0.6b-v3 --language en --hallucination-filter off --format srt --output <out>",
+    "why_transcribe_not_benchmark": "`benchmark` writes to ~/.bestasr/store and has no --store-dir, so it cannot be run without touching durable user data — that is what polluted the store during an earlier round and required a row to be deleted afterwards. `transcribe` reads the store for routing and writes nothing.",
+    "why_explicit_path": "`bestasr` is not resolvable on PATH on this machine, so an earlier `bestasr benchmark …` method string described a command that could not run. Invoking by realpath also removes any question of a stale binary elsewhere on PATH.",
+    "why_srt_and_filter_off": "--hallucination-filter off removes post-processing. SRT as well as txt because a moved seam shows up in the timecodes before it shows up in the words.",
+    "determinism_control": "Each pin was run twice; same-pin runs are byte-identical. Without this, cross-pin identity would be uninterpretable — a decoder that drifted run to run would make both sameness and difference meaningless.",
+    "which_code_ran": "`nm` on the built executable counts the ChunkProcessor.caseVariantCanonicalIds symbol: 0 under 0.15.4, 4 under 0.15.5. The executable's own hash is deliberately NOT recorded as identifying evidence — the same pin built twice yields different executable hashes (measured), so it identifies a build, not a dependency. The reproducible pair is the resolved revision plus the nm count."
+  },
+
+  "arms": {
     "0.15.4": {
-      "backend": "fluid-parakeet",
-      "model": "0.6b-v3",
-      "metric_kind": "wer",
-      "error_rate": 0.0375,
-      "rtf": 0.004364897670877967
+      "fluidaudio_revision": "b9d43724cbdb5a980e441fd54180964e94d470f7",
+      "nm_caseVariantCanonicalIds": 0,
+      "transcript_sha256_srt": "02af260ccc3dc09cac0cdc5e10af9ea2a5f39373a6577310653f532b9b072d93",
+      "transcript_sha256_txt": "d69786c7bcb0dec02d751e55699a60597e9d4c84b932070f306795507d950589"
     },
     "0.15.5": {
-      "backend": "fluid-parakeet",
-      "model": "0.6b-v3",
-      "metric_kind": "wer",
-      "error_rate": 0.0375,
-      "rtf": 0.004597113861405814
+      "fluidaudio_revision": "19600a485baa4998812e4654b70d2bab8f2c9949",
+      "nm_caseVariantCanonicalIds": 4,
+      "transcript_sha256_srt": "02af260ccc3dc09cac0cdc5e10af9ea2a5f39373a6577310653f532b9b072d93",
+      "transcript_sha256_txt": "d69786c7bcb0dec02d751e55699a60597e9d4c84b932070f306795507d950589"
     }
   },
-  "what_it_shows": "The transcripts are byte-identical, so the case-gated seam collapse never fired here: a clean reading passage produces no case-differing seam duplicate. The run does exercise upstream 0ac0e414's three word-boundary fallbacks, which are not case-gated and run on any multi-chunk audio. Evidence about the merge path in general; not about the case-gated predicate specifically."
+
+  "path_coverage": {
+    "_note": "Measured by adding stderr probes to ChunkProcessor at all five changed sites and rebuilding. The probe build's transcript is byte-identical to the clean 0.15.5 build's, so the instrumentation does not perturb the result. This is the half that two earlier write-ups inferred backwards from the output and got wrong in opposite directions — first claiming the fallbacks were exercised, then claiming none of the five was reached.",
+    "chunks": 3,
+    "merges": 2,
+    "case_folded_matcher_entered": 2,
+    "case_folded_matcher_matched_pair_0154_rejects": true,
+    "case_folded_changed_merge_output": false,
+    "collapse_called": true,
+    "collapse_changed_tokens": false,
+    "word_boundary_fallbacks_entered": 0,
+    "counterfactual": "Each merge was computed twice inside one binary — once with caseVariantIds, once with nil, which degrades tokenIdsMatch to exactly 0.15.4's behaviour. Token ids and timestamps are identical both times. That is why a predicate that was entered and answered differently still produces an identical transcript."
+  },
+
+  "what_it_shows": "On this corpus the transcripts are byte-identical across the pin change. That is NOT because the changed code did not run: the case-folded overlap matcher was entered twice and matched a token pair 0.15.4 rejects (ids 375 ` r` and 518 ` R`, canonical 375), and collapseSeamWordDuplicates was called. Neither changed the merge output. Upstream 0ac0e414's three word-boundary fallbacks were never entered. Evidence about the merge path on one English corpus; it does not generalise to corpora whose seams differ in shape.",
+
+  "store_note": "An earlier 0.15.4 run wrote a measurements.jsonl row stamped app_version 0.16.0 — the version shipping with 0.15.5 — because the schema has no FluidAudio field, so the row could not say what condition produced it. That row was removed rather than left to be ranked against honest ones; a backup was kept at ~/.bestasr/store/measurements.jsonl.bak-idd122-20260803161704, which is machine-local and therefore not auditable from this repo. The measurements recorded here wrote nothing to the store.",
+
+  "measured_at": "2026-08-05",
+  "machine": "Apple M5 Max, macOS 27"
 }

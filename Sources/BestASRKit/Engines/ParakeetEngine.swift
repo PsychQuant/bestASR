@@ -6,7 +6,8 @@ import Foundation
 /// non-Whisper family in the competition pool, zero new dependencies
 /// (FluidAudio 0.15.5 is already exact-pinned for diarization, #25).
 ///
-/// API mapping (task 1.1 spike, FluidAudio 0.15.5 → BestASRKit):
+/// API mapping (current FluidAudio 0.15.5 → BestASRKit; originally validated by
+/// the task 1.1 spike against 0.15.4, and re-checked by compiling at 0.15.5):
 ///
 /// | FluidAudio                                              | here                          |
 /// |---------------------------------------------------------|-------------------------------|
