@@ -170,7 +170,7 @@ All notable changes to bestASR are documented here. The format follows
   | row | path | blind to the merge change? |
   |---|---|---|
   | `jfk` parakeet | 11.0 s → **one chunk** | yes — the merger never runs |
-  | `cv-zhtw-4` parakeet | 25.68 s → **two chunks** | **no** — it reaches `ChunkProcessor` |
+  | `cv-zhtw-4` parakeet | 25.68 s → **two chunks** | **no** — it reaches `ChunkProcessor`, though whether its seams reach the *changed* merge code was never measured |
   | 3 × sensevoice, 2 × paraformer | never enter `ChunkProcessor` at all | yes, but because of the subtree, not because of case |
 
   So the old table could not support "accuracy is unchanged" — one of its two
@@ -197,8 +197,9 @@ All notable changes to bestASR are documented here. The format follows
   attempts at this paragraph overstated it in opposite directions.
 
   The transcripts are byte-identical — SHA-256 `02af260c…`, in SRT as well as
-  txt, and each pin was run twice with same-pin runs identical, so the engine is
-  not drifting run to run and the comparison is interpretable at all.
+  txt, compared byte for byte rather than by equal WER. Each pin was run twice
+  and the same-pin runs match, which bounds decoder variability rather than
+  excluding it: no run-to-run difference was observed in four runs.
 
   **Which of the five changes actually ran was then measured, not inferred.**
   Two earlier versions of this entry inferred it backwards from the output and
@@ -207,25 +208,31 @@ All notable changes to bestASR are documented here. The format follows
   inference was available — identical output and "not entered" are separated by
   the whole class of entered-but-neutral, which is what this run turns out to
   be. Instrumenting `ChunkProcessor` (3 chunks, 2 merges; the probe build's
-  transcript is byte-identical to the clean one, so the probe does not perturb):
+  transcript hash equals the clean build's, so no final-output perturbation was
+  observed — which is not the same as proving the instrumentation was
+  control-flow-neutral):
 
   | change | measured |
   |---|---|
   | case-folding in the overlap matcher (`tokenIdsMatch`) | **entered twice**, and matched a pair 0.15.4 rejects — token ids 375 (` r`) and 518 (` R`), canonical 375 |
-  | post-merge `collapseSeamWordDuplicates` | **called**, changed nothing (154 tokens → 154) |
+  | post-merge `collapseSeamWordDuplicates` | **called**, and removed no tokens (154 in, 154 out) |
   | `0ac0e414`'s three word-boundary fallbacks | **never entered** |
 
   So the changed predicate was evaluated and answered differently from 0.15.4 —
   and the output is identical anyway. A counterfactual inside the same binary
-  settles why: computing each merge twice, once with `caseVariantIds` and once
-  with `nil` (which degrades the matcher to exactly 0.15.4's behaviour), yields
-  identical token ids **and** identical timestamps both times.
+  shows where that goes: computing each merge twice, once with `caseVariantIds`
+  and once with `nil` (which reduces the matcher to `left == right`, 0.15.4's
+  behaviour), yields identical token ids **and** identical timestamps both
+  times. That isolates the incremental effect of the case-folding within a
+  0.15.5 build; it is not a 0.15.4 execution.
 
-  That is a stronger claim than "accuracy is unchanged" and a narrower one than
-  either inference: on this corpus the case-folded matcher is exercised and is
-  output-neutral, the collapse is a no-op, and the fallbacks are not reached at
-  all. It is a measurement that could have come out differently, and the numbers
-  behind it are in `benchmarks/evidence/issue-122-fluidaudio-ab.json`.
+  This is more informative than equal WER on this one corpus; it does not
+  support a general "accuracy is unchanged" claim, and it says nothing about
+  corpora whose seams differ in shape. On this corpus the case-folded matcher is
+  exercised and is output-neutral, the collapse removes nothing, and the
+  fallbacks are not reached at all. It is a measurement that could have come out
+  differently. The values are in `benchmarks/evidence/issue-122-fluidaudio-ab.json`,
+  which records what was measured; the inference is here.
 
   Exercising the collapse's *effect* deliberately would need audio with a
   case-variant repetition across a ~15 s boundary; entering the fallbacks would
