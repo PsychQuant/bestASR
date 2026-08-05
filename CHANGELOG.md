@@ -214,7 +214,7 @@ All notable changes to bestASR are documented here. The format follows
 
   | change | measured |
   |---|---|
-  | case-folding in the overlap matcher (`tokenIdsMatch`) | **matched twice**, on a pair 0.15.4 rejects — token ids 375 (` r`) and 518 (` R`), canonical 375. The branch is consulted far more often; two is the count of matches, not of entries |
+  | case-folding in the overlap matcher (`tokenIdsMatch`) | **matched twice**, on a pair 0.15.4 rejects — token ids 375 (` r`) and 518 (` R`), canonical 375. Called 844 times: 71 return early on equal ids, 773 reach the guard, 640 of those find an id absent from the map, and of the 133 with both present, 131 resolve to different canonicals |
   | post-merge `collapseSeamWordDuplicates` | **called**, and removed no tokens (154 in, 154 out) |
   | `0ac0e414`'s three word-boundary fallbacks | **never entered** |
 
