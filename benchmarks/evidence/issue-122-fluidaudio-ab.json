@@ -1,19 +1,17 @@
 {
-  "_what_this_is": "Measurements taken for #122 (FluidAudio 0.15.4 -> 0.15.5). Facts only; the interpretation lives in the CHANGELOG entry, which cites this file. Three earlier versions of that entry drew conclusions this file's predecessors could not support, so the split is deliberate: values here, inference there.",
-
-  "_reproducing": "Fields under `session` and `arms` are recomputable with the commands recorded below. Fields under `path_coverage` are NOT — they come from stderr probes compiled into a patched dependency checkout, so a reader has to redo that instrumentation to check them; `path_coverage.how` says where the probes go. They were reproduced independently at commit 702a448 by a second party who wrote their own probes and got the same counts.",
-
+  "_what_this_is": "Measurements taken for #122 (FluidAudio 0.15.4 -> 0.15.5). The interpretation lives in the CHANGELOG entry, which cites this file. Notes here only narrow what a value means; they are not a summary of the file, because two earlier one-line summaries (\"everything below is a hash or a count\", \"Facts only\") each claimed more than the fields carry.",
+  "_reproducing": "Recomputable from the commands recorded here: the corpus hashes, both arms' transcript hashes, the nm counts, and `metric` (from the transcript and the reference, using this repo's TextNormalizer and ErrorRate.wer). NOT recomputable: `executable_sha256` (see its note), `session.measured_at` / `machine` / `toolchain` (observations of one run), and all of `path_coverage` — those come from stderr probes compiled into a patched dependency checkout, so a reader has to redo that instrumentation; `path_coverage.how` says where the probes go. The path_coverage counts were reproduced independently at 702a448 and again at 331a482 by two other parties who wrote their own probes; those reports are linked from the verification comments on PR #142 and issue #122. That is a pointer, not a substitute for redoing it.",
   "session": {
     "measured_at": "2026-08-05",
     "machine": "Apple M5 Max, macOS 27",
     "toolchain": "Apple Swift 6.2.4 (swift-6.2.4-RELEASE), the PATH default on this machine",
-    "toolchain_caveat": "`swift build -c release` crashes under this toolchain — SIL memory lifetime failure compiling swift-transformers' Tokenizers, unrelated to FluidAudio and documented in scripts/install.sh. These are debug builds, which is also why the nm counts below are debug counts.",
+    "toolchain_caveat": "`swift build -c release` crashes under this toolchain — SIL memory lifetime failure in OwnershipModelEliminator compiling swift-transformers' Tokenizers, unrelated to FluidAudio. scripts/install.sh documents the same crash as \"SIL specialization\"; this description is the more precise of the two. These are debug builds, which is why the nm counts under `arms` are debug counts.",
     "corpus": "osr-harvard-1",
     "corpus_duration_seconds": 33.623125,
     "language": "en",
     "audio_sha256": "0ed4ea79ee09b36f40235992b5bc03009f23167c0525930ddeafee0c04716a49",
     "reference_sha256": "644c935af618dde484af146260166bb8c8d9be244ff467b1964b99d48d81c35e",
-    "transcribe_command": "<realpath .build/arm64-apple-macosx/debug/bestasr> transcribe <audio> --backend fluid-parakeet --model 0.6b-v3 --language en --hallucination-filter off --format {srt,txt} --output <out>",
+    "transcribe_command": "<realpath .build/arm64-apple-macosx/debug/bestasr> transcribe <audio> --backend fluid-parakeet --model 0.6b-v3 --language en --hallucination-filter off --format srt --output <out.srt>   # and again with `--format txt --output <out.txt>`; two invocations, one per format",
     "nm_command": "nm <exe> | grep -c caseVariantCanonicalIds",
     "notes": [
       "`transcribe`, not `benchmark`: benchmark writes to ~/.bestasr/store and has no --store-dir (issue #160), so it cannot run without touching durable user data. transcribe reads the store for routing and writes nothing.",
@@ -22,7 +20,6 @@
       "Two runs per pin. This bounds decoder variability rather than excluding it: no run-to-run difference was observed in four runs."
     ]
   },
-
   "arms": {
     "0.15.4": {
       "fluidaudio_revision": "b9d43724cbdb5a980e441fd54180964e94d470f7",
@@ -42,24 +39,28 @@
     },
     "cross_pin_cmp": "srt identical, txt identical (byte comparison, not equal-WER)",
     "_executable_hash_note": "Recorded to identify the build these numbers came from, NOT as a reproducible value — the same pin built twice yields different hashes. Two purposes, two fields: the revision says which dependency source was expected, the hash says which artifact was measured.",
-    "_nm_note": "This count is not stable across build configurations or nm flags: debug/plain 4, debug/-a 8, release/plain 2, release/-a 4. What is stable, and what the symbol check is for, is presence versus absence — 0.15.4 is 0 under every combination and 0.15.5 is non-zero under all of them. An earlier version of this file recorded the count as though it were reproducible without saying which build or flag produced it; a third party got 2."
+    "_nm_note": "This count is not stable across build configurations or nm flags: debug/plain 4, debug/-a 8, release/plain 2, release/-a 4 — the debug cells under the toolchain in `session`, the release cells only under Xcode's 6.3.3 (`PATH=/usr/bin:$PATH`), because the toolchain in `session` cannot build release at all. 0.15.4 is 0 in all four of those cells and 0.15.5 is non-zero in all four; presence versus absence is what the symbol check establishes, and it is the only part of this that does not depend on how the binary was built. An earlier version of this file recorded 4 as though it were reproducible without saying which build or flag produced it; a third party running plain nm on a release build got 2."
   },
-
   "metric": {
     "kind": "wer",
     "edits": 3,
     "reference_words": 80,
     "value": 0.0375,
-    "edit_list": ["it's -> it is (substitution + insertion)", "parked -> park (substitution)"],
+    "edit_list": [
+      "it's -> it is (substitution + insertion)",
+      "parked -> park (substitution)"
+    ],
     "_note": "Numerator and denominator recorded so the value can be re-derived. Identical on both arms, which follows from the transcripts being byte-identical."
   },
-
   "path_coverage": {
-    "how": "stderr probes compiled into .build/checkouts/FluidAudio/…/TDT/ChunkProcessor.swift at the five sites 0.15.5 changed: the case-fold branch of tokenIdsMatch (distinguishing a fold match from a consultation that missed), the entry of collapseSeamWordDuplicates (token count in and out), popSeamWord's safe-id branch, mergeByMidpoint's right-scan when it adopts an advanced cutoff, and the merge loop (chunk count, and each merge computed a second time with caseVariantIds passed as nil, which reduces tokenIdsMatch to `left == right` — 0.15.4's matcher). The patch must land BEFORE FluidAudio is first compiled: SwiftPM will not recompile an edited dependency checkout once that module is built, and a stale build silently yields a probe-free binary whose output is trivially identical to the clean one. Verify the probes are in the binary (`strings <exe> | grep -c R4PROBE`) before believing any count.",
+    "how": "stderr probes compiled into .build/checkouts/FluidAudio/…/TDT/ChunkProcessor.swift. Probed for the counts below: the case-fold branch of tokenIdsMatch (separating a fold match from a consultation that resolved to different canonicals); the entry and exit of collapseSeamWordDuplicates (token count in and out); and all three of 0ac0e414's word-boundary fallbacks — mergeUsingMatches' tail re-splice, popSeamWord's safe-id branch, and mergeByMidpoint's right-scan when it adopts an advanced cutoff. Probed as scaffolding rather than as a changed site: the merge loop, for the chunk and merge counts and to compute each merge a second time with caseVariantIds passed as nil, which reduces tokenIdsMatch to `left == right` — 0.15.4's matcher. Before believing any count, check your own probe token is in the binary (`strings <exe> | grep -c <your token>`): a build that did not pick up the patch produces a probe-free binary whose output is trivially identical to the clean one, which reads as success. That happened once here. The cause was never isolated — an earlier version of this file blamed SwiftPM for refusing to recompile an edited checkout after the first build, and that is false: measured across three edit-then-build round-trips, it recompiles every time.",
     "chunks": 3,
     "merges": 2,
-    "case_folded_matcher_entered": 2,
-    "case_folded_matched_token_ids": [375, 518],
+    "case_folded_matches": 2,
+    "case_folded_matched_token_ids": [
+      375,
+      518
+    ],
     "case_folded_canonical_id": 375,
     "case_folded_changed_merge_output": false,
     "collapse_called": true,
@@ -70,11 +71,11 @@
     "counterfactual_timestamps_equal": true,
     "_limits": [
       "375 and 518 are ' r' and ' R' in the vocabulary; 0.15.4's matcher returns false for that pair because it compares ids for equality.",
+      "`case_folded_matches` counts the times the branch returned a match, not the times it was entered — the branch is consulted far more often and resolves to different canonicals. Only the match count has been reproduced identically by every independent run.",
       "collapse_tokens_in == collapse_tokens_out establishes that no token was removed. It does not by itself establish that ids, order or timestamps are unchanged.",
       "The counterfactual isolates the incremental effect of supplying caseVariantIds inside a 0.15.5 binary. It is not a 0.15.4 execution, and it assumes the nil path is equivalent to 0.15.4's matcher.",
       "The probe build's transcript hash equals the clean build's, so no final-output perturbation was observed. That does not establish that the instrumentation was control-flow-neutral."
     ]
   },
-
   "store_note": "An earlier 0.15.4 run wrote a measurements.jsonl row stamped app_version 0.16.0 — the version shipping with 0.15.5 — because the schema has no FluidAudio field, so the row could not say what condition produced it. That row was removed rather than left to be ranked against honest ones; a backup was kept at ~/.bestasr/store/measurements.jsonl.bak-idd122-20260803161704, which is machine-local and therefore not auditable from this repo. The measurements recorded here wrote nothing to the store — verified by hashing all five store files before and after."
 }

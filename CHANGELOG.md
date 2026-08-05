@@ -170,7 +170,7 @@ All notable changes to bestASR are documented here. The format follows
   | row | path | blind to the merge change? |
   |---|---|---|
   | `jfk` parakeet | 11.0 s → **one chunk** | yes — the merger never runs |
-  | `cv-zhtw-4` parakeet | 25.68 s → **two chunks** | **no** — it reaches `ChunkProcessor`, though whether its seams reach the *changed* merge code was never measured |
+  | `cv-zhtw-4` parakeet | 25.68 s → **two chunks** | **unknown** — it reaches `ChunkProcessor`, but whether its seams reach the *changed* merge code was never measured |
   | 3 × sensevoice, 2 × paraformer | never enter `ChunkProcessor` at all | yes, but because of the subtree, not because of case |
 
   So the old table could not support "accuracy is unchanged" — one of its two
@@ -214,7 +214,7 @@ All notable changes to bestASR are documented here. The format follows
 
   | change | measured |
   |---|---|
-  | case-folding in the overlap matcher (`tokenIdsMatch`) | **entered twice**, and matched a pair 0.15.4 rejects — token ids 375 (` r`) and 518 (` R`), canonical 375 |
+  | case-folding in the overlap matcher (`tokenIdsMatch`) | **matched twice**, on a pair 0.15.4 rejects — token ids 375 (` r`) and 518 (` R`), canonical 375. The branch is consulted far more often; two is the count of matches, not of entries |
   | post-merge `collapseSeamWordDuplicates` | **called**, and removed no tokens (154 in, 154 out) |
   | `0ac0e414`'s three word-boundary fallbacks | **never entered** |
 
