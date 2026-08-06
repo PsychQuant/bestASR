@@ -23,8 +23,22 @@ enum ToolRunner {
         } catch {
             throw BestASRError.runtime("could not launch '\(tool)': \(error.localizedDescription)")
         }
+        // #165 family-wide sweep: these two reads used to run in sequence, which
+        // deadlocks whenever the child fills the *other* pipe first — stdout is
+        // drained to EOF here, but a `gh`/`git` that writes >64 KB of stderr
+        // blocks in write(2) and therefore never closes stdout. Same shape as
+        // #158, in production rather than tests. Drain concurrently instead.
+        final class DataBox: @unchecked Sendable { var value = Data() }
+        let errBox = DataBox()
+        let group = DispatchGroup()
+        group.enter()
+        DispatchQueue.global().async {
+            errBox.value = stderr.fileHandleForReading.readDataToEndOfFile()
+            group.leave()
+        }
         let outData = stdout.fileHandleForReading.readDataToEndOfFile()
-        let errData = stderr.fileHandleForReading.readDataToEndOfFile()
+        group.wait()
+        let errData = errBox.value
         process.waitUntilExit()
         guard process.terminationStatus == 0 else {
             let detail = String(decoding: errData, as: UTF8.self)
