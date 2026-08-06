@@ -41,7 +41,9 @@ fi
 INSTALLED_VERSION=""
 [[ -f "$VERSION_FILE" ]] && INSTALLED_VERSION=$(tr -d '[:space:]' < "$VERSION_FILE" 2>/dev/null || true)
 
-# Decide whether to download.
+# Decide whether to RESOLVE (a cheap metadata call). Whether to actually
+# download is decided after resolution, against the tag we really got — see
+# below.
 NEED_DOWNLOAD=false
 REASON=""
 if [[ ! -x "$BINARY" ]]; then
@@ -53,21 +55,48 @@ elif [[ -n "$DESIRED_VERSION" ]] && [[ "$INSTALLED_VERSION" != "$DESIRED_VERSION
 fi
 
 if $NEED_DOWNLOAD; then
-    echo "$BINARY_NAME: $REASON — downloading from $REPO..." >&2
+    echo "$BINARY_NAME: $REASON — checking $REPO..." >&2
     mkdir -p "$INSTALL_DIR"
 
-    # Try pinned tag first, then fall back to latest release.
+    # Try pinned tag first, then fall back to latest release. Capture the tag we
+    # ACTUALLY resolved alongside the URL: when the pinned tag does not exist we
+    # silently land on `releases/latest`, and recording the requested version
+    # instead of the received one is what made this wrapper unable to ever
+    # self-heal (#163) — the sidecar claimed the desired version, the next run
+    # compared equal, and the stale binary stayed forever.
     URL=""
+    ACTUAL_VERSION=""
     for API_URL in \
         "${DESIRED_VERSION:+https://api.github.com/repos/$REPO/releases/tags/v$DESIRED_VERSION}" \
         "https://api.github.com/repos/$REPO/releases/latest"
     do
         [[ -z "$API_URL" ]] && continue
-        URL=$(curl -sL --max-time 30 "$API_URL" 2>/dev/null \
+        RESPONSE=$(curl -sL --max-time 30 "$API_URL" 2>/dev/null) || continue
+        URL=$(printf '%s' "$RESPONSE" \
             | grep '"browser_download_url"' | grep "/$BINARY_NAME\"" | head -1 \
             | sed 's/.*"\(https[^"]*\)".*/\1/')
-        [[ -n "$URL" ]] && break
+        if [[ -n "$URL" ]]; then
+            ACTUAL_VERSION=$(printf '%s' "$RESPONSE" \
+                | grep -m1 '"tag_name"' \
+                | sed 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/' \
+                | sed 's/^v//')
+            break
+        fi
     done
+
+    # Already running the exact build the registry would hand us: correct the
+    # sidecar and skip the transfer. Without this the unsatisfiable-pin case
+    # (plugin.json ahead of the newest release) re-downloads on every launch.
+    if [[ -n "$URL" && -x "$BINARY" && -n "$ACTUAL_VERSION" \
+          && "$ACTUAL_VERSION" == "$INSTALLED_VERSION" ]]; then
+        echo "$BINARY_NAME: v${ACTUAL_VERSION} is the newest published release" \
+             "(plugin pins v${DESIRED_VERSION:-?}, not published yet) — keeping it" >&2
+        URL=""
+        NEED_DOWNLOAD=false
+    fi
+fi
+
+if $NEED_DOWNLOAD; then
 
     if [[ -z "$URL" ]]; then
         if [[ -x "$BINARY" ]]; then
@@ -85,8 +114,15 @@ if $NEED_DOWNLOAD; then
             # stapled; the ticket lives on Apple's servers).
             xattr -d com.apple.quarantine "${BINARY}.tmp" 2>/dev/null || true
             mv "${BINARY}.tmp" "$BINARY"
-            echo "${DESIRED_VERSION:-unknown}" > "$VERSION_FILE"
-            echo "$BINARY_NAME: installed v${DESIRED_VERSION:-latest}" >&2
+            # Record what we RECEIVED, never what we asked for (#163).
+            echo "${ACTUAL_VERSION:-unknown}" > "$VERSION_FILE"
+            if [[ -n "$DESIRED_VERSION" && -n "$ACTUAL_VERSION" \
+                  && "$ACTUAL_VERSION" != "$DESIRED_VERSION" ]]; then
+                echo "$BINARY_NAME: installed v${ACTUAL_VERSION} — note: plugin pins" \
+                     "v${DESIRED_VERSION}, which has no published release" >&2
+            else
+                echo "$BINARY_NAME: installed v${ACTUAL_VERSION:-unknown}" >&2
+            fi
         else
             rm -f "${BINARY}.tmp" 2>/dev/null
             if [[ -x "$BINARY" ]]; then
