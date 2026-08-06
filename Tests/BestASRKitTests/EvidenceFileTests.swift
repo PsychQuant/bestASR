@@ -4,21 +4,39 @@ import Testing
 /// Internal-consistency contract for evidence files under `benchmarks/evidence/`.
 ///
 /// An evidence file records measurements together with the method that produced
-/// them. These tests enforce four properties of that pairing. They assert
-/// structure only — never a measured value, so re-measuring never breaks them.
+/// each one. These tests enforce five properties of that pairing:
 ///
-/// 1. Every field name written in backticks resolves to a key that exists.
-/// 2. Every value field's name, wherever it appears in prose, is written in
-///    backticks — otherwise rule 1 cannot see it.
-/// 3. `path_coverage.how.probes` and the value fields are in exact
-///    correspondence, and each probe entry states a method rather than
-///    restating the field name.
-/// 4. The arithmetic relationships between the recorded counts hold.
+/// 1. The value fields are exactly the set declared in `expectedValueFields`
+///    below — declared *here*, not read from the file.
+/// 2. Every backticked lowercase snake_case name resolves to a key that exists.
+/// 3. Every underscored key name appearing in prose is written in backticks,
+///    so rule 2 can see it.
+/// 4. `path_coverage.how.probes` covers the value fields exactly, no entry is
+///    merely its own field name, and no measurement hides under a `_` key.
+/// 5. The recorded counts satisfy five arithmetic identities, and every
+///    identity is actually evaluated rather than skipped.
 ///
-/// If one of these fires, the file and its own description have drifted apart;
-/// fix whichever is wrong. If the file has moved or been archived, update
-/// `evidenceDirectory` or delete this suite — it guards that directory and
-/// nothing else.
+/// **Why the field set is declared here.** Round 10 established that a checker
+/// deriving its schema from the artifact cannot detect absence: delete a value
+/// and its method entry together, or empty both to `{}`, and every derived rule
+/// still passes because ∅ corresponds to ∅. An external declaration is the only
+/// thing that notices something missing. Its maintenance cost is the mechanism,
+/// not a defect in it.
+///
+/// **What these tests cannot do.** Rule 4 requires a method entry to cite a
+/// symbol, field or section other than itself, which rejects filler and
+/// restatement. It cannot check that the citation is *apt*, nor tell an
+/// assertion from a denial: "not measured; assumed to equal the 0.15.4 arm,
+/// see `case_folded_calls`" cites something and passes. No lexical rule
+/// distinguishes that from a true method; only reading does. Rule 3 covers underscored
+/// names only — a single-word field name like `merges` is also ordinary English
+/// and requiring backticks around every use would distort the prose. And
+/// nothing here checks that a method entry is *true* of the code it describes.
+/// Read the entries; do not assume a green suite vouched for them.
+///
+/// These assert structure, never a particular measurement, so re-measuring the
+/// corpus never breaks them. Rule 5 does read measured values — it checks they
+/// are consistent with each other, not that they equal anything expected.
 struct EvidenceFileTests {
     static let repoRoot = URL(fileURLWithPath: #filePath)
         .deletingLastPathComponent()  // BestASRKitTests
@@ -27,10 +45,22 @@ struct EvidenceFileTests {
 
     static let evidenceDirectory = repoRoot.appendingPathComponent("benchmarks/evidence")
 
-    /// Words that mark a probe entry as stating a method rather than naming a field.
-    static let methodWords = [
-        "probe", "probed", "derived", "emitted", "sum", "count", "loop",
-        "entry", "exit", "follows", "comparison", "obtainable", "reduction",
+    /// The value fields each evidence file must record, by file name. A new
+    /// evidence file has to be declared here — that is deliberate, and it is
+    /// what makes a missing field detectable.
+    static let expectedValueFields: [String: Set<String>] = [
+        "issue-122-fluidaudio-ab.json": [
+            "chunks", "merges",
+            "case_folded_calls", "case_folded_early_return_ids_equal",
+            "case_folded_reached_guard", "case_folded_guard_else",
+            "case_folded_guard_else_map_nil", "case_folded_guard_else_id_absent",
+            "case_folded_both_ids_in_map", "case_folded_canonicals_differed",
+            "case_folded_matches", "case_folded_matched_token_ids",
+            "case_folded_canonical_id", "case_folded_changed_merge_output",
+            "collapse_called", "collapse_tokens_in", "collapse_tokens_out",
+            "word_boundary_fallbacks_entered",
+            "counterfactual_tokens_equal", "counterfactual_timestamps_equal",
+        ]
     ]
 
     // MARK: - Loading
@@ -38,9 +68,11 @@ struct EvidenceFileTests {
     private struct Evidence {
         let name: String
         let json: [String: Any]
-        /// Every string anywhere in the file, joined — the prose rules 1 and 2 apply to.
-        let prose: String
-        /// Every key at every depth.
+        /// Each string value separately. Never joined: a regex for backticked
+        /// spans run over a concatenation can pair a backtick in one value with
+        /// one in another, and `Dictionary` iteration order is randomised per
+        /// process, so the result would differ between runs of the same file.
+        let strings: [String]
         let allKeys: Set<String>
     }
 
@@ -49,7 +81,7 @@ struct EvidenceFileTests {
             .contentsOfDirectory(at: evidenceDirectory, includingPropertiesForKeys: nil)
             .filter { $0.pathExtension == "json" }
             .sorted { $0.lastPathComponent < $1.lastPathComponent }
-        #expect(!urls.isEmpty, "no evidence files in \(evidenceDirectory.path) — these tests would pass vacuously")
+        #expect(!urls.isEmpty, "no evidence files — every test here would pass vacuously")
 
         return try urls.map { url in
             let data = try Data(contentsOf: url)
@@ -58,25 +90,17 @@ struct EvidenceFileTests {
             var keys = Set<String>()
             func walk(_ node: Any) {
                 switch node {
-                case let d as [String: Any]:
-                    for (k, v) in d {
-                        keys.insert(k)
-                        walk(v)
-                    }
+                case let d as [String: Any]: for (k, v) in d { keys.insert(k); walk(v) }
                 case let a as [Any]: a.forEach(walk)
                 case let s as String: strings.append(s)
                 default: break
                 }
             }
             walk(json)
-            return Evidence(
-                name: url.lastPathComponent, json: json,
-                prose: strings.joined(separator: "\n"), allKeys: keys)
+            return Evidence(name: url.lastPathComponent, json: json, strings: strings, allKeys: keys)
         }
     }
 
-    /// The `path_coverage` value keys — those holding measurements, so excluding
-    /// `how` and anything a `_` marks as metadata.
     private static func valueKeys(_ pathCoverage: [String: Any]) -> Set<String> {
         Set(pathCoverage.keys.filter { $0 != "how" && !$0.hasPrefix("_") })
     }
@@ -85,12 +109,17 @@ struct EvidenceFileTests {
 
     private static let backtickSpan = #/`([^`]+)`/#
 
-    /// snake_case tokens inside backticks, split on anything that is not an
-    /// identifier character so that `` `a - b` `` yields both names.
-    private static func backtickedIdentifiers(in prose: String) -> Set<String> {
+    /// Lowercase snake_case tokens inside backticks, split on non-identifier
+    /// characters so `` `a - b` `` yields both. Tokens containing uppercase are
+    /// skipped deliberately: they are source symbols (`tokenIdsMatch`,
+    /// `SRTParser`), not fields of this file. That also means a stale reference
+    /// to a mixed-case *field* — `nm_caseVariantCanonicalIds` is one — is not
+    /// caught here.
+    private static func backtickedIdentifiers(in text: String) -> Set<String> {
         var found = Set<String>()
-        for match in prose.matches(of: backtickSpan) {
-            for token in String(match.1).split(whereSeparator: { !$0.isLetter && !$0.isNumber && $0 != "_" })
+        for match in text.matches(of: backtickSpan) {
+            for token in String(match.1)
+                .split(whereSeparator: { !$0.isLetter && !$0.isNumber && $0 != "_" })
             where token.contains("_") && !token.contains(where: \.isUppercase) {
                 found.insert(String(token))
             }
@@ -98,156 +127,218 @@ struct EvidenceFileTests {
         return found
     }
 
-    private static func backtickedRanges(in prose: String) -> [Range<String.Index>] {
-        prose.matches(of: backtickSpan).map(\.range)
+    private static func isIdentifierCharacter(_ c: Character) -> Bool {
+        c.isLetter || c.isNumber || c == "_"
     }
 
-    // MARK: - 1. No dangling field name
+    // MARK: - 1. The value fields are the declared ones
 
-    /// Every backticked snake_case name must be a key that exists somewhere in
-    /// the file. Derived from the file's own keys, so a new field needs no
-    /// change here — round 8 shipped a rename that left a sentence naming the
-    /// old key, and a hand-maintained prefix list would not have seen it.
-    @Test func `every backticked field name resolves to a key`() throws {
+    @Test func `each evidence file records exactly the value fields declared here`() throws {
         for e in try Self.evidenceFiles() {
-            let dangling = Self.backtickedIdentifiers(in: e.prose)
-                .subtracting(e.allKeys).sorted()
-            #expect(
-                dangling.isEmpty,
+            let declared = try #require(
+                Self.expectedValueFields[e.name],
                 """
-                \(e.name) names field(s) that do not exist: \(dangling).
-                A rename has to reach every sentence citing the old name, or the \
-                cited figure silently loses what the sentence said about it.
+                \(e.name) has no entry in expectedValueFields. A new evidence file must \
+                declare its value fields here — otherwise nothing can notice one going missing.
+                """)
+            let pc = try #require(
+                e.json["path_coverage"] as? [String: Any],
+                "\(e.name) declares value fields but has no path_coverage block")
+            let actual = Self.valueKeys(pc)
+
+            #expect(
+                actual == declared,
+                """
+                \(e.name): value fields differ from the declaration.
+                missing: \(declared.subtracting(actual).sorted())
+                unexpected: \(actual.subtracting(declared).sorted())
+                If a field was added or removed on purpose, update expectedValueFields \
+                and the count quoted in `_reproducing`.
                 """)
         }
     }
 
-    // MARK: - 2. Field names in prose are backticked
+    // MARK: - 2. No dangling field name
 
-    /// Rule 1 can only see names in backticks, so a bare name is a hole in it.
-    ///
-    /// Applied only to names containing an underscore. Those are unambiguously
-    /// identifiers; a single-word field name like `merges` is also an ordinary
-    /// English plural, and requiring backticks around every use of it would
-    /// distort the prose rather than protect it. So single-word field names are
-    /// not covered by this rule — rename one and rule 1 will not catch the
-    /// stale references.
-    @Test func `field names in prose are written in backticks`() throws {
+    @Test func `every backticked field name resolves to a key`() throws {
         for e in try Self.evidenceFiles() {
-            guard let pc = e.json["path_coverage"] as? [String: Any] else { continue }
-            let covered = Self.backtickedRanges(in: e.prose)
-            var bare: [String] = []
+            var dangling = Set<String>()
+            for text in e.strings {
+                dangling.formUnion(Self.backtickedIdentifiers(in: text).subtracting(e.allKeys))
+            }
+            #expect(
+                dangling.isEmpty,
+                """
+                \(e.name) names field(s) that do not exist: \(dangling.sorted()).
+                A rename has to reach every sentence citing the old name.
+                """)
+        }
+    }
 
-            for key in Self.valueKeys(pc).sorted() where key.contains("_") {
-                for range in e.prose.ranges(of: key) {
-                    // Skip a name that is part of a longer identifier.
-                    if let after = e.prose.indices.contains(range.upperBound) ? e.prose[range.upperBound] : nil,
-                        after.isLetter || after.isNumber || after == "_"
-                    { continue }
-                    if covered.contains(where: { $0.lowerBound <= range.lowerBound && range.upperBound <= $0.upperBound }) {
-                        continue
+    /// A method entry may only cite names from `path_coverage` — or source
+    /// symbols, which carry uppercase. Citing `reference_words` (the WER
+    /// denominator) or `transcript_sha256_txt` as the source of a control-flow
+    /// count would otherwise satisfy rule 2, because those are keys somewhere.
+    @Test func `probe entries cite only path_coverage fields`() throws {
+        for e in try Self.evidenceFiles() {
+            guard let pc = e.json["path_coverage"] as? [String: Any],
+                let how = pc["how"] as? [String: Any],
+                let probes = how["probes"] as? [String: String]
+            else { continue }
+            let inScope = Self.valueKeys(pc).union(how.keys).union(["path_coverage"])
+
+            for (field, method) in probes.sorted(by: { $0.key < $1.key }) {
+                let outside = Self.backtickedIdentifiers(in: method).subtracting(inScope).sorted()
+                #expect(
+                    outside.isEmpty,
+                    "\(e.name): how.probes[\(field)] sources its value from \(outside), which are not path_coverage fields")
+            }
+        }
+    }
+
+    // MARK: - 3. Underscored key names in prose are backticked
+
+    @Test func `underscored key names in prose are written in backticks`() throws {
+        for e in try Self.evidenceFiles() {
+            let names = e.allKeys.filter { $0.contains("_") && !$0.hasPrefix("_") }
+            var bare: Set<String> = []
+
+            for text in e.strings {
+                let covered = text.matches(of: Self.backtickSpan).map(\.range)
+                for name in names {
+                    for range in text.ranges(of: name) {
+                        if range.upperBound < text.endIndex,
+                            Self.isIdentifierCharacter(text[range.upperBound]) { continue }
+                        if range.lowerBound > text.startIndex,
+                            Self.isIdentifierCharacter(text[text.index(before: range.lowerBound)])
+                        { continue }
+                        if covered.contains(where: {
+                            $0.lowerBound <= range.lowerBound && range.upperBound <= $0.upperBound
+                        }) { continue }
+                        bare.insert(name)
                     }
-                    bare.append(key)
-                    break
                 }
             }
             #expect(
                 bare.isEmpty,
-                "\(e.name) writes field name(s) without backticks: \(bare). Rule 1 cannot see them.")
+                "\(e.name) writes key name(s) without backticks: \(bare.sorted()). Rule 2 cannot see them.")
         }
     }
 
-    // MARK: - 3. Every value states its method, and every method has a value
+    // MARK: - 4. Every value states its method
 
-    @Test func `probes and value fields correspond exactly`() throws {
-        var checked = 0
+    @Test func `probes cover the value fields and no measurement hides`() throws {
         for e in try Self.evidenceFiles() {
             guard let pc = e.json["path_coverage"] as? [String: Any] else { continue }
-            checked += 1
-            let how = try #require(pc["how"] as? [String: Any])
-            let probes = try #require(how["probes"] as? [String: String])
+            let how = try #require(pc["how"] as? [String: Any], "\(e.name): path_coverage has no how")
+            let probes = try #require(how["probes"] as? [String: String], "\(e.name): how has no probes")
             let values = Self.valueKeys(pc)
-            let described = Set(probes.keys)
 
             #expect(
-                values.subtracting(described).sorted().isEmpty,
-                "\(e.name): recorded with no method in how.probes: \(values.subtracting(described).sorted())")
+                values.subtracting(probes.keys).sorted().isEmpty,
+                "\(e.name): recorded with no method: \(values.subtracting(probes.keys).sorted())")
             #expect(
-                described.subtracting(values).sorted().isEmpty,
-                "\(e.name): how.probes describes absent field(s): \(described.subtracting(values).sorted())")
+                Set(probes.keys).subtracting(values).sorted().isEmpty,
+                "\(e.name): how.probes describes absent field(s): \(Set(probes.keys).subtracting(values).sorted())")
 
-            // A `_` key is metadata. Moving a measurement under one would drop it
-            // out of the correspondence above, so measurements may not hide there.
+            // A method has to name something other than the field it describes:
+            // the code symbol it reads, another field it derives from, or the
+            // section that explains it. Filler text and a restatement of the
+            // field name — in backticks or not — both fail this.
+            for (field, method) in probes.sorted(by: { $0.key < $1.key }) {
+                var cited = Set<String>()
+                for match in method.matches(of: Self.backtickSpan) {
+                    for token in String(match.1)
+                        .split(whereSeparator: { !$0.isLetter && !$0.isNumber && $0 != "_" })
+                    { cited.insert(String(token)) }
+                }
+                #expect(
+                    !cited.subtracting([field]).isEmpty,
+                    """
+                    \(e.name): how.probes[\(field)] names nothing but itself: "\(method)"
+                    A method entry has to cite the symbol, field or section it comes from.
+                    """)
+            }
+
+            // A `_` key is metadata. A measurement moved under one would leave
+            // the correspondence above, so numbers may not appear there at any
+            // depth — including inside arrays and nested objects. Booleans are
+            // allowed: they bridge to NSNumber but are ordinary metadata flags.
+            func containsNumber(_ node: Any) -> Bool {
+                switch node {
+                case let n as NSNumber: return CFGetTypeID(n) != CFBooleanGetTypeID()
+                case let a as [Any]: return a.contains(where: containsNumber)
+                case let d as [String: Any]: return d.values.contains(where: containsNumber)
+                default: return false
+                }
+            }
             for (key, value) in pc where key.hasPrefix("_") {
                 #expect(
-                    !(value is NSNumber),
-                    "\(e.name): \(key) holds a measurement (\(value)) under a metadata key, escaping the method requirement")
-            }
-        }
-        #expect(checked > 0, "no evidence file had a path_coverage block — this test verified nothing")
-    }
-
-    /// A probe entry has to say where the number came from. Length alone does not
-    /// establish that: the literal name `case_folded_early_return_ids_equal` is 34
-    /// characters. Require a backticked identifier or a word that names a method.
-    @Test func `each probes entry states a method`() throws {
-        for e in try Self.evidenceFiles() {
-            guard let how = (e.json["path_coverage"] as? [String: Any])?["how"] as? [String: Any],
-                let probes = how["probes"] as? [String: String]
-            else { continue }
-
-            for (field, method) in probes.sorted(by: { $0.key < $1.key }) {
-                let lowered = method.lowercased()
-                let hasIdentifier = !Self.backtickedIdentifiers(in: method).isEmpty
-                    || method.contains("`")
-                let hasMethodWord = Self.methodWords.contains { lowered.contains($0) }
-                #expect(
-                    hasIdentifier || hasMethodWord,
-                    """
-                    \(e.name): how.probes[\(field)] states no method: "\(method)".
-                    Name the site in backticks, or say how it was obtained \
-                    (\(Self.methodWords.prefix(6).joined(separator: ", "))…).
-                    """)
+                    !containsNumber(value),
+                    "\(e.name): \(key) holds a number under a metadata key, escaping the method requirement")
             }
         }
     }
 
-    // MARK: - 4. The counts add up
+    // MARK: - 5. The counts add up, and every identity is checked
 
-    /// Internal contracts between recorded counts, not pinned measurements:
-    /// re-measuring the corpus changes every number and these still hold.
-    @Test func `recorded counts satisfy their arithmetic relationships`() throws {
+    @Test func `recorded counts satisfy their identities, and none is skipped`() throws {
+        struct Sum { let label: String; let lhs: [String]; let rhs: [String] }
+        let sums = [
+            Sum(label: "calls split at the early return",
+                lhs: ["case_folded_calls"],
+                rhs: ["case_folded_early_return_ids_equal", "case_folded_reached_guard"]),
+            Sum(label: "the guard's two outcomes",
+                lhs: ["case_folded_reached_guard"],
+                rhs: ["case_folded_guard_else", "case_folded_both_ids_in_map"]),
+            Sum(label: "the guard's else, by cause",
+                lhs: ["case_folded_guard_else"],
+                rhs: ["case_folded_guard_else_map_nil", "case_folded_guard_else_id_absent"]),
+            Sum(label: "both ids present, by outcome",
+                lhs: ["case_folded_both_ids_in_map"],
+                rhs: ["case_folded_matches", "case_folded_canonicals_differed"]),
+        ]
+
         for e in try Self.evidenceFiles() {
             guard let pc = e.json["path_coverage"] as? [String: Any] else { continue }
-            func n(_ key: String) -> Int? { (pc[key] as? NSNumber)?.intValue }
 
-            let relations: [(String, [String], String, [String])] = [
-                ("calls split at the early return",
-                 ["case_folded_calls"],
-                 "=", ["case_folded_early_return_ids_equal", "case_folded_reached_guard"]),
-                ("the guard's two outcomes",
-                 ["case_folded_reached_guard"],
-                 "=", ["case_folded_guard_else", "case_folded_both_ids_in_map"]),
-                ("the guard's else, by cause",
-                 ["case_folded_guard_else"],
-                 "=", ["case_folded_guard_else_map_nil", "case_folded_guard_else_id_absent"]),
-                ("both ids present, by outcome",
-                 ["case_folded_both_ids_in_map"],
-                 "=", ["case_folded_matches", "case_folded_canonicals_differed"]),
-            ]
-
-            for (label, lhsKeys, _, rhsKeys) in relations {
-                let lhs = lhsKeys.compactMap(n)
-                let rhs = rhsKeys.compactMap(n)
-                guard lhs.count == lhsKeys.count, rhs.count == rhsKeys.count else { continue }
+            func count(_ key: String) throws -> Int {
+                let value = try #require(pc[key], "\(e.name): \(key) is absent")
+                let number = try #require(
+                    value as? NSNumber,
+                    "\(e.name): \(key) is \(type(of: value)), not a number — its identities would be skipped")
                 #expect(
-                    lhs.reduce(0, +) == rhs.reduce(0, +),
+                    CFGetTypeID(number) != CFBooleanGetTypeID(),
+                    "\(e.name): \(key) is a boolean standing in for a count")
+                #expect(
+                    number.doubleValue == Double(number.intValue),
+                    "\(e.name): \(key) is \(number), not a whole number")
+                return number.intValue
+            }
+
+            for sum in sums {
+                let lhs = try sum.lhs.map(count).reduce(0, +)
+                let rhs = try sum.rhs.map(count).reduce(0, +)
+                #expect(
+                    lhs == rhs,
                     """
-                    \(e.name): \(label) does not balance — \
-                    \(lhsKeys.joined(separator: " + ")) = \(lhs.reduce(0, +)) but \
-                    \(rhsKeys.joined(separator: " + ")) = \(rhs.reduce(0, +)).
+                    \(e.name): \(sum.label) does not balance.
+                    \(sum.lhs.joined(separator: " + ")) = \(lhs)
+                    \(sum.rhs.joined(separator: " + ")) = \(rhs)
                     """)
             }
+
+            // The file states this identity in words; it is as checkable as the
+            // four above, and it carries the entry's conclusion.
+            let tokensEqual = try #require(pc["counterfactual_tokens_equal"] as? Bool)
+            let stampsEqual = try #require(pc["counterfactual_timestamps_equal"] as? Bool)
+            let changed = try #require(pc["case_folded_changed_merge_output"] as? Bool)
+            #expect(
+                changed == !(tokensEqual && stampsEqual),
+                """
+                \(e.name): case_folded_changed_merge_output is \(changed) but the counterfactual \
+                comparisons say \(!(tokensEqual && stampsEqual)).
+                """)
         }
     }
 }
