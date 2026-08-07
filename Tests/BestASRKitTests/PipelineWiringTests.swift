@@ -139,13 +139,29 @@ struct PipelineWiringTests {
                                                         // stayed green before this line (#12 verify F3)
     }
 
-    /// #12: the 224-token clamp must act on the ENCODED prompt at the seam —
-    /// keeping the suffix (nearest context wins under Whisper's left-context
-    /// window), not the prefix.
-    /// Design D4 flipped this contract: the clamp keeps the FRONT of the prompt,
-    /// where `PromptRenderer` puts the names, rather than the tail. The previous
-    /// version of this test asserted the suffix — correct for the old behavior,
-    /// and it caught the change immediately, which is what it is for.
+    /// #12: the 224-token clamp must act on the ENCODED prompt at the seam.
+    ///
+    /// **The direction was reversed by #164 (design D4), and the two rationales
+    /// are on different axes — this is a real trade-off, not a bug fix.**
+    ///
+    /// The original (#12) kept the SUFFIX, reasoning that "nearest context wins
+    /// under Whisper's left-context window" — a claim about decoder influence:
+    /// tokens closest to where transcription begins weigh most.
+    ///
+    /// D4 keeps the PREFIX, reasoning that `PromptRenderer` emits names, then
+    /// terms, then phrases, so the front holds the highest-value content — a
+    /// claim about what is worth keeping. Dropping the suffix drops phrases;
+    /// dropping the prefix dropped the proper nouns the context directory exists
+    /// to inject.
+    ///
+    /// Both can be true at once: the front may carry the better content while
+    /// the tail carries more decoder weight. Which wins has NOT been measured
+    /// here. D4 chose content priority because the observed failure was proper
+    /// nouns being mis-transcribed while sitting in the "injected" list. If
+    /// measurement later shows position dominates, this is the line to revisit —
+    /// and the honest fix would be to reorder the renderer so the highest-value
+    /// items land at the tail, not to re-flip the clamp against its own
+    /// priority ordering.
     @Test func `Overlong prompt is clamped to the leading 224 tokens at the seam`() async throws {
         let spy = SpyPipeline(tokenizer: FakeTokenizer())
         let engine = WhisperKitEngine(pipelineFactory: { _ in spy })
