@@ -327,8 +327,15 @@ final class OptionsBox: @unchecked Sendable {
     }
 }
 
+/// Stands in for the WhisperKit backend, so it declares what that backend
+/// declares. A mock claiming `.whisperKit` while reporting no prompt support
+/// would be the exact declaration/behavior mismatch #164 removes — and the
+/// context here would be skipped, which is what caught this.
 private func capturingEngine(_ box: OptionsBox) -> MockEngine {
-    MockEngine(id: .whisperKit, available: true) { _, options in
+    MockEngine(
+        id: .whisperKit, available: true,
+        promptCapability: .supported(maxTokens: 224)
+    ) { _, options in
         box.append(options)
         return RawTranscription(
             segments: [.init(start: 0.0, end: 2.5, text: "hello world")],

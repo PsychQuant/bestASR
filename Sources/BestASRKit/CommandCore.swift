@@ -90,17 +90,36 @@ public struct CommandCore: Sendable {
 
     struct ContextBundle {
         let loaded: LoadedContext
-        let rendered: PromptRenderer.Rendered
+        /// `nil` when the selected backend takes no conditioning text, so no
+        /// prompt was rendered. Distinct from a bundle whose prompt happens to
+        /// be empty: nil means the question did not apply.
+        let rendered: PromptRenderer.Rendered?
     }
 
     /// Resolve + load + render. Returns nil when nothing resolves or the
     /// directory holds neither values nor ignorable files — zero impact.
     /// A directory that only holds unsupported files still returns a bundle
     /// (prompt nil) so the ignore list is disclosed loudly, never silently.
-    func loadContext(flag: String?) throws -> ContextBundle? {
+    ///
+    /// - Parameter capability: the selected backend's declaration. When it
+    ///   reports no usable budget, rendering is **skipped entirely** rather than
+    ///   performed and discarded (design D3): the truncation arithmetic would be
+    ///   real work producing figures that describe nothing, and reporting an
+    ///   injected count for a backend that consumes none is the misstatement
+    ///   this whole change exists to remove.
+    ///
+    ///   `nil` means "no single backend applies" — the benchmark's ±context
+    ///   delta mode measures many candidates in one run — and keeps the
+    ///   previous global default.
+    func loadContext(flag: String?, capability: PromptCapability? = nil) throws -> ContextBundle? {
         guard let loaded = try ContextLoader.load(flag: flag) else { return nil }
         if loaded.isEmpty && loaded.ignoredFiles.isEmpty { return nil }
-        return ContextBundle(loaded: loaded, rendered: PromptRenderer.render(loaded))
+        if let capability, !capability.supportsPrompt {
+            return ContextBundle(loaded: loaded, rendered: nil)
+        }
+        let budget = capability?.effectiveBudget ?? PromptRenderer.defaultTokenBudget
+        return ContextBundle(
+            loaded: loaded, rendered: PromptRenderer.render(loaded, tokenBudget: budget))
     }
 
     /// Grid-row lookup for a measured candidate (#16): keyed by the facts the
@@ -114,26 +133,47 @@ public struct CommandCore: Sendable {
         }
     }
 
+    /// Wording used wherever a backend cannot consume conditioning text. Naming
+    /// it once keeps the reason line and the explain block from drifting apart.
+    static let contextUnsupportedNote =
+        "this backend does not support context biasing — the context will not affect this transcription"
+
     static func contextReasonLine(_ bundle: ContextBundle) -> String {
-        if bundle.rendered.injected.isEmpty {
+        guard let rendered = bundle.rendered else {
+            return "context: \(bundle.loaded.directory) — \(Self.contextUnsupportedNote)"
+        }
+        if rendered.injected.isEmpty {
             return "context: \(bundle.loaded.directory) — 0 values injected; "
                 + "\(bundle.loaded.ignoredFiles.count) file(s) ignored (run the context-ingest skill)"
         }
-        return "context: \(bundle.loaded.directory) — \(bundle.rendered.injected.count) value(s) injected"
+        return "context: \(bundle.loaded.directory) — \(rendered.injected.count) value(s) injected"
     }
 
     /// Explain-mode disclosure (design D9): resolved dir, injected values,
     /// truncated items, ignored files with ingestion guidance.
+    ///
+    /// When the backend takes no prompt there is no injected count and no
+    /// truncation list to report — printing `injected (N)` there was the
+    /// original complaint: it reads as "this worked", and a user acts on it by
+    /// trimming their term list, which changes nothing (spec `Explain discloses
+    /// context usage`).
     static func contextExplanation(_ bundle: ContextBundle) -> [String] {
         var lines = ["Context: \(bundle.loaded.directory)"]
+        guard let rendered = bundle.rendered else {
+            lines.append("  \(Self.contextUnsupportedNote)")
+            for file in bundle.loaded.ignoredFiles {
+                lines.append("  ignored: \(file) — \(LoadedContext.ingestGuidance)")
+            }
+            return lines
+        }
         lines.append(
-            "  injected (\(bundle.rendered.injected.count)): "
-                + (bundle.rendered.injected.isEmpty
-                    ? "(none)" : bundle.rendered.injected.joined(separator: ", ")))
-        if !bundle.rendered.truncated.isEmpty {
+            "  injected (\(rendered.injected.count)): "
+                + (rendered.injected.isEmpty
+                    ? "(none)" : rendered.injected.joined(separator: ", ")))
+        if !rendered.truncated.isEmpty {
             lines.append(
-                "  truncated (\(bundle.rendered.truncated.count)): "
-                    + bundle.rendered.truncated.joined(separator: ", "))
+                "  truncated (\(rendered.truncated.count)): "
+                    + rendered.truncated.joined(separator: ", "))
         }
         for file in bundle.loaded.ignoredFiles {
             lines.append("  ignored: \(file) — \(LoadedContext.ingestGuidance)")
@@ -341,12 +381,15 @@ public struct CommandCore: Sendable {
             throw BestASRError.runtime("no engine registered for backend \(rec.backend.rawValue)")
         }
 
-        let context = try loadContext(flag: selection.contextDir)
+        // The engine is resolved above, so the render budget can come from the
+        // backend that will actually receive the prompt (design D3).
+        let context = try loadContext(
+            flag: selection.contextDir, capability: engine.promptCapability)
         let transcript = try await engine.transcribe(
             audioPath: audio.path,
             options: TranscribeOptions(
                 model: rec.model, quantization: rec.quantization,
-                language: lang.language, prompt: context?.rendered.prompt,
+                language: lang.language, prompt: context?.rendered?.prompt,
                 noSpeechThreshold: noSpeechThreshold,
                 compressionRatioThreshold: compressionRatioThreshold,
                 logProbThreshold: logProbThreshold)
@@ -527,13 +570,13 @@ public struct CommandCore: Sendable {
             notes: enumeration.notes
                 + (contextBundle.map {
                     ["context: \($0.loaded.directory) — "
-                     + "\($0.rendered.injected.count) value(s) in the with-context pass"]
+                     + "\($0.rendered?.injected.count ?? 0) value(s) in the with-context pass"]
                 } ?? []),
             audio: audio,
             referenceText: referenceText,
             metricKind: metricKind,
             language: resolvedLanguage ?? "auto",
-            contextPrompt: contextBundle?.rendered.prompt,
+            contextPrompt: contextBundle?.rendered?.prompt,
             deterministicDecode: decodeDeterministic
         )
 

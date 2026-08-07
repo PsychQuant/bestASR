@@ -21,13 +21,13 @@
 
 對應 spec 需求 `Render context into a natural-language prompt with priority and budget`。
 
-- [ ] 4.1 渲染呼叫點改為向所選引擎取得預算，取代原本依賴全域預設常數的行為。驗收：測試以宣告上限 224 的引擎執行，斷言實際採用的預算為 224 而非 200。
-- [ ] 4.2 依 D3，所選引擎宣告不支援時整段跳過渲染，不計算截斷。驗收：測試以不支援的引擎搭配非空 context 執行，斷言未產生截斷清單、且渲染未被執行。
-- [ ] 4.3 將「宣告支援但最大 token 數為 0」導向與不支援相同的路徑，滿足 `Common engine interface` 的零預算情境。驗收：測試斷言此情況不產生任何 prompt（尤其不得產生空字串 prompt 傳給後端）。
+- [x] 4.1 渲染呼叫點改為向所選引擎取得預算，取代原本依賴全域預設常數的行為。驗收：測試以宣告上限 224 的引擎執行，斷言實際採用的預算為 224 而非 200。
+- [x] 4.2 依 D3，所選引擎宣告不支援時整段跳過渲染，不計算截斷。驗收：測試以不支援的引擎搭配非空 context 執行，斷言未產生截斷清單、且渲染未被執行。
+- [x] 4.3 將「宣告支援但最大 token 數為 0」導向與不支援相同的路徑，滿足 `Common engine interface` 的零預算情境。驗收：測試斷言此情況不產生任何 prompt（尤其不得產生空字串 prompt 傳給後端）。
 
 ## 5. 誠實化輸出與選型
 
-- [ ] 5.1 滿足 spec 需求 `Explain discloses context usage`：explain 的 context 區段在引擎不支援時改為明講該後端不支援 context biasing，且不輸出注入計數與截斷清單。驗收：測試斷言不支援情境下的輸出不含注入計數、且含不支援訊息；支援情境的既有輸出不變。
+- [x] 5.1 滿足 spec 需求 `Explain discloses context usage`：explain 的 context 區段在引擎不支援時改為明講該後端不支援 context biasing，且不輸出注入計數與截斷清單。驗收：測試斷言不支援情境下的輸出不含注入計數、且含不支援訊息；支援情境的既有輸出不變。
 - [ ] 5.2 滿足 spec 需求 `Selection accounts for prompt support when context is present`，依 design 決策 D5（routing 在有 context 時納入支援度，但不硬性過濾）：已解析到 context 目錄且選中不支援 prompt 的後端時發出警告，說明所提供的 context 不會影響本次轉錄；不因此排除該後端。驗收：測試涵蓋三種情形——有 context 且選中不支援者（發警告且仍使用該後端）、有 context 且選中支援者（無警告）、無 context（無警告且選型準則不受影響）。
 
 ## 6. 收尾驗證
