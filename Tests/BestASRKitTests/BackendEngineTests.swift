@@ -66,6 +66,59 @@ struct WhisperCppEngineTests {
             Issue.record("unexpected error type: \(error)")
         }
     }
+
+    /// #165: whisper-cli chatters on stdout. Before the fix the engine attached
+    /// stdout to an anonymous `Pipe()` nobody read, so a child writing past the
+    /// 64 KB Darwin pipe buffer blocked in `write(2)` and the parent blocked
+    /// forever in `waitUntilExit()`. Measured threshold: ~63 minutes of audio.
+    ///
+    /// The stub floods stdout BEFORE writing its JSON — so a deadlocked run
+    /// never produces output, exactly like the real failure.
+    @Test(.timeLimit(.minutes(1)))
+    func `whisper-cli writing more than one pipe buffer of stdout does not deadlock`()
+        async throws
+    {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("bestasr-165-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+
+        let modelDir = tmp.appendingPathComponent("models", isDirectory: true)
+        try FileManager.default.createDirectory(at: modelDir, withIntermediateDirectories: true)
+        // Existence is all the engine checks before spawning.
+        try Data().write(
+            to: modelDir.appendingPathComponent(
+                WhisperCppEngine.modelFileName(model: "tiny", quantization: "q5_0")))
+
+        // ~195 KB of stdout — three pipe buffers — emitted before the JSON.
+        let stub = tmp.appendingPathComponent("whisper-cli")
+        try """
+            #!/bin/sh
+            awk 'BEGIN{for(i=0;i<3000;i++) print "whisper-cli chatter filling the pipe buffer ......."}'
+            base=""
+            while [ $# -gt 0 ]; do
+              [ "$1" = "-of" ] && base="$2"
+              shift
+            done
+            printf '%s' '{"result":{"language":"en"},"transcription":[{"offsets":{"from":0,"to":1000},"text":" hi"}]}' > "$base.json"
+            exit 0
+            """.write(to: stub, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755], ofItemAtPath: stub.path)
+
+        // Budget pinned (#165 verify B6): without it this inherits the 6-hour
+        // unprobeable-path fallback, so a reintroduced deadlock would hang CI
+        // rather than fail. 20s is far above the ~0.06s this actually takes.
+        let engine = WhisperCppEngine(
+            modelDirectory: modelDir, binaryPathOverride: stub.path, timeoutOverride: 20)
+        let raw = try await engine.transcribeRaw(
+            audioPath: tmp.appendingPathComponent("clip.wav").path,
+            options: TranscribeOptions(model: "tiny", quantization: "q5_0")
+        )
+
+        #expect(raw.segments.count == 1)
+        #expect(raw.segments[0].text == " hi")
+    }
 }
 
 struct PromptForwardingTests {

@@ -128,86 +128,24 @@ public struct ExternalProcessEngine: Engine {
         return sane.isEmpty ? fullText() : sane
     }
 
-    /// Thread-safe "the adapter really exited" latch, flipped by the
-    /// terminationHandler (fires on a private queue). The watchdog loops on
-    /// this instead of `Process.isRunning`, whose spurious `false` right after
-    /// `run()` under load skipped the watchdog entirely and left an unbounded
-    /// `waitUntilExit()` — the 1-hour CI hang of #91.
-    private final class ExitLatch: @unchecked Sendable {
-        private let lock = NSLock()
-        private var exited = false
-        var isSet: Bool { lock.withLock { exited } }
-        func set() { lock.withLock { exited = true } }
-    }
-
-    /// Spawn + collect with a hard timeout (D3): SIGTERM on expiry, SIGKILL
-    /// if the process lingers, then the pipe read ends are closed so drain
-    /// tasks unblock even if a grandchild still holds the write end.
+    /// Spawn + collect with a hard timeout (D3).
+    ///
+    /// The concurrent-drain + deadline machinery this used to own now lives in
+    /// `SubprocessRunner`, so `WhisperCppEngine` and every future engine get it
+    /// too — #165 was the same bug as #91, surviving only because the fix
+    /// stayed local to this file.
+    ///
+    /// **Error wording changed** when the machinery moved, because the shared
+    /// helper serves non-adapter callers too: `cannot launch adapter '<exe>'` is
+    /// now `cannot launch '<exe>'`, and `adapter timed out after Ns…` is now
+    /// `'<exe>' timed out after Ns…` (plus collected stderr). An earlier version
+    /// of this comment claimed the text was unchanged; it was not (#165 verify
+    /// I1). No test or caller matches on those strings — verified, not assumed.
     static func run(
         executable: String, arguments: [String], timeout: TimeInterval, backend: String
     ) async throws -> (Int32, String, String) {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: executable)
-        process.arguments = arguments
-        let outPipe = Pipe()
-        let errPipe = Pipe()
-        process.standardOutput = outPipe
-        process.standardError = errPipe
-        // Installed BEFORE run() so an instant exit can never miss the latch.
-        let exited = ExitLatch()
-        process.terminationHandler = { _ in exited.set() }
-
-        do {
-            try process.run()
-        } catch {
-            throw TranscriptionError(
-                backend: backend,
-                message: "cannot launch adapter '\(executable)': \(error.localizedDescription)",
-                underlying: error)
-        }
-
-        // Reader threads drain the pipes so a chatty adapter never deadlocks
-        // on a full pipe buffer.
-        async let outData = Task.detached {
-            outPipe.fileHandleForReading.readDataToEndOfFile()
-        }.value
-        async let errData = Task.detached {
-            errPipe.fileHandleForReading.readDataToEndOfFile()
-        }.value
-
-        let deadline = Date().addingTimeInterval(timeout)
-        var timedOut = false
-        // Invariant (#91): this loop exits ONLY via the exit latch (the adapter
-        // is really gone) or the deadline kill — never via a racy liveness read,
-        // so waitUntilExit() below is bounded on both paths.
-        while !exited.isSet {
-            if Date() > deadline {
-                timedOut = true
-                process.terminate()
-                try? await Task.sleep(nanoseconds: 500_000_000)
-                if !exited.isSet {
-                    kill(process.processIdentifier, SIGKILL)
-                }
-                // A grandchild may still hold the pipe write end — closing
-                // our read ends unblocks the drain tasks so a killed adapter
-                // can never wedge the host (#51 verify M4).
-                try? outPipe.fileHandleForReading.close()
-                try? errPipe.fileHandleForReading.close()
-                break
-            }
-            try? await Task.sleep(nanoseconds: 50_000_000)
-        }
-        process.waitUntilExit()
-
-        let stdout = String(decoding: await outData, as: UTF8.self)
-        let stderr = String(decoding: await errData, as: UTF8.self)
-        if timedOut {
-            throw TranscriptionError(
-                backend: backend,
-                message: "adapter timed out after \(Int(timeout))s and was terminated",
-                underlying: nil)
-        }
-        return (process.terminationStatus, stdout, stderr)
+        try await SubprocessRunner.run(
+            executable: executable, arguments: arguments, timeout: timeout, backend: backend)
     }
 }
 

@@ -5,6 +5,47 @@ All notable changes to bestASR are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- **Subprocess deadlock, third occurrence (#165)**: `WhisperCppEngine` attached
+  stdout to a `Pipe()` nobody read and then waited with no timeout, so any
+  whisper.cpp run producing more than Darwin's 64 KB pipe buffer hung forever —
+  **about 63 minutes of audio was enough**, and the failure was completely
+  silent (process alive, ~0% CPU, no output, no error). The same shape had
+  already shipped as #91 and #158; each earlier fix stayed local to the file
+  that hurt.
+
+  The drain-and-deadline machinery now lives in one place, `SubprocessRunner`,
+  with the deadline covering **the whole operation** — process exit *and* both
+  drains — rather than just the child's lifetime. A first attempt at this fix
+  bounded only the child, which left a grandchild inheriting the pipes able to
+  wedge the parent after the child exited cleanly; that is #91 recurring inside
+  its own fix, and it is what the operation-level deadline closes. The budget is
+  now validated (a non-finite timeout is rejected rather than silently removing
+  the bound) and measured on `ContinuousClock`, so moving the system clock
+  cannot extend a deadline. Cancellation terminates the child and propagates
+  instead of being swallowed.
+
+  **User-visible changes**: a stuck `whisper-cli` now fails with a typed timeout
+  carrying the collected stderr, where it previously hung; `bestasr bench
+  submit` / `corpus submit` now bound each `gh`/`git`/`hf` call at 5 minutes,
+  where a command blocked on an interactive auth prompt previously waited
+  forever; and adapter error wording changed (`cannot launch adapter '<exe>'` →
+  `cannot launch '<exe>'`, `adapter timed out after Ns…` → `'<exe>' timed out
+  after Ns…`).
+
+  **Known limits, stated rather than implied**: descendants are not killed —
+  `Foundation.Process` does not expose `posix_spawnattr`, so a timeout signals
+  only the direct child. A grandchild that ignores the closed pipes keeps
+  running; what changed is that it can no longer wedge the caller. Process-group
+  termination is #170, and the timeout *policy* (absolute cap, the `2x` vs `4x`
+  inconsistency, model-size awareness) is #171.
+
+  A `SpawnSiteSweepTests` guard now fails the build when a new direct `Process()`
+  appears outside the shared runner without an explicit, reasoned allowlist
+  entry — because a sweep that depends on someone remembering to sweep is the
+  mechanism by which this recurred three times.
+
 ### Added
 
 - **Apple Speech backend (#121)**: `apple-speech` — the OS-native backend
