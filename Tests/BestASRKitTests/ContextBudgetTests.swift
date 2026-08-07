@@ -124,4 +124,78 @@ struct ContextBudgetTests {
         #expect(!explanation.contains("does not support context biasing"))
         #expect(CommandCore.contextReasonLine(bundle).contains("value(s) injected"))
     }
+
+    // MARK: - 5.2 selection surfaces the trade-off (spec `Selection accounts
+    // for prompt support when context is present`, design D5)
+
+    /// `backendOverride` is used so the scenario under test is the one the spec
+    /// describes. Without it the router picks by cold-start prior — it chose
+    /// whisper.cpp, a backend with no registered engine here, so the assertion
+    /// would have been about routing rather than about capability.
+    private static func selection(
+        contextDir: String? = nil, backend: String? = nil
+    ) -> SelectionRequest {
+        SelectionRequest(
+            profileName: "medium", backendOverride: backend, modelOverride: nil,
+            requestedLanguage: "en", contextDir: contextDir)
+    }
+
+    private func audioFixture() throws -> (URL, String) {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ctx-route-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return (dir, try makeWavFile(in: dir))
+    }
+
+    /// Warned, not excluded. Whether a lower error rate is worth losing context
+    /// biasing has not been measured here, so the system surfaces the trade-off
+    /// instead of deciding it silently (D5).
+    @Test func `Selecting a backend without prompt support warns but still uses it`() async throws {
+        let (dir, audio) = try audioFixture()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let ctx = try makeContextDir()
+        defer { try? FileManager.default.removeItem(at: ctx) }
+
+        let subject = core(engines: [MockEngine.fixed(.fluidParakeet)])
+        let json = try await subject.recommendJSON(
+            audioPath: audio,
+            selection: Self.selection(contextDir: ctx.path, backend: "fluid-parakeet"))
+
+        #expect(
+            json.contains("does not support context biasing"),
+            "selection must surface that the context cannot take effect; got: \(json)")
+        #expect(json.contains("fluid-parakeet"), "the backend must still be the one selected")
+    }
+
+    @Test func `A supporting backend produces no prompt-capability warning`() async throws {
+        let (dir, audio) = try audioFixture()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let ctx = try makeContextDir()
+        defer { try? FileManager.default.removeItem(at: ctx) }
+
+        let subject = core(engines: [
+            MockEngine(
+                id: .whisperKit, available: true,
+                promptCapability: .supported(maxTokens: 224)
+            ) { _, _ in
+                RawTranscription(segments: [], language: "en", duration: 1)
+            }
+        ])
+        let json = try await subject.recommendJSON(
+            audioPath: audio,
+            selection: Self.selection(contextDir: ctx.path, backend: "whisperkit"))
+        #expect(!json.contains("does not support context biasing"), "got: \(json)")
+    }
+
+    /// With no context resolved, capability must not influence selection at all
+    /// — no warning, no change of criteria.
+    @Test func `No context means no prompt-capability warning`() async throws {
+        let (dir, audio) = try audioFixture()
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let subject = core(engines: [MockEngine.fixed(.fluidParakeet)])
+        let json = try await subject.recommendJSON(
+            audioPath: audio, selection: Self.selection(backend: "fluid-parakeet"))
+        #expect(!json.contains("does not support context biasing"), "got: \(json)")
+    }
 }

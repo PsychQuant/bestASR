@@ -5,6 +5,43 @@ All notable changes to bestASR are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- **BREAKING — `Engine` now declares its prompt capability (#164)**: the protocol
+  gains a `promptCapability` requirement with **no default implementation**, so
+  every conformer — including any out-of-tree engine — must state whether it
+  consumes decoder conditioning text and up to how many tokens. A default was
+  considered and rejected: it would let a new backend inherit "no prompt support"
+  without its author ever considering the question, which is a quieter form of
+  the very problem this change fixes. The cost is a one-time source-breaking
+  change; the benefit is that the answer can no longer be assumed.
+
+- **Context injection reports the truth, and reaches more of your terms (#164)**:
+  the token budget now comes from the selected backend instead of a single global
+  constant.
+
+  Two things change for you. First, a backend that ignores conditioning text no
+  longer prints `injected (N)` and a truncation list — it says plainly that it
+  does not support context biasing, and selection warns when your context cannot
+  take effect. Previously five of the seven backends ran the whole render-and-
+  truncate pipeline and discarded the result while still reporting a count; a
+  real run showed `injected (49) / truncated (53)` against a backend that used
+  none of them, and the two terms that mattered were both in the "injected" list
+  and both mis-transcribed. Acting on that number by trimming your term list
+  changed nothing.
+
+  Second, on the Whisper backends the budget rises from 200 to their measured
+  224-token ceiling, so **more of the same context directory now reaches the
+  model**. Expect slightly different transcripts there. This is the intended
+  improvement, not model drift — and the clamp direction was corrected in the
+  same change: overflow now discards the lowest-priority phrases rather than the
+  names at the front of the prompt, which is what it had been dropping.
+
+  Selection warns but does not re-rank. Whether a lower measured error rate is
+  worth losing context biasing has not been measured, so the trade-off is
+  surfaced rather than decided.
+
+
 ### Added
 
 - **Apple Speech backend (#121)**: `apple-speech` — the OS-native backend

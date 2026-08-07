@@ -138,6 +138,20 @@ public struct CommandCore: Sendable {
     static let contextUnsupportedNote =
         "this backend does not support context biasing — the context will not affect this transcription"
 
+    /// The declaration of the engine registered for `backend`, or nil when none
+    /// is registered (the caller then keeps the previous global default).
+    func promptCapability(for backend: BackendID) -> PromptCapability? {
+        engines.first(where: { $0.id == backend })?.promptCapability
+    }
+
+    /// Selection-time warning (design D5). Returns nil when there is nothing to
+    /// warn about — including when no engine is registered for the choice, since
+    /// inventing a warning from an unknown is worse than staying quiet.
+    static func contextCapabilityWarning(_ capability: PromptCapability?) -> String? {
+        guard let capability, !capability.supportsPrompt else { return nil }
+        return "selected backend \(Self.contextUnsupportedNote)"
+    }
+
     static func contextReasonLine(_ bundle: ContextBundle) -> String {
         guard let rendered = bundle.rendered else {
             return "context: \(bundle.loaded.directory) — \(Self.contextUnsupportedNote)"
@@ -331,13 +345,25 @@ public struct CommandCore: Sendable {
         let lang = await resolveAutoLanguage(audioPath: audio.path, resolved: audio.language)
         var rec = try await resolveRecommendation(selection: selection, language: lang.language)
         rec = rec.merging(reasons: lang.reasons, warnings: lang.warnings)
-        if let bundle = try loadContext(flag: selection.contextDir) {
+        let selectedCapability = promptCapability(for: rec.backend)
+        if let bundle = try loadContext(
+            flag: selection.contextDir, capability: selectedCapability)
+        {
+            // D5: surface the trade-off, do not decide it. The backend stays
+            // selected — whether a lower measured error rate is worth losing
+            // context biasing has not been measured, and quietly re-ranking on
+            // an unmeasured belief would be the same overreach in the other
+            // direction.
+            var warnings = rec.warnings
+            if let note = Self.contextCapabilityWarning(selectedCapability) {
+                warnings.append(note)
+            }
             rec = ASRRecommendation(
                 backend: rec.backend, model: rec.model, quantization: rec.quantization,
                 profile: rec.profile, language: rec.language, dataSource: rec.dataSource,
                 measured: rec.measured,
                 reason: rec.reason + [Self.contextReasonLine(bundle)],
-                warnings: rec.warnings
+                warnings: warnings
             )
         }
         let document = RecommendationJSON(

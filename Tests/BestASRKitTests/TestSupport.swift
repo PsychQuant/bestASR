@@ -25,13 +25,14 @@ struct MockEngine: Engine {
     static func fixed(
         _ id: BackendID,
         available: Bool = true,
+        promptCapability: PromptCapability = .unsupported,
         segments: [RawTranscription.RawSegment] = [
             .init(start: 0.0, end: 2.5, text: "hello world")
         ],
         language: String? = "en",
         duration: Double? = 2.5
     ) -> MockEngine {
-        MockEngine(id: id, available: available) { _, _ in
+        MockEngine(id: id, available: available, promptCapability: promptCapability) { _, _ in
             RawTranscription(segments: segments, language: language, duration: duration)
         }
     }

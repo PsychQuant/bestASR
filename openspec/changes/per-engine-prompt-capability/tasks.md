@@ -28,10 +28,10 @@
 ## 5. 誠實化輸出與選型
 
 - [x] 5.1 滿足 spec 需求 `Explain discloses context usage`：explain 的 context 區段在引擎不支援時改為明講該後端不支援 context biasing，且不輸出注入計數與截斷清單。驗收：測試斷言不支援情境下的輸出不含注入計數、且含不支援訊息；支援情境的既有輸出不變。
-- [ ] 5.2 滿足 spec 需求 `Selection accounts for prompt support when context is present`，依 design 決策 D5（routing 在有 context 時納入支援度，但不硬性過濾）：已解析到 context 目錄且選中不支援 prompt 的後端時發出警告，說明所提供的 context 不會影響本次轉錄；不因此排除該後端。驗收：測試涵蓋三種情形——有 context 且選中不支援者（發警告且仍使用該後端）、有 context 且選中支援者（無警告）、無 context（無警告且選型準則不受影響）。
+- [x] 5.2 滿足 spec 需求 `Selection accounts for prompt support when context is present`，依 design 決策 D5（routing 在有 context 時納入支援度，但不硬性過濾）：已解析到 context 目錄且選中不支援 prompt 的後端時發出警告，說明所提供的 context 不會影響本次轉錄；不因此排除該後端。驗收：測試涵蓋三種情形——有 context 且選中不支援者（發警告且仍使用該後端）、有 context 且選中支援者（無警告）、無 context（無警告且選型準則不受影響）。
 
 ## 6. 收尾驗證
 
-- [ ] 6.1 對照 design 的 Implementation Contract 之 Acceptance criteria 逐條確認測試存在且通過。驗收：每一條 criteria 都能指向一個具名測試。
-- [ ] 6.2 執行全套件測試並確認全綠。驗收：測試指令回傳成功，且失敗數為 0。
-- [ ] 6.3 於 CHANGELOG 記錄兩項對使用者可見的變化：`Engine` protocol 新增 requirement 屬 breaking change（D2 的取捨）；同一份 context 在 Whisper 後端上的注入量會因預算由 200 提高到 224 而增加。驗收：CHANGELOG 含這兩點，措辭指明後者屬預期改善而非模型行為漂移。
+- [x] 6.1 對照 design 的 Implementation Contract 之 Acceptance criteria 逐條確認測試存在且通過。驗收：每一條 criteria 都能指向一個具名測試。
+- [x] 6.2 執行全套件測試並確認全綠。驗收：測試指令回傳成功，且失敗數為 0。
+- [x] 6.3 於 CHANGELOG 記錄兩項對使用者可見的變化：`Engine` protocol 新增 requirement 屬 breaking change（D2 的取捨）；同一份 context 在 Whisper 後端上的注入量會因預算由 200 提高到 224 而增加。驗收：CHANGELOG 含這兩點，措辭指明後者屬預期改善而非模型行為漂移。
