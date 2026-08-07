@@ -45,3 +45,11 @@ fi
 } > "$OUT"
 
 echo "✓ pinned ${#REPOS[@]} repo(s) → $OUT"
+
+# #163 verify B2: the JSON above is the human-edited source of truth, but the
+# binary enforces the *embedded* copy. Without this chain a maintainer could
+# re-pin, see the JSON change, commit, and ship a binary still enforcing the old
+# digests — with weight-pinning, "I thought I re-pinned" is the whole failure.
+# The drift guard in WeightVerifierTests would catch it in CI, but only after
+# the maintainer had already believed the re-pin took effect.
+"$(cd "$(dirname "$0")" && pwd)/embed-weights-manifest.sh"

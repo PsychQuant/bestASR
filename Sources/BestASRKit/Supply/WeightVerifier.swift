@@ -64,13 +64,25 @@ public enum WeightVerifier {
         }
     }
 
-    /// The manifest bundled as a SwiftPM resource.
+    /// The pinned-weights manifest, compiled into the binary.
+    ///
+    /// This used to read a SwiftPM resource through `Bundle.module`, which
+    /// requires a `bestasr_BestASRKit.bundle` next to the executable. Nothing
+    /// ever put one there — `scripts/install.sh` copies only the binaries and
+    /// the release ships only the binary — so the generated accessor hit
+    /// `Swift.fatalError` and killed the process with SIGTRAP before it could
+    /// say why (#163). A version-pinned static table has no reason to live
+    /// outside the binary, so it no longer does.
     public static func bundledManifest() throws -> [String: [String: String]] {
-        guard let url = Bundle.module.url(forResource: "weights-manifest", withExtension: "json")
-        else {
-            throw BestASRError.runtime("weight-pinning: bundled weights-manifest.json not found")
+        do {
+            return try JSONDecoder().decode(
+                [String: [String: String]].self, from: Data(embeddedManifestJSON.utf8))
+        } catch {
+            throw BestASRError.runtime(
+                "weight-pinning: embedded weights manifest is not decodable "
+                    + "(regenerate with scripts/embed-weights-manifest.sh): "
+                    + error.localizedDescription)
         }
-        return try JSONDecoder().decode([String: [String: String]].self, from: Data(contentsOf: url))
     }
 
     public static func digest(of data: Data) -> String {
