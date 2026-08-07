@@ -21,7 +21,10 @@ set -u
 
 REPO="PsychQuant/bestASR"
 BINARY_NAME="bestasr-mcp"
-INSTALL_DIR="$HOME/bin"
+# Overridable so the sidecar/self-heal logic is testable without touching the
+# real ~/bin (#163 verify: "defect 3's fix ships with no test"). Production
+# behaviour is unchanged — the variable is unset outside tests.
+INSTALL_DIR="${BESTASR_WRAPPER_INSTALL_DIR:-$HOME/bin}"
 BINARY="$INSTALL_DIR/$BINARY_NAME"
 VERSION_FILE="$INSTALL_DIR/.${BINARY_NAME}.version"
 
@@ -37,9 +40,27 @@ if [[ -f "$PLUGIN_JSON" ]]; then
         | head -1 | cut -d'"' -f4 || true)
 fi
 
-# Read currently installed version from sidecar (empty string if file missing/unreadable).
+# Read the installed version from the sidecar.
+#
+# The sidecar is schema-tagged `v2:<tag>` (#163 verify B1). An *untagged* value
+# was written by a pre-fix wrapper that recorded the version it ASKED FOR rather
+# than the one it received — the exact lie this issue is about. Machines in that
+# state have sidecar 0.16.0, plugin.json 0.16.0, and a crashing 0.15.0 binary;
+# with the old equality check they short-circuited before any resolution and
+# would have kept the broken binary forever, even after a fixed release.
+#
+# So: a legacy sidecar is treated as UNKNOWN, which forces exactly one
+# resolution. That is what actually heals the installed base — fixing only the
+# write path heals nobody who is already poisoned.
 INSTALLED_VERSION=""
-[[ -f "$VERSION_FILE" ]] && INSTALLED_VERSION=$(tr -d '[:space:]' < "$VERSION_FILE" 2>/dev/null || true)
+LEGACY_SIDECAR=false
+SIDECAR_RAW=""
+[[ -f "$VERSION_FILE" ]] && SIDECAR_RAW=$(tr -d '[:space:]' < "$VERSION_FILE" 2>/dev/null || true)
+case "$SIDECAR_RAW" in
+    v2:*) INSTALLED_VERSION="${SIDECAR_RAW#v2:}" ;;
+    "")   : ;;                                  # no sidecar — first install
+    *)    LEGACY_SIDECAR=true ;;                # untrusted, force one resolve
+esac
 
 # Decide whether to RESOLVE (a cheap metadata call). Whether to actually
 # download is decided after resolution, against the tag we really got — see
@@ -49,6 +70,9 @@ REASON=""
 if [[ ! -x "$BINARY" ]]; then
     NEED_DOWNLOAD=true
     REASON="binary not installed"
+elif $LEGACY_SIDECAR; then
+    NEED_DOWNLOAD=true
+    REASON="sidecar predates the #163 fix and cannot be trusted — re-resolving once"
 elif [[ -n "$DESIRED_VERSION" ]] && [[ "$INSTALLED_VERSION" != "$DESIRED_VERSION" ]]; then
     NEED_DOWNLOAD=true
     REASON="plugin wants v${DESIRED_VERSION}, installed is v${INSTALLED_VERSION:-unknown}"
@@ -65,17 +89,23 @@ if $NEED_DOWNLOAD; then
     # self-heal (#163) — the sidecar claimed the desired version, the next run
     # compared equal, and the stale binary stayed forever.
     URL=""
+    SHA_URL=""
     ACTUAL_VERSION=""
     for API_URL in \
         "${DESIRED_VERSION:+https://api.github.com/repos/$REPO/releases/tags/v$DESIRED_VERSION}" \
         "https://api.github.com/repos/$REPO/releases/latest"
     do
         [[ -z "$API_URL" ]] && continue
-        RESPONSE=$(curl -sL --max-time 30 "$API_URL" 2>/dev/null) || continue
+        RESPONSE=$(curl -fsSL --max-time 30 "$API_URL" 2>/dev/null) || continue
         URL=$(printf '%s' "$RESPONSE" \
             | grep '"browser_download_url"' | grep "/$BINARY_NAME\"" | head -1 \
             | sed 's/.*"\(https[^"]*\)".*/\1/')
         if [[ -n "$URL" ]]; then
+            # The release always publishes a companion checksum
+            # (scripts/release-mcp.sh) — it existed all along with no consumer.
+            SHA_URL=$(printf '%s' "$RESPONSE" \
+                | grep '"browser_download_url"' | grep "/$BINARY_NAME.sha256\"" | head -1 \
+                | sed 's/.*"\(https[^"]*\)".*/\1/')
             ACTUAL_VERSION=$(printf '%s' "$RESPONSE" \
                 | grep -m1 '"tag_name"' \
                 | sed 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/' \
@@ -107,15 +137,53 @@ if $NEED_DOWNLOAD; then
             exit 1
         fi
     else
-        if curl -sL --max-time 300 "$URL" -o "${BINARY}.tmp" 2>/dev/null; then
+        if curl -fsSL --max-time 300 "$URL" -o "${BINARY}.tmp" 2>/dev/null; then
+            # Verify BEFORE trusting it (#163 verify B3). This path used to
+            # download an executable, strip its quarantine, and exec it with no
+            # integrity check at all — while the release had been publishing a
+            # .sha256 with no consumer the whole time. Stripping quarantine is
+            # not "letting Gatekeeper run cleanly", it *skips* the evaluation,
+            # so this is the only check standing between a tampered release
+            # asset and execution. Refuse rather than warn.
+            VERIFIED=false
+            if [[ -n "$SHA_URL" ]] \
+                && EXPECTED=$(curl -fsSL --max-time 30 "$SHA_URL" 2>/dev/null | awk '{print $1}') \
+                && [[ -n "$EXPECTED" ]]; then
+                ACTUAL_SHA=$(shasum -a 256 "${BINARY}.tmp" | awk '{print $1}')
+                if [[ "$EXPECTED" == "$ACTUAL_SHA" ]]; then
+                    VERIFIED=true
+                else
+                    echo "$BINARY_NAME: ERROR — checksum mismatch (expected ${EXPECTED:0:12}…, got ${ACTUAL_SHA:0:12}…); refusing to install" >&2
+                fi
+            else
+                echo "$BINARY_NAME: ERROR — no usable .sha256 for this release; refusing to install an unverified binary" >&2
+            fi
+
+            # Developer ID signature must also validate. Notarization is stapled
+            # to Apple's servers for bare executables, so this is a local
+            # structural check, not a notarization check — but a tampered binary
+            # fails it, and it costs nothing.
+            if $VERIFIED && ! codesign --verify --strict "${BINARY}.tmp" 2>/dev/null; then
+                echo "$BINARY_NAME: ERROR — code signature invalid; refusing to install" >&2
+                VERIFIED=false
+            fi
+
+            if ! $VERIFIED; then
+                rm -f "${BINARY}.tmp" 2>/dev/null
+                if [[ -x "$BINARY" ]]; then
+                    echo "$BINARY_NAME: keeping the existing binary" >&2
+                    exec "$BINARY" "$@"
+                fi
+                exit 1
+            fi
+
             chmod +x "${BINARY}.tmp"
-            # Strip the download quarantine so Gatekeeper's online notarization
-            # check runs clean on the notarized binary (bare executables can't be
-            # stapled; the ticket lives on Apple's servers).
+            # Quarantine is stripped only after the checks above have passed.
             xattr -d com.apple.quarantine "${BINARY}.tmp" 2>/dev/null || true
             mv "${BINARY}.tmp" "$BINARY"
-            # Record what we RECEIVED, never what we asked for (#163).
-            echo "${ACTUAL_VERSION:-unknown}" > "$VERSION_FILE"
+            # Record what we RECEIVED, never what we asked for, schema-tagged so
+            # a future wrapper can tell this value apart from a pre-fix one.
+            echo "v2:${ACTUAL_VERSION:-unknown}" > "$VERSION_FILE"
             if [[ -n "$DESIRED_VERSION" && -n "$ACTUAL_VERSION" \
                   && "$ACTUAL_VERSION" != "$DESIRED_VERSION" ]]; then
                 echo "$BINARY_NAME: installed v${ACTUAL_VERSION} — note: plugin pins" \

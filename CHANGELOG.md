@@ -5,6 +5,48 @@ All notable changes to bestASR are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- **`transcribe` crashed on every clean install (#163)**: `WeightVerifier` read
+  the pinned-weights manifest through `Bundle.module`, which needs a
+  `bestasr_BestASRKit.bundle` sitting beside the executable — and no install path
+  ever put one there (`scripts/install.sh` copies only the binaries; the release
+  uploads only the binary). The generated accessor hit `Swift.fatalError` and the
+  process died with SIGTRAP before it could say why; through MCP that surfaced
+  only as `Connection closed`.
+
+  The bug was invisible to the maintainer for a specific reason worth recording:
+  `resource_bundle_accessor.swift` is not in the repo. SwiftPM generates it per
+  build and bakes in the absolute path of the *build machine*, so the fallback
+  branch resolved on the machine that produced the binary and nowhere else. The
+  primary branch — the one meant to serve distribution — had never worked.
+
+  The manifest is now compiled into the binary (`scripts/embed-weights-manifest.sh`
+  generates a Swift constant; `Package.swift` excludes the JSON instead of
+  shipping it as a resource). After a clean rebuild neither the bundle nor the
+  accessor is generated at all, so the crash is not avoided — it is unreachable.
+  `scripts/pin-weights.sh` now regenerates the embedded copy in the same run, so
+  a re-pin cannot appear to succeed while the binary still enforces old digests.
+
+- **The wrapper could not heal an already-broken install (#163)**: the version
+  sidecar recorded the version *requested* rather than the one received, so a
+  machine with sidecar `0.16.0` / binary `0.15.0` compared equal, skipped
+  resolution entirely, and would have kept the crashing binary through any
+  future release. Fixing only the write path healed nobody already poisoned.
+  The sidecar is now schema-tagged `v2:<tag>`; an untagged value is treated as
+  untrusted and forces exactly one re-resolution. This also removes the release
+  constraint the fix would otherwise have carried — healing no longer depends on
+  choosing a version number above the stale pin.
+
+- **The wrapper installed unverified binaries (#163)**: it downloaded an
+  executable, stripped its quarantine attribute, and exec'd it with no integrity
+  check — while every release had been publishing a `.sha256` that nothing
+  consumed. Downloads are now rejected unless the checksum matches and
+  `codesign --verify --strict` passes, and quarantine is stripped only after
+  both. Stripping quarantine does not make Gatekeeper "run cleanly"; it skips
+  the evaluation, which is why these checks are the ones that matter here.
+
+
 ### Added
 
 - **Apple Speech backend (#121)**: `apple-speech` — the OS-native backend
