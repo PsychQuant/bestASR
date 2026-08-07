@@ -13,13 +13,24 @@ public struct WhisperCppEngine: Engine {
     public let modelDirectory: URL
     /// Override for tests; nil means "search PATH".
     let binaryPathOverride: String?
+    /// Test seam, mirroring `ExternalProcessEngine.timeoutOverride`.
+    ///
+    /// Without it a regression test inherits the production budget, which for an
+    /// unprobeable path is the 6-hour fallback — so a reintroduced deadlock
+    /// would hang CI for six hours instead of failing (#165 verify B6). Tests
+    /// pin a small budget so the failure is fast and legible.
+    let timeoutOverride: TimeInterval?
 
-    public init(modelDirectory: URL? = nil, binaryPathOverride: String? = nil) {
+    public init(
+        modelDirectory: URL? = nil, binaryPathOverride: String? = nil,
+        timeoutOverride: TimeInterval? = nil
+    ) {
         self.modelDirectory =
             modelDirectory
             ?? FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".bestasr/models/whisper-cpp", isDirectory: true)
         self.binaryPathOverride = binaryPathOverride
+        self.timeoutOverride = timeoutOverride
     }
 
     public func isAvailable() async -> Bool {
@@ -137,7 +148,7 @@ public struct WhisperCppEngine: Engine {
         let (status, _, stderrText) = try await SubprocessRunner.run(
             executable: binary,
             arguments: arguments,
-            timeout: Self.timeout(forAudioAt: audioPath),
+            timeout: timeoutOverride ?? Self.timeout(forAudioAt: audioPath),
             backend: id.rawValue
         )
 

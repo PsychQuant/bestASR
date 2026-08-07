@@ -133,8 +133,14 @@ public struct ExternalProcessEngine: Engine {
     /// The concurrent-drain + deadline machinery this used to own now lives in
     /// `SubprocessRunner`, so `WhisperCppEngine` and every future engine get it
     /// too — #165 was the same bug as #91, surviving only because the fix
-    /// stayed local to this file. Kept as a thin alias so existing call sites
-    /// and their `adapter`-flavoured error text read unchanged.
+    /// stayed local to this file.
+    ///
+    /// **Error wording changed** when the machinery moved, because the shared
+    /// helper serves non-adapter callers too: `cannot launch adapter '<exe>'` is
+    /// now `cannot launch '<exe>'`, and `adapter timed out after Ns…` is now
+    /// `'<exe>' timed out after Ns…` (plus collected stderr). An earlier version
+    /// of this comment claimed the text was unchanged; it was not (#165 verify
+    /// I1). No test or caller matches on those strings — verified, not assumed.
     static func run(
         executable: String, arguments: [String], timeout: TimeInterval, backend: String
     ) async throws -> (Int32, String, String) {

@@ -65,6 +65,18 @@ struct RegressionBaselineTests {
         let script = Self.repoRoot.appendingPathComponent("scripts/lib/baseline-compare.py")
         let input = try JSONSerialization.data(
             withJSONObject: ["baseline": baseline, "measured": measured])
+        // #165 family-wide sweep — EXEMPT from SubprocessRunner, deliberately.
+        //
+        // This is the one spawn site the shared runner cannot serve: it feeds
+        // the child on stdin, and SubprocessRunner has no stdin support (that
+        // gap is tracked in #170). Rather than pretend, the shape is fixed in
+        // place and the exemption is registered in SpawnSiteSweepTests.
+        //
+        // The bug being fixed here is the stdin-side mirror of #158: writing the
+        // whole payload before draining deadlocks once the input exceeds the
+        // pipe buffer and the child starts emitting output — the child blocks
+        // writing stdout, so it never drains our stdin, so our write never
+        // returns. Drain concurrently with the write.
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
         p.arguments = [script.path]
@@ -74,11 +86,25 @@ struct RegressionBaselineTests {
         p.standardOutput = outPipe
         p.standardError = outPipe
         try p.run()
+
+        final class DataBox: @unchecked Sendable {
+            private let lock = NSLock()
+            private var value = Data()
+            func set(_ d: Data) { lock.withLock { value = d } }
+            var get: Data { lock.withLock { value } }
+        }
+        let outBox = DataBox()
+        let group = DispatchGroup()
+        group.enter()
+        DispatchQueue.global().async {
+            outBox.set(outPipe.fileHandleForReading.readDataToEndOfFile())
+            group.leave()
+        }
         inPipe.fileHandleForWriting.write(input)
         inPipe.fileHandleForWriting.closeFile()
-        let out = String(
-            data: outPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        group.wait()
         p.waitUntilExit()
+        let out = String(data: outBox.get, encoding: .utf8) ?? ""
         return (p.terminationStatus, out)
     }
 

@@ -106,8 +106,11 @@ struct WhisperCppEngineTests {
         try FileManager.default.setAttributes(
             [.posixPermissions: 0o755], ofItemAtPath: stub.path)
 
+        // Budget pinned (#165 verify B6): without it this inherits the 6-hour
+        // unprobeable-path fallback, so a reintroduced deadlock would hang CI
+        // rather than fail. 20s is far above the ~0.06s this actually takes.
         let engine = WhisperCppEngine(
-            modelDirectory: modelDir, binaryPathOverride: stub.path)
+            modelDirectory: modelDir, binaryPathOverride: stub.path, timeoutOverride: 20)
         let raw = try await engine.transcribeRaw(
             audioPath: tmp.appendingPathComponent("clip.wav").path,
             options: TranscribeOptions(model: "tiny", quantization: "q5_0")

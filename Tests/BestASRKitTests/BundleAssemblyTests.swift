@@ -12,7 +12,7 @@ struct BundleAssemblyTests {
         .deletingLastPathComponent()  // Tests
         .deletingLastPathComponent()  // repo root
 
-    @Test func `assemble-only builds the dual-track bundle contract`() throws {
+    @Test func `assemble-only builds the dual-track bundle contract`() async throws {
         let fm = FileManager.default
         let scratch = fm.temporaryDirectory
             .appendingPathComponent("bundle-assembly-\(UUID().uuidString)")
@@ -28,25 +28,26 @@ struct BundleAssemblyTests {
             try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: stub.path)
         }
 
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/bin/bash")
-        process.arguments = [
-            Self.repoRoot.appendingPathComponent("scripts/release-app.sh").path,
-            "--assemble-only",
-        ]
-        process.currentDirectoryURL = Self.repoRoot
+        // #165 family-wide sweep: this used to call waitUntilExit() BEFORE
+        // reading, with stdout and stderr merged into one pipe — a strictly
+        // worse form of the bug #165 fixed, since release-app.sh only has to
+        // emit 64 KB of log to wedge CI permanently. Routed through the shared
+        // runner, which drains concurrently under one deadline (verify B4).
         var env = ProcessInfo.processInfo.environment
         env["BIN_DIR"] = binDir.path
         env["OUT_DIR"] = outDir.path
-        process.environment = env
-        let stdout = Pipe()
-        process.standardOutput = stdout
-        process.standardError = stdout
-        try process.run()
-        process.waitUntilExit()
-        let log = String(
-            data: stdout.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-        #expect(process.terminationStatus == 0, "script failed:\n\(log)")
+        let (status, out, err) = try await SubprocessRunner.run(
+            executable: "/bin/bash",
+            arguments: [
+                Self.repoRoot.appendingPathComponent("scripts/release-app.sh").path,
+                "--assemble-only",
+            ],
+            timeout: 600,
+            backend: "bundle-assembly-test",
+            environment: env,
+            currentDirectory: Self.repoRoot)
+        let log = out + err
+        #expect(status == 0, "script failed:\n\(log)")
 
         let app = outDir.appendingPathComponent("bestASR.app")
         let macOS = app.appendingPathComponent("Contents/MacOS")
