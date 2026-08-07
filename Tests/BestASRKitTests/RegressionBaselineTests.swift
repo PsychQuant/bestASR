@@ -68,9 +68,11 @@ struct RegressionBaselineTests {
         // #165 family-wide sweep — EXEMPT from SubprocessRunner, deliberately.
         //
         // This is the one spawn site the shared runner cannot serve: it feeds
-        // the child on stdin, and SubprocessRunner has no stdin support (that
-        // gap is tracked in #170). Rather than pretend, the shape is fixed in
-        // place and the exemption is registered in SpawnSiteSweepTests.
+        // the child on stdin, and SubprocessRunner has no stdin support —
+        // tracked as item 4 of #170's Expected list, NOT the descendant-kill gap
+        // #170 is named for (#165 round-2 M5 flagged that miscitation). Rather
+        // than pretend, the shape is fixed in place, bounded below, and the
+        // exemption is registered in SpawnSiteSweepTests with its retained risk.
         //
         // The bug being fixed here is the stdin-side mirror of #158: writing the
         // whole payload before draining deadlocks once the input exceeds the
@@ -102,7 +104,29 @@ struct RegressionBaselineTests {
         }
         inPipe.fileHandleForWriting.write(input)
         inPipe.fileHandleForWriting.closeFile()
-        group.wait()
+
+        // #165 round-2 N2: fixing the ordering deadlock left this site with no
+        // deadline at all — `group.wait()` and `waitUntilExit()` were both
+        // unbounded, and none of the callers carry a `.timeLimit` (which could
+        // not preempt these anyway). "No deadline bounding the operation" is the
+        // exact failure mode #91 → #158 → #165 kept recurring as, so leaving it
+        // here would have re-created it in the one site the sweep exempted.
+        //
+        // Bounded wait with a kill escalation, mirroring SubprocessRunner. This
+        // is not the shared helper — it cannot be, until #170 adds stdin — but
+        // it does have to be bounded.
+        let budget = DispatchTime.now() + .seconds(120)
+        if group.wait(timeout: budget) == .timedOut {
+            p.terminate()
+            if group.wait(timeout: .now() + .seconds(2)) == .timedOut {
+                kill(p.processIdentifier, SIGKILL)
+                try? outPipe.fileHandleForReading.close()
+                _ = group.wait(timeout: .now() + .seconds(2))
+            }
+            p.waitUntilExit()
+            throw BestASRError.runtime(
+                "baseline-compare.py exceeded its 120s budget and was terminated")
+        }
         p.waitUntilExit()
         let out = String(data: outBox.get, encoding: .utf8) ?? ""
         return (p.terminationStatus, out)

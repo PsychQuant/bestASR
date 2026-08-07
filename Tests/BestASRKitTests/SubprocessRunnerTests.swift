@@ -12,7 +12,7 @@ import Testing
 /// would have wedged CI instead of reporting a failure. Here the child always
 /// exits on its own within a few seconds, and the assertion is on *elapsed
 /// time*: a broken deadline shows up as "returned too late", never as a hang.
-struct SubprocessRunnerDeadlineTests {
+@Suite(.serialized) struct SubprocessRunnerDeadlineTests {
 
     /// Writes an executable `/bin/sh` stub and returns its path.
     private func stub(_ body: String) throws -> (URL, URL) {
@@ -122,6 +122,76 @@ struct SubprocessRunnerDeadlineTests {
         #expect(status == 0)
         #expect(out.contains("out"))
         #expect(err.contains("err"))
+    }
+
+    /// N1 (round-2 verify) — the timeout diagnostic must actually carry the
+    /// output that was produced.
+    ///
+    /// The first rework read `box.collected` immediately after `teardown()`,
+    /// with nothing joining the detached readers that `teardown()` had just
+    /// unblocked. Reviewers reproduced the race at ~13% (2 of 15 runs came back
+    /// with a bare message and no output at all), which contradicts the
+    /// guarantee stated in `SubprocessRunner`'s own doc comment.
+    ///
+    /// Repeated because a race that fires one run in eight is invisible to a
+    /// single-shot test — the thing being asserted is the *absence* of a
+    /// scheduling window, so one green run proves very little.
+    ///
+    /// Honest limit: at the ~13% rate reviewers measured, five iterations still
+    /// pass ~48% of the time WITH the bug present. This test is a regression
+    /// net, not the proof — the proof is that the timeout path now waits for
+    /// `bothDrained` before reading instead of racing the readers.
+    @Test func `A timeout diagnostic carries the output the child already produced`()
+        async throws
+    {
+        // Emits an identifiable payload well past the 64 KB pipe buffer, then
+        // leaves a grandchild holding the pipe so the run must take the timeout
+        // path with the readers still in flight.
+        let (dir, script) = try stub(
+            "awk 'BEGIN{for(i=0;i<8000;i++) print \"PAYLOAD-MARKER line to exceed the pipe buffer\"}'\n"
+                + "( sleep 3 ) &\n"
+                + "exit 0\n")
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        for attempt in 1...5 {
+            var message = ""
+            do {
+                _ = try await SubprocessRunner.run(
+                    executable: script.path, arguments: [], timeout: 1, backend: "test")
+                Issue.record("attempt \(attempt): expected a timeout")
+            } catch let error as TranscriptionError {
+                message = error.message
+            }
+            #expect(
+                message.contains("PAYLOAD-MARKER"),
+                "attempt \(attempt): timeout diagnostic dropped the child's output entirely — got: \(message)")
+        }
+    }
+
+    /// M2 (round-2 verify) — B3's fix (SIGTERM → grace → SIGKILL → bounded reap)
+    /// shipped with no coverage at all. A child that ignores SIGTERM must still
+    /// be killed, and the call must still return on time.
+    @Test func `A child ignoring SIGTERM is escalated to SIGKILL within the budget`()
+        async throws
+    {
+        let (dir, script) = try stub("trap '' TERM\nsleep 10\n")
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let start = ContinuousClock.now
+        var message = ""
+        do {
+            _ = try await SubprocessRunner.run(
+                executable: script.path, arguments: [], timeout: 1, backend: "test")
+            Issue.record("expected a timeout")
+        } catch let error as TranscriptionError {
+            message = error.message
+        }
+        let seconds = Double(start.duration(to: .now).components.seconds)
+
+        #expect(message.contains("timed out"), "got: \(message)")
+        #expect(
+            seconds < 6,
+            "a SIGTERM-ignoring child must be SIGKILLed and the call still return on time — took \(seconds)s")
     }
 
     /// A child that outruns its budget must fail as a *timeout*, within the

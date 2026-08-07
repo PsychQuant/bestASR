@@ -152,6 +152,17 @@ public enum SubprocessRunner {
             if timedOut {
                 await terminate(process, exited: exited)
                 teardown()
+                // `teardown()` *unblocks* the detached readers by closing our
+                // read ends — but unblocking is not finishing. They still have
+                // to be scheduled and write into the box. Reading it on the very
+                // next line left a window in which the diagnostic came back with
+                // no output at all; reviewers reproduced that in ~13% of runs
+                // (#165 round-2 N1), which contradicted guarantee 5 above.
+                //
+                // Bounded, because a diagnostic is not worth extending the
+                // deadline for: if the readers cannot settle in the grace
+                // window we report with whatever arrived.
+                await settleDrains(box)
                 let (out, err) = box.collected
                 throw TranscriptionError(
                     backend: backend,
@@ -185,6 +196,20 @@ public enum SubprocessRunner {
             if exited.isSet && box.bothDrained { return false }
             if ContinuousClock.now >= deadline { return true }
             try await Task.sleep(for: pollInterval)
+        }
+    }
+
+    /// Waits, briefly and boundedly, for the detached drains to finish writing
+    /// into the box after `teardown()` has unblocked them (#165 round-2 N1).
+    ///
+    /// Cancellation is checked explicitly rather than swallowed by `try?` — the
+    /// same discipline as the watchdog, since this runs on the failure path
+    /// where it would be easy to stop caring.
+    private static func settleDrains(_ box: OutputBox) async {
+        let deadline = ContinuousClock.now.advanced(by: graceInterval)
+        while !box.bothDrained && ContinuousClock.now < deadline {
+            if Task.isCancelled { return }
+            try? await Task.sleep(for: pollInterval)
         }
     }
 
