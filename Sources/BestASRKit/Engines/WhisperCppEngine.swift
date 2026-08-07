@@ -9,6 +9,11 @@ import Foundation
 public struct WhisperCppEngine: Engine {
     public let id: BackendID = .whisperCpp
 
+    /// Same ceiling as the WhisperKit path, from the horse's mouth:
+    /// `whisper-cli --help` documents `--prompt PROMPT (max n_text_ctx/2
+    /// tokens)`, and Whisper's `n_text_ctx` is 448.
+    public let promptCapability: PromptCapability = .supported(maxTokens: 224)
+
     /// Where GGML model files live, e.g. ggml-small-q5_0.bin.
     public let modelDirectory: URL
     /// Override for tests; nil means "search PATH".

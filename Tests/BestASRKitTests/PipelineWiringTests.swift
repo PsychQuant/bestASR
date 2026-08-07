@@ -142,11 +142,15 @@ struct PipelineWiringTests {
     /// #12: the 224-token clamp must act on the ENCODED prompt at the seam —
     /// keeping the suffix (nearest context wins under Whisper's left-context
     /// window), not the prefix.
-    @Test func `Overlong prompt is clamped to the trailing 224 tokens at the seam`() async throws {
+    /// Design D4 flipped this contract: the clamp keeps the FRONT of the prompt,
+    /// where `PromptRenderer` puts the names, rather than the tail. The previous
+    /// version of this test asserted the suffix — correct for the old behavior,
+    /// and it caught the change immediately, which is what it is for.
+    @Test func `Overlong prompt is clamped to the leading 224 tokens at the seam`() async throws {
         let spy = SpyPipeline(tokenizer: FakeTokenizer())
         let engine = WhisperKitEngine(pipelineFactory: { _ in spy })
-        // 150 a's + 150 b's: every 224-window is now DISTINCT, so a
-        // prefix-keeping clamp cannot masquerade as suffix-keeping
+        // 150 a's + 150 b's: every 224-window is DISTINCT, so a suffix-keeping
+        // clamp cannot masquerade as prefix-keeping
         // (#12 verify F1 — homogeneous data made the direction vacuous).
         let longPrompt = String(repeating: "a", count: 150) + String(repeating: "b", count: 150)
         _ = try await engine.transcribe(
@@ -158,7 +162,7 @@ struct PipelineWiringTests {
         let sent = try #require(spy.lastOptions)
         let full = FakeTokenizer().encode(text: " " + longPrompt)  // 301 tokens
         #expect(sent.promptTokens?.count == 224)
-        #expect(sent.promptTokens == Array(full.suffix(224)))
-        #expect(sent.promptTokens != Array(full.prefix(224)))  // direction really is decidable now
+        #expect(sent.promptTokens == Array(full.prefix(224)))
+        #expect(sent.promptTokens != Array(full.suffix(224)))  // direction really is decidable now
     }
 }
