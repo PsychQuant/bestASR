@@ -34,9 +34,17 @@ All notable changes to bestASR are documented here. The format follows
   resolution entirely, and would have kept the crashing binary through any
   future release. Fixing only the write path healed nobody already poisoned.
   The sidecar is now schema-tagged `v2:<tag>`; an untagged value is treated as
-  untrusted and forces exactly one re-resolution. This also removes the release
-  constraint the fix would otherwise have carried — healing no longer depends on
-  choosing a version number above the stale pin.
+  untrusted, which forces the machine back through resolution instead of
+  short-circuiting. This also removes the release constraint the fix would
+  otherwise have carried — healing no longer depends on choosing a version
+  number above the stale pin.
+
+  Precisely: it guarantees the machine *re-resolves*, not that it heals in
+  exactly one attempt. Two non-fatal paths return without upgrading the
+  sidecar — the registry offering no matching asset, and a clean install
+  whose verification fails — and both retry on the next spawn. An earlier
+  draft of this entry claimed "exactly one re-resolution", which is a
+  stronger promise than the code makes.
 
 - **The wrapper installed unverified binaries (#163)**: it downloaded an
   executable, stripped its quarantine attribute, and exec'd it with no integrity

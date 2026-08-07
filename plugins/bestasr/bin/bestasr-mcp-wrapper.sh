@@ -21,6 +21,14 @@ set -u
 
 REPO="PsychQuant/bestASR"
 BINARY_NAME="bestasr-mcp"
+
+# Whose signature we accept. The Team ID is not a secret — it is readable from
+# any signed binary (`codesign -dv`) — but pinning it is what turns "has a
+# signature" into "is ours". `anchor apple generic` additionally forces the
+# certificate chain to Apple's root, so a self-signed or ad-hoc binary cannot
+# satisfy it no matter what it claims (#163 round-2 CRITICAL).
+EXPECTED_TEAM_ID="6W377FS7BS"
+SIGNING_REQUIREMENT='=anchor apple generic and certificate leaf[subject.OU] = "'"$EXPECTED_TEAM_ID"'"'
 # Overridable so the sidecar/self-heal logic is testable without touching the
 # real ~/bin (#163 verify: "defect 3's fix ships with no test"). Production
 # behaviour is unchanged — the variable is unset outside tests.
@@ -49,9 +57,12 @@ fi
 # with the old equality check they short-circuited before any resolution and
 # would have kept the broken binary forever, even after a fixed release.
 #
-# So: a legacy sidecar is treated as UNKNOWN, which forces exactly one
-# resolution. That is what actually heals the installed base — fixing only the
-# write path heals nobody who is already poisoned.
+# So: a legacy sidecar is treated as UNKNOWN, which forces the machine back
+# through resolution rather than short-circuiting. That is what heals the
+# installed base — fixing only the write path heals nobody already poisoned.
+# It guarantees re-resolution, not success in one attempt: if the registry
+# offers no matching asset, or verification fails on a clean install, the
+# sidecar is left untouched and the next spawn tries again.
 INSTALLED_VERSION=""
 LEGACY_SIDECAR=false
 SIDECAR_RAW=""
@@ -97,19 +108,28 @@ if $NEED_DOWNLOAD; then
     do
         [[ -z "$API_URL" ]] && continue
         RESPONSE=$(curl -fsSL --max-time 30 "$API_URL" 2>/dev/null) || continue
-        URL=$(printf '%s' "$RESPONSE" \
-            | grep '"browser_download_url"' | grep "/$BINARY_NAME\"" | head -1 \
-            | sed 's/.*"\(https[^"]*\)".*/\1/')
+        # Extract each asset URL as its own token before selecting.
+        #
+        # The previous form ran a greedy `sed 's/.*"\(https[^"]*\)".*/\1/'` over
+        # whatever line matched. Real GitHub responses are pretty-printed so one
+        # asset sits per line and it happened to work — but on a single-line
+        # response the greedy `.*` skips to the LAST url on the line, selecting
+        # the .sha256 as if it were the binary. Round-1 M4 flagged the fragility;
+        # a stubbed single-line registry in the tests then reproduced it exactly.
+        # `grep -o` + an anchored match removes the positional guesswork, and
+        # anchoring also escapes the `.` that round-2 M6 caught unescaped.
+        ASSET_URLS=$(printf '%s' "$RESPONSE" \
+            | grep -o '"browser_download_url"[[:space:]]*:[[:space:]]*"[^"]*"' \
+            | grep -o 'https[^"]*')
+        URL=$(printf '%s\n' "$ASSET_URLS" | grep -E "/${BINARY_NAME}$" | head -1)
         if [[ -n "$URL" ]]; then
             # The release always publishes a companion checksum
             # (scripts/release-mcp.sh) — it existed all along with no consumer.
-            SHA_URL=$(printf '%s' "$RESPONSE" \
-                | grep '"browser_download_url"' | grep "/$BINARY_NAME.sha256\"" | head -1 \
-                | sed 's/.*"\(https[^"]*\)".*/\1/')
+            SHA_URL=$(printf '%s\n' "$ASSET_URLS" \
+                | grep -E "/${BINARY_NAME}\.sha256$" | head -1)
             ACTUAL_VERSION=$(printf '%s' "$RESPONSE" \
-                | grep -m1 '"tag_name"' \
-                | sed 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/' \
-                | sed 's/^v//')
+                | grep -o '"tag_name"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 \
+                | grep -o '"[^"]*"$' | tr -d '"' | sed 's/^v//')
             break
         fi
     done
@@ -145,27 +165,50 @@ if $NEED_DOWNLOAD; then
             # not "letting Gatekeeper run cleanly", it *skips* the evaluation,
             # so this is the only check standing between a tampered release
             # asset and execution. Refuse rather than warn.
+            # PRIMARY control: pin the signing IDENTITY, not merely "is signed".
+            #
+            # The first attempt used `codesign --verify --strict` alone and a
+            # checksum, and round-2 review showed that combination is close to
+            # no defence at all against the threat it named:
+            #
+            #   * `--verify --strict` only checks the signature is internally
+            #     self-consistent, never WHO signed. Verified locally: an
+            #     unsigned binary passes (Apple Silicon's linker applies an
+            #     ad-hoc signature automatically), and `codesign --sign -` —
+            #     free, anonymous, no developer account — also passes, with
+            #     TeamIdentifier=not set.
+            #   * the checksum came from the SAME release-API response as the
+            #     binary, so whoever can replace one asset replaces both.
+            #
+            # The designated requirement below fixes the first: `anchor apple
+            # generic` forces the chain to Apple's root, and the leaf OU pins
+            # our Team. Verified against a real release (passes), an ad-hoc
+            # binary (rejected), and a self-signed one (rejected).
             VERIFIED=false
-            if [[ -n "$SHA_URL" ]] \
-                && EXPECTED=$(curl -fsSL --max-time 30 "$SHA_URL" 2>/dev/null | awk '{print $1}') \
-                && [[ -n "$EXPECTED" ]]; then
-                ACTUAL_SHA=$(shasum -a 256 "${BINARY}.tmp" | awk '{print $1}')
-                if [[ "$EXPECTED" == "$ACTUAL_SHA" ]]; then
-                    VERIFIED=true
-                else
-                    echo "$BINARY_NAME: ERROR — checksum mismatch (expected ${EXPECTED:0:12}…, got ${ACTUAL_SHA:0:12}…); refusing to install" >&2
-                fi
+            if codesign --verify --strict -R "$SIGNING_REQUIREMENT" \
+                "${BINARY}.tmp" 2>/dev/null; then
+                VERIFIED=true
             else
-                echo "$BINARY_NAME: ERROR — no usable .sha256 for this release; refusing to install an unverified binary" >&2
+                echo "$BINARY_NAME: ERROR — binary is not signed by the expected identity (Team $EXPECTED_TEAM_ID); refusing to install" >&2
             fi
 
-            # Developer ID signature must also validate. Notarization is stapled
-            # to Apple's servers for bare executables, so this is a local
-            # structural check, not a notarization check — but a tampered binary
-            # fails it, and it costs nothing.
-            if $VERIFIED && ! codesign --verify --strict "${BINARY}.tmp" 2>/dev/null; then
-                echo "$BINARY_NAME: ERROR — code signature invalid; refusing to install" >&2
-                VERIFIED=false
+            # SECONDARY, advisory: the checksum. It shares a channel with the
+            # artifact it validates, so it cannot attest provenance — it catches
+            # transit corruption, which is worth catching. A mismatch is fatal
+            # (something is genuinely wrong); a MISSING .sha256 is not, because
+            # letting a maintainer's forgotten upload brick every clean install
+            # trades one outage for another (round-2 H3).
+            if $VERIFIED && [[ -n "$SHA_URL" ]]; then
+                if EXPECTED=$(curl -fsSL --max-time 30 "$SHA_URL" 2>/dev/null | awk '{print $1}') \
+                    && [[ -n "$EXPECTED" ]]; then
+                    ACTUAL_SHA=$(shasum -a 256 "${BINARY}.tmp" | awk '{print $1}')
+                    if [[ "$EXPECTED" != "$ACTUAL_SHA" ]]; then
+                        echo "$BINARY_NAME: ERROR — checksum mismatch (expected ${EXPECTED:0:12}…, got ${ACTUAL_SHA:0:12}…); refusing to install" >&2
+                        VERIFIED=false
+                    fi
+                else
+                    echo "$BINARY_NAME: note — .sha256 listed but unreadable; relying on the signing-identity check" >&2
+                fi
             fi
 
             if ! $VERIFIED; then

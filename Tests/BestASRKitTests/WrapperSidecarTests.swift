@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import Testing
 
@@ -66,9 +67,22 @@ struct WrapperSidecarTests {
         // conversion — which is the guard doing its job, not a surprise.
         // Meanwhile the drains run concurrently, because "the output is small"
         // is precisely the reasoning that left #158 open.
+        return try runScript(Self.wrapper.path, env: env)
+    }
+
+    /// Runs a shell script and returns its stderr.
+    ///
+    /// Spawns directly because `SubprocessRunner` lives on the #165 branch,
+    /// which is independent of this one and merges first (#165 → #163 → #164).
+    /// Once #165 lands, its SpawnSiteSweepTests guard will flag this site and
+    /// force the conversion — that is the guard working. Both pipes are drained
+    /// concurrently and the wait is bounded, because "the output is small" is
+    /// exactly the reasoning that left #158 open.
+    @discardableResult
+    private func runScript(_ path: String, env: [String: String]) throws -> String {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/bash")
-        process.arguments = [Self.wrapper.path]
+        process.arguments = [path]
         process.environment = env
         let outPipe = Pipe()
         let errPipe = Pipe()
@@ -92,7 +106,11 @@ struct WrapperSidecarTests {
                 group.leave()
             }
         }
-        group.wait()
+        if group.wait(timeout: .now() + .seconds(60)) == .timedOut {
+            process.terminate()
+            _ = group.wait(timeout: .now() + .seconds(2))
+            throw BestASRError.runtime("wrapper test exceeded its 60s budget")
+        }
         process.waitUntilExit()
         return String(decoding: errBox.get, as: UTF8.self)
     }
@@ -131,6 +149,96 @@ struct WrapperSidecarTests {
         let stderr = try await runWrapper(sidecar: nil, binaryPresent: false)
         #expect(stderr.contains("binary not installed"), "got: \(stderr)")
         #expect(!stderr.contains("sidecar predates"), "got: \(stderr)")
+    }
+
+    /// Round-2 H2/M1: every existing wrapper test stubs `curl` to fail, so the
+    /// download-and-verify branch — where the sidecar is actually upgraded and
+    /// where B3's whole verification lives — had no coverage at all. "B1 is
+    /// closed" rested on the machine being *marked* for re-resolution, which is
+    /// a different claim from re-resolution actually healing it once.
+    ///
+    /// This drives the real wrapper through a successful install with a stubbed
+    /// registry, and asserts the end state: a schema-tagged sidecar carrying the
+    /// tag that was RECEIVED.
+    @Test func `A successful download upgrades the sidecar to the received tag`()
+        async throws
+    {
+        let sandbox = FileManager.default.temporaryDirectory
+            .appendingPathComponent("wrapper-ok-\(UUID().uuidString)", isDirectory: true)
+        let bin = sandbox.appendingPathComponent("bin", isDirectory: true)
+        let stubs = sandbox.appendingPathComponent("stubs", isDirectory: true)
+        try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: stubs, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: sandbox) }
+
+        // A poisoned legacy sidecar: the exact state #163 measured.
+        try "0.16.0".write(
+            to: bin.appendingPathComponent(".bestasr-mcp.version"),
+            atomically: true, encoding: .utf8)
+
+        // Registry stub. Serves a release whose tag (v0.15.9) deliberately
+        // differs from the plugin's pin, so the assertion distinguishes
+        // "recorded what we received" from "recorded what we asked for".
+        let payload = "#!/bin/sh\nexit 0\n"
+        let payloadFile = sandbox.appendingPathComponent("payload")
+        try payload.write(to: payloadFile, atomically: true, encoding: .utf8)
+        let digest = try shasum(of: payloadFile)
+
+        let curl = stubs.appendingPathComponent("curl")
+        try """
+            #!/bin/sh
+            for a in "$@"; do
+              case "$a" in
+                *releases/tags/*|*releases/latest*)
+                  printf '%s' '{"tag_name":"v0.15.9","assets":[{"browser_download_url":"https://x/bestasr-mcp"},{"browser_download_url":"https://x/bestasr-mcp.sha256"}]}'
+                  exit 0 ;;
+                *bestasr-mcp.sha256) printf '%s  bestasr-mcp\n' '\(digest)'; exit 0 ;;
+              esac
+            done
+            # binary fetch: -o <dest> is the last pair
+            dest=""
+            prev=""
+            for a in "$@"; do
+              [ "$prev" = "-o" ] && dest="$a"
+              prev="$a"
+            done
+            [ -n "$dest" ] && cp '\(payloadFile.path)' "$dest"
+            exit 0
+            """.write(to: curl, atomically: true, encoding: .utf8)
+
+        // codesign stub: the identity check is exercised for real elsewhere
+        // (the requirement string is validated against a genuine release,
+        // an ad-hoc binary and a self-signed one); here it stands in so the
+        // test does not depend on a Developer ID cert being present.
+        let codesign = stubs.appendingPathComponent("codesign")
+        try "#!/bin/sh\nexit 0\n".write(to: codesign, atomically: true, encoding: .utf8)
+
+        for tool in [curl, codesign] {
+            try FileManager.default.setAttributes(
+                [.posixPermissions: 0o755], ofItemAtPath: tool.path)
+        }
+
+        var env = ProcessInfo.processInfo.environment
+        env["BESTASR_WRAPPER_INSTALL_DIR"] = bin.path
+        env["PATH"] = stubs.path + ":" + (env["PATH"] ?? "/usr/bin:/bin")
+        _ = try runScript(Self.wrapper.path, env: env)
+
+        let sidecar = try String(
+            contentsOf: bin.appendingPathComponent(".bestasr-mcp.version"), encoding: .utf8)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        #expect(
+            sidecar == "v2:0.15.9",
+            "sidecar must be schema-tagged and carry the RECEIVED tag; got: \(sidecar)")
+        #expect(
+            FileManager.default.isExecutableFile(atPath: bin.appendingPathComponent("bestasr-mcp").path),
+            "the verified binary should have been installed")
+    }
+
+    private func shasum(of url: URL) throws -> String {
+        let data = try Data(contentsOf: url)
+        var hasher = SHA256()
+        hasher.update(data: data)
+        return hasher.finalize().map { String(format: "%02x", $0) }.joined()
     }
 
     private func pluginVersion() throws -> String {
