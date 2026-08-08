@@ -90,17 +90,36 @@ public struct CommandCore: Sendable {
 
     struct ContextBundle {
         let loaded: LoadedContext
-        let rendered: PromptRenderer.Rendered
+        /// `nil` when the selected backend takes no conditioning text, so no
+        /// prompt was rendered. Distinct from a bundle whose prompt happens to
+        /// be empty: nil means the question did not apply.
+        let rendered: PromptRenderer.Rendered?
     }
 
     /// Resolve + load + render. Returns nil when nothing resolves or the
     /// directory holds neither values nor ignorable files — zero impact.
     /// A directory that only holds unsupported files still returns a bundle
     /// (prompt nil) so the ignore list is disclosed loudly, never silently.
-    func loadContext(flag: String?) throws -> ContextBundle? {
+    ///
+    /// - Parameter capability: the selected backend's declaration. When it
+    ///   reports no usable budget, rendering is **skipped entirely** rather than
+    ///   performed and discarded (design D3): the truncation arithmetic would be
+    ///   real work producing figures that describe nothing, and reporting an
+    ///   injected count for a backend that consumes none is the misstatement
+    ///   this whole change exists to remove.
+    ///
+    ///   `nil` means "no single backend applies" — the benchmark's ±context
+    ///   delta mode measures many candidates in one run — and keeps the
+    ///   previous global default.
+    func loadContext(flag: String?, capability: PromptCapability? = nil) throws -> ContextBundle? {
         guard let loaded = try ContextLoader.load(flag: flag) else { return nil }
         if loaded.isEmpty && loaded.ignoredFiles.isEmpty { return nil }
-        return ContextBundle(loaded: loaded, rendered: PromptRenderer.render(loaded))
+        if let capability, !capability.supportsPrompt {
+            return ContextBundle(loaded: loaded, rendered: nil)
+        }
+        let budget = capability?.effectiveBudget ?? PromptRenderer.defaultTokenBudget
+        return ContextBundle(
+            loaded: loaded, rendered: PromptRenderer.render(loaded, tokenBudget: budget))
     }
 
     /// Grid-row lookup for a measured candidate (#16): keyed by the facts the
@@ -114,26 +133,99 @@ public struct CommandCore: Sendable {
         }
     }
 
+    /// Wording used wherever a backend cannot consume conditioning text. Naming
+    /// the *predicate* once keeps the reason line, the selection warning and the
+    /// explain block from drifting apart while each caller supplies its own
+    /// subject — folding the subject in here produced "selected backend this
+    /// backend does not support …" (#164 verify).
+    static let contextUnsupportedNote =
+        "does not support context biasing — the context will not affect this transcription"
+
+    /// The declaration of the engine registered for `backend`, or nil when none
+    /// is registered (the caller then keeps the previous global default).
+    func promptCapability(for backend: BackendID) -> PromptCapability? {
+        engines.first(where: { $0.id == backend })?.promptCapability
+    }
+
+    /// Which capability the benchmark should render its single context prompt
+    /// against (#164 verify). The benchmark has no one "selected" engine, which
+    /// is why `loadContext` takes the capability as an optional — but the
+    /// prompt now only reaches candidates that declare support, so:
+    ///
+    /// - candidates agreeing on one budget → that budget, so this call site
+    ///   obeys "the budget comes from the engine" like the other two;
+    /// - nothing in the grid can take a prompt → `.unsupported`, so no prompt
+    ///   is rendered for a pass that cannot happen;
+    /// - candidates disagreeing → nil (keep the global default): one prompt
+    ///   cannot honour two budgets, and the smaller backend's own clamp is
+    ///   the remaining backstop.
+    ///
+    /// Note the deliberate asymmetry with `promptCapability(for:)`, whose nil
+    /// means "unknown — no engine registered" and tells its caller to keep the
+    /// global default. Here an unregistered candidate contributes nothing and
+    /// a grid of *only* unregistered candidates therefore yields `.unsupported`
+    /// rather than nil. That is intentional: this function's job is "can the
+    /// with-context pass happen at all", and a candidate with no engine cannot
+    /// run any pass — `BenchmarkRunner` will not measure it either. The case is
+    /// unreachable from `benchmark()` regardless, because `enumerateCandidates`
+    /// derives candidates from the same `engines` array, but the reasoning is
+    /// recorded here because two reviewers read the old wording in opposite
+    /// ways (#164 verify round 2).
+    func benchmarkPromptCapability(for candidates: [BenchmarkCandidate]) -> PromptCapability? {
+        var budgets = Set<Int>()
+        for candidate in candidates {
+            guard let capability = promptCapability(for: candidate.backend) else { continue }
+            if let budget = capability.effectiveBudget { budgets.insert(budget) }
+        }
+        if budgets.isEmpty { return .unsupported }
+        guard budgets.count == 1, let budget = budgets.first else { return nil }
+        return .supported(maxTokens: budget)
+    }
+
+    /// Selection-time warning (design D5). Returns nil when there is nothing to
+    /// warn about — including when no engine is registered for the choice, since
+    /// inventing a warning from an unknown is worse than staying quiet.
+    static func contextCapabilityWarning(_ capability: PromptCapability?) -> String? {
+        guard let capability, !capability.supportsPrompt else { return nil }
+        return "the selected backend \(Self.contextUnsupportedNote)"
+    }
+
     static func contextReasonLine(_ bundle: ContextBundle) -> String {
-        if bundle.rendered.injected.isEmpty {
+        guard let rendered = bundle.rendered else {
+            return "context: \(bundle.loaded.directory) — this backend \(Self.contextUnsupportedNote)"
+        }
+        if rendered.injected.isEmpty {
             return "context: \(bundle.loaded.directory) — 0 values injected; "
                 + "\(bundle.loaded.ignoredFiles.count) file(s) ignored (run the context-ingest skill)"
         }
-        return "context: \(bundle.loaded.directory) — \(bundle.rendered.injected.count) value(s) injected"
+        return "context: \(bundle.loaded.directory) — \(rendered.injected.count) value(s) injected"
     }
 
     /// Explain-mode disclosure (design D9): resolved dir, injected values,
     /// truncated items, ignored files with ingestion guidance.
+    ///
+    /// When the backend takes no prompt there is no injected count and no
+    /// truncation list to report — printing `injected (N)` there was the
+    /// original complaint: it reads as "this worked", and a user acts on it by
+    /// trimming their term list, which changes nothing (spec `Explain discloses
+    /// context usage`).
     static func contextExplanation(_ bundle: ContextBundle) -> [String] {
         var lines = ["Context: \(bundle.loaded.directory)"]
+        guard let rendered = bundle.rendered else {
+            lines.append("  this backend \(Self.contextUnsupportedNote)")
+            for file in bundle.loaded.ignoredFiles {
+                lines.append("  ignored: \(file) — \(LoadedContext.ingestGuidance)")
+            }
+            return lines
+        }
         lines.append(
-            "  injected (\(bundle.rendered.injected.count)): "
-                + (bundle.rendered.injected.isEmpty
-                    ? "(none)" : bundle.rendered.injected.joined(separator: ", ")))
-        if !bundle.rendered.truncated.isEmpty {
+            "  injected (\(rendered.injected.count)): "
+                + (rendered.injected.isEmpty
+                    ? "(none)" : rendered.injected.joined(separator: ", ")))
+        if !rendered.truncated.isEmpty {
             lines.append(
-                "  truncated (\(bundle.rendered.truncated.count)): "
-                    + bundle.rendered.truncated.joined(separator: ", "))
+                "  truncated (\(rendered.truncated.count)): "
+                    + rendered.truncated.joined(separator: ", "))
         }
         for file in bundle.loaded.ignoredFiles {
             lines.append("  ignored: \(file) — \(LoadedContext.ingestGuidance)")
@@ -291,13 +383,25 @@ public struct CommandCore: Sendable {
         let lang = await resolveAutoLanguage(audioPath: audio.path, resolved: audio.language)
         var rec = try await resolveRecommendation(selection: selection, language: lang.language)
         rec = rec.merging(reasons: lang.reasons, warnings: lang.warnings)
-        if let bundle = try loadContext(flag: selection.contextDir) {
+        let selectedCapability = promptCapability(for: rec.backend)
+        if let bundle = try loadContext(
+            flag: selection.contextDir, capability: selectedCapability)
+        {
+            // D5: surface the trade-off, do not decide it. The backend stays
+            // selected — whether a lower measured error rate is worth losing
+            // context biasing has not been measured, and quietly re-ranking on
+            // an unmeasured belief would be the same overreach in the other
+            // direction.
+            var warnings = rec.warnings
+            if let note = Self.contextCapabilityWarning(selectedCapability) {
+                warnings.append(note)
+            }
             rec = ASRRecommendation(
                 backend: rec.backend, model: rec.model, quantization: rec.quantization,
                 profile: rec.profile, language: rec.language, dataSource: rec.dataSource,
                 measured: rec.measured,
                 reason: rec.reason + [Self.contextReasonLine(bundle)],
-                warnings: rec.warnings
+                warnings: warnings
             )
         }
         let document = RecommendationJSON(
@@ -335,18 +439,34 @@ public struct CommandCore: Sendable {
         let audio = try AudioProber.probe(
             path: audioPath, requestedLanguage: selection.requestedLanguage)
         let lang = await resolveAutoLanguage(audioPath: audio.path, resolved: audio.language)
-        let rec = (try await resolveRecommendation(selection: selection, language: lang.language))
+        let resolved = (try await resolveRecommendation(
+            selection: selection, language: lang.language))
             .merging(reasons: lang.reasons, warnings: lang.warnings)
-        guard let engine = engines.first(where: { $0.id == rec.backend }) else {
-            throw BestASRError.runtime("no engine registered for backend \(rec.backend.rawValue)")
+        guard let engine = engines.first(where: { $0.id == resolved.backend }) else {
+            throw BestASRError.runtime(
+                "no engine registered for backend \(resolved.backend.rawValue)")
         }
 
-        let context = try loadContext(flag: selection.contextDir)
+        // The engine is resolved above, so the render budget can come from the
+        // backend that will actually receive the prompt (design D3).
+        let context = try loadContext(
+            flag: selection.contextDir, capability: engine.promptCapability)
+
+        // The D5 warning belongs to *selection*, not to one subcommand — this
+        // command selects a backend too, so it carries the same warning
+        // `recommend` does when the choice cannot use the resolved context
+        // (#164 verify). Merged after loadContext so it fires only when a
+        // context directory actually resolved.
+        let rec = context == nil
+            ? resolved
+            : resolved.merging(
+                reasons: [],
+                warnings: [Self.contextCapabilityWarning(engine.promptCapability)].compactMap { $0 })
         let transcript = try await engine.transcribe(
             audioPath: audio.path,
             options: TranscribeOptions(
                 model: rec.model, quantization: rec.quantization,
-                language: lang.language, prompt: context?.rendered.prompt,
+                language: lang.language, prompt: context?.rendered?.prompt,
                 noSpeechThreshold: noSpeechThreshold,
                 compressionRatioThreshold: compressionRatioThreshold,
                 logProbThreshold: logProbThreshold)
@@ -518,22 +638,32 @@ public struct CommandCore: Sendable {
             )
         }
 
-        // ±context delta mode (spec benchmark; design D6): context is loaded
-        // via the same three-layer resolution; the runner measures a second
-        // with-context pass per candidate while the cache stays baseline-only.
-        let contextBundle = try loadContext(flag: contextDir)
+        // ±context delta mode (spec benchmark): context is loaded via the same
+        // three-layer resolution; the runner measures a second with-context
+        // pass per candidate while the cache stays baseline-only. The render
+        // budget comes from the candidates that can actually consume it, and
+        // the runner skips the pass for those that cannot (#164 verify).
+        let contextBundle = try loadContext(
+            flag: contextDir,
+            capability: benchmarkPromptCapability(for: enumeration.candidates))
         let outcome = await runner.run(
             candidates: enumeration.candidates,
             notes: enumeration.notes
-                + (contextBundle.map {
-                    ["context: \($0.loaded.directory) — "
-                     + "\($0.rendered.injected.count) value(s) in the with-context pass"]
+                + (contextBundle.map { bundle in
+                    [
+                        bundle.rendered.map {
+                            "context: \(bundle.loaded.directory) — "
+                                + "\($0.injected.count) value(s) in the with-context pass"
+                        }
+                            ?? "context: \(bundle.loaded.directory) — "
+                            + "no candidate supports a prompt; no with-context pass"
+                    ]
                 } ?? []),
             audio: audio,
             referenceText: referenceText,
             metricKind: metricKind,
             language: resolvedLanguage ?? "auto",
-            contextPrompt: contextBundle?.rendered.prompt,
+            contextPrompt: contextBundle?.rendered?.prompt,
             deterministicDecode: decodeDeterministic
         )
 

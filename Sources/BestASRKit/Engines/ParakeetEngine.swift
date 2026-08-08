@@ -95,6 +95,13 @@ struct FluidAudioParakeetPipeline: ParakeetTranscribing {
 public struct ParakeetEngine: Engine {
     public let id: BackendID = .fluidParakeet
 
+    /// Parakeet is a transducer/CTC model — there is no conditioning-text input
+    /// to give it. Measured directly: with a 49-term context injected, it hit
+    /// none of the target terms, while the same audio through a Whisper backend
+    /// picked them up. Declaring this is what stops the CLI reporting an
+    /// injection that cannot happen.
+    public let promptCapability: PromptCapability = .unsupported
+
     /// Inter-token silence that starts a new raw segment.
     static let segmentGapSeconds: TimeInterval = 0.8
 

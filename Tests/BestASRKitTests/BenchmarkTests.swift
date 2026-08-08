@@ -222,11 +222,58 @@ struct BenchmarkCacheTests {
 struct ContextDeltaBenchmarkTests {
     /// Baseline mishears ("hello"), the context prompt fixes it ("hello world")
     /// against reference "hello world": WER 0.5 → 0.0, delta -0.5.
+    ///
+    /// Declares `.supported` because it reads `options.prompt` — a double that
+    /// consumes the prompt while declaring `.unsupported` is exactly the
+    /// mismatch `EngineCapabilityTests` exists to forbid in production code.
     static func biasedEngine() -> MockEngine {
-        MockEngine(id: .whisperKit, available: true) { _, options in
+        MockEngine(
+            id: .whisperKit, available: true, promptCapability: .supported(maxTokens: 224)
+        ) { _, options in
             let text = options.prompt == nil ? "hello" : "hello world"
             return RawTranscription(
                 segments: [.init(start: 0, end: 2, text: text)], language: "en", duration: 2)
+        }
+    }
+
+    /// Records the prompt seen on every pass, so a test can assert that a
+    /// backend declaring no support was never handed one.
+    final class PromptWitness: @unchecked Sendable {
+        private let lock = NSLock()
+        private var seen: [String?] = []
+        func record(_ prompt: String?) {
+            lock.lock()
+            defer { lock.unlock() }
+            seen.append(prompt)
+        }
+        var all: [String?] {
+            lock.lock()
+            defer { lock.unlock() }
+            return seen
+        }
+    }
+
+    /// Baseline succeeds; the with-context pass throws. A real backend can hit
+    /// this transiently (model eviction, a decode error on the second pass).
+    static func contextFailingEngine() -> MockEngine {
+        MockEngine(
+            id: .whisperKit, available: true, promptCapability: .supported(maxTokens: 224)
+        ) { _, options in
+            if options.prompt != nil {
+                throw NSError(
+                    domain: "MockEngine", code: 2,
+                    userInfo: [NSLocalizedDescriptionKey: "context pass exploded"])
+            }
+            return RawTranscription(
+                segments: [.init(start: 0, end: 2, text: "hello")], language: "en", duration: 2)
+        }
+    }
+
+    static func witnessEngine(_ id: BackendID, _ witness: PromptWitness) -> MockEngine {
+        MockEngine(id: id, available: true) { _, options in
+            witness.record(options.prompt)
+            return RawTranscription(
+                segments: [.init(start: 0, end: 2, text: "hello")], language: "en", duration: 2)
         }
     }
 
@@ -298,6 +345,167 @@ struct ContextDeltaBenchmarkTests {
         #expect(results[0]["delta"] as? Double == -0.5)
     }
 
+    /// #164 verify round 1 — found independently by four review lenses.
+    ///
+    /// The ±context pass used to hand the rendered prompt to EVERY candidate,
+    /// including engines declaring `.unsupported`, which never read it. Two
+    /// consequences: a wasted full decode per such candidate, and a persisted
+    /// `contextErrorRate` ≈ baseline that the report prints as a `%(CTX)`
+    /// delta — which reads as "context does not help this backend" when the
+    /// truth is "this backend cannot use context at all". That is the same
+    /// misstatement class #164 exists to remove, relocated to the benchmark
+    /// exit, and it contradicts this change's own spec sentence: "an engine
+    /// that declares no support never receives a rendered prompt".
+    @Test func `A candidate declaring no prompt support never gets the with-context pass`() async {
+        let witness = PromptWitness()
+        let runner = BenchmarkRunner(
+            engines: [Self.witnessEngine(.fluidParakeet, witness)], host: Fixtures.m5Max,
+            probe: FakeClock(step: 1).probe())
+        let outcome = await runner.run(
+            candidates: [
+                BenchmarkCandidate(
+                    backend: .fluidParakeet, model: "parakeet", quantization: "default")
+            ],
+            notes: [], audio: audio, referenceText: "hello world", metricKind: .wer,
+            language: "en", contextPrompt: "鄭澈, world"
+        )
+        #expect(witness.all.allSatisfy { $0 == nil }, "an unsupported backend was handed a prompt")
+        #expect(witness.all.count == 2, "the wasted third pass must not run")
+        #expect(outcome.measured.first?.contextErrorRate == nil, "no delta may be invented")
+        #expect(
+            outcome.notes.contains { $0.contains("no prompt support") },
+            "the skip must be disclosed, not silent")
+    }
+
+    /// A mixed grid is the reachable case: `ModelGrid.rows` carries parakeet,
+    /// chinese-family and apple-speech rows, so an unfiltered `benchmark
+    /// --context` run measures supporting and non-supporting backends together.
+    @Test func `A mixed grid measures the delta only where the prompt can land`() async {
+        let witness = PromptWitness()
+        let runner = BenchmarkRunner(
+            engines: [Self.biasedEngine(), Self.witnessEngine(.fluidParakeet, witness)],
+            host: Fixtures.m5Max, probe: FakeClock(step: 1).probe())
+        let outcome = await runner.run(
+            candidates: [
+                candidate,
+                BenchmarkCandidate(
+                    backend: .fluidParakeet, model: "parakeet", quantization: "default"),
+            ],
+            notes: [], audio: audio, referenceText: "hello world", metricKind: .wer,
+            language: "en", contextPrompt: "鄭澈, world"
+        )
+        let byBackend = Dictionary(
+            uniqueKeysWithValues: outcome.measured.map { ($0.record.backend, $0) })
+        #expect(byBackend["whisperkit"]?.contextErrorRate == 0.0)
+        #expect(byBackend["fluid-parakeet"]?.contextErrorRate == nil)
+        #expect(witness.all.allSatisfy { $0 == nil })
+        #expect(outcome.notes.contains { $0.contains("fluid-parakeet") })
+    }
+
+    /// #164 verify round 2 (logic lens). The capability gate closed one route to
+    /// an unexplained blank in the DELTA column; a second route was left open.
+    ///
+    /// A backend that *does* declare support, whose baseline pass succeeds but
+    /// whose with-context pass throws, gets `contextErrorRate == nil` and does
+    /// not enter `contextSkipped` — so the report shows the same blank cell with
+    /// no reason given. The `try?` predates this change, but round 2 added a
+    /// completeness claim above it that this path did not honour.
+    ///
+    /// Reported separately from the capability skip on purpose: telling a user
+    /// their whisper.cpp run "declares no prompt support" would be false.
+    @Test func `A failed with-context pass is reported, not left as a blank cell`() async {
+        let runner = BenchmarkRunner(
+            engines: [Self.contextFailingEngine()], host: Fixtures.m5Max,
+            probe: FakeClock(step: 1).probe())
+        let outcome = await runner.run(
+            candidates: [candidate], notes: [], audio: audio,
+            referenceText: "hello world", metricKind: .wer, language: "en",
+            contextPrompt: "鄭澈, world"
+        )
+        // The candidate is still measured — a context-pass failure is not a
+        // candidate failure (spec benchmark: warn-continue).
+        #expect(outcome.measured.count == 1)
+        #expect(outcome.failures.isEmpty)
+        #expect(outcome.measured.first?.contextErrorRate == nil)
+        #expect(
+            outcome.notes.contains { $0.contains("with-context pass failed") },
+            "a blank DELTA cell must carry its reason; got: \(outcome.notes)")
+        #expect(
+            !outcome.notes.contains { $0.contains("no prompt support") },
+            "a failed pass must not be reported as a capability skip")
+    }
+
+    /// The benchmark has no one "selected" engine, which is why `loadContext`
+    /// takes an optional capability. But the prompt now only reaches candidates
+    /// that declare support, so when those agree there IS a single applicable
+    /// budget — and the spec's "the budget comes from the selected engine
+    /// rather than a single global constant" should hold on this call site too.
+    @Test func `The benchmark renders against the budget its candidates agree on`() {
+        let core = CommandCore(
+            engines: [
+                MockEngine.fixed(.whisperKit, promptCapability: .supported(maxTokens: 224)),
+                MockEngine.fixed(.whisperCpp, promptCapability: .supported(maxTokens: 224)),
+                MockEngine.fixed(.fluidParakeet),
+            ],
+            detect: { Fixtures.m5Max })
+        func grid(_ backends: [BackendID]) -> [BenchmarkCandidate] {
+            backends.map { BenchmarkCandidate(backend: $0, model: "m", quantization: "default") }
+        }
+        // Whisper-only, and mixed with a backend that cannot consume it: the
+        // agreeing budget wins — the non-consumer constrains nothing.
+        #expect(
+            core.benchmarkPromptCapability(for: grid([.whisperKit, .whisperCpp]))
+                == .supported(maxTokens: 224))
+        #expect(
+            core.benchmarkPromptCapability(for: grid([.whisperKit, .fluidParakeet]))
+                == .supported(maxTokens: 224))
+        // Nothing in the grid can take a prompt → do not render one at all.
+        #expect(core.benchmarkPromptCapability(for: grid([.fluidParakeet])) == .unsupported)
+    }
+
+    @Test func `Disagreeing budgets fall back to the global default`() {
+        let core = CommandCore(
+            engines: [
+                MockEngine.fixed(.whisperKit, promptCapability: .supported(maxTokens: 224)),
+                MockEngine.fixed(.whisperCpp, promptCapability: .supported(maxTokens: 64)),
+            ],
+            detect: { Fixtures.m5Max })
+        let grid = [BackendID.whisperKit, .whisperCpp].map {
+            BenchmarkCandidate(backend: $0, model: "m", quantization: "default")
+        }
+        // One prompt cannot honour two budgets; nil keeps the previous global
+        // default and leaves the smaller backend's own clamp as the backstop.
+        #expect(core.benchmarkPromptCapability(for: grid) == nil)
+    }
+
+    @Test func `A grid that cannot take a prompt says so instead of counting values`() async throws {
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let ctxDir = dir.appendingPathComponent("ctx")
+        try FileManager.default.createDirectory(at: ctxDir, withIntermediateDirectories: true)
+        try #"{"version":1,"terms":["world"]}"#.write(
+            to: ctxDir.appendingPathComponent("context.json"), atomically: true, encoding: .utf8)
+        let audioPath = try makeWavFile(in: dir, seconds: 2.0)
+        let srt = dir.appendingPathComponent("truth.srt").path
+        try "1\n00:00:00,000 --> 00:00:02,000\nhello world\n".write(
+            toFile: srt, atomically: true, encoding: .utf8)
+        let core = CommandCore(
+            engines: [MockEngine.fixed(.fluidParakeet)],
+            detect: { Fixtures.m5Max },
+            store: BenchmarkStore(directory: dir.appendingPathComponent("store")),
+            probe: FakeClock(step: 1).probe()
+        )
+        let report = try await core.benchmark(
+            audioPath: audioPath, referencePath: srt, language: "en",
+            backendFilter: ["fluid-parakeet"], modelFilter: nil, profileName: "medium",
+            asJSON: false, contextDir: ctxDir.path
+        )
+        // "0 value(s) in the with-context pass" would be the old misstatement:
+        // technically true, and read as "your context is empty".
+        #expect(!report.contains("value(s) in the with-context pass"))
+        #expect(report.contains("no candidate supports a prompt"))
+    }
+
     @Test func `No context directory means single-pass runs and an unchanged report shape`() async {
         let runner = BenchmarkRunner(
             engines: [Self.biasedEngine()], host: Fixtures.m5Max,
@@ -342,6 +550,11 @@ struct BenchmarkNormalizationTests {
         let collector = PathCollector()
         let engine = MockEngine(
             id: .whisperKit, available: true,
+            // Stands in for WhisperKit, so it must declare WhisperKit's
+            // capability — the ±context pass is now gated on the declaration
+            // (#164 verify), and an undeclared double would skip that pass and
+            // make this a two-pass assertion for the wrong reason.
+            promptCapability: .supported(maxTokens: 224),
             raw: { path, _ in
                 collector.record(path)
                 return RawTranscription(

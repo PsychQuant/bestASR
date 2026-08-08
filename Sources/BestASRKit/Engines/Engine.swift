@@ -68,6 +68,21 @@ public protocol Engine: Sendable {
 
     /// Backend-specific transcription returning raw segments.
     func transcribeRaw(audioPath: String, options: TranscribeOptions) async throws -> RawTranscription
+
+    /// Whether this backend consumes a decoder conditioning prompt, and its
+    /// token ceiling.
+    ///
+    /// **Deliberately has no default implementation.** A default would let a new
+    /// engine inherit "no prompt support" without its author ever considering
+    /// the question — which is a quieter version of the exact failure this
+    /// declaration exists to remove: the system asserting something about a
+    /// backend that nobody checked. Requiring it is source-breaking for any
+    /// out-of-tree conformer, and that is the accepted cost: a bounded one-time
+    /// change, in exchange for every future engine being made to answer.
+    ///
+    /// Declaring this does not make it true. `EngineCapabilityTests` asserts
+    /// each backend's declaration against what it actually forwards.
+    var promptCapability: PromptCapability { get }
 }
 
 extension Engine {
