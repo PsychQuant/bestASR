@@ -22,13 +22,46 @@ set -u
 REPO="PsychQuant/bestASR"
 BINARY_NAME="bestasr-mcp"
 
-# Whose signature we accept. The Team ID is not a secret — it is readable from
-# any signed binary (`codesign -dv`) — but pinning it is what turns "has a
-# signature" into "is ours". `anchor apple generic` additionally forces the
-# certificate chain to Apple's root, so a self-signed or ad-hoc binary cannot
-# satisfy it no matter what it claims (#163 round-2 CRITICAL).
+# What we accept, and it has to be all four things at once: our program, our
+# team, a real Apple chain, and a Developer ID Application certificate.
+#
+# This string is not hand-rolled. It is the requirement Apple's own tooling
+# generates for our release binary — read it back with:
+#
+#   codesign -d -r- ~/bin/bestasr-mcp
+#
+# Round 2 replaced a bare `codesign --verify --strict` (which pins nothing at
+# all) with a hand-written requirement that kept only two of Apple's five
+# clauses, and round 3 broke it twice, empirically, on this machine:
+#
+#   * No `identifier` clause meant it pinned WHO signed, not WHAT was signed.
+#     Any other binary from the same team passed: `cp ~/bin/CheWordMCP
+#     ./bestasr-mcp` was accepted, and every one of our MCP binaries is a
+#     public release asset. No forgery required.
+#   * No certificate-type clause meant an "Apple Development" certificate
+#     passed, because it carries the same `subject.OU`. That identity is
+#     auto-issued by Xcode and signs with no password prompt — so local
+#     execution on any of our machines was enough, without ever touching the
+#     release key, CI, or GitHub.
+#
+# Hence: stop inventing requirements, use the one Apple generates. The two
+# OID clauses are what constrain the certificate to Developer ID Application
+# (leaf 1.2.840.113635.100.6.1.13) issued under the Developer ID CA
+# (intermediate 1.2.840.113635.100.6.2.6).
 EXPECTED_TEAM_ID="6W377FS7BS"
-SIGNING_REQUIREMENT='=anchor apple generic and certificate leaf[subject.OU] = "'"$EXPECTED_TEAM_ID"'"'
+EXPECTED_IDENTIFIER="bestasr-mcp"
+SIGNING_REQUIREMENT='=identifier "'"$EXPECTED_IDENTIFIER"'"'
+SIGNING_REQUIREMENT="$SIGNING_REQUIREMENT"' and anchor apple generic'
+SIGNING_REQUIREMENT="$SIGNING_REQUIREMENT"' and certificate 1[field.1.2.840.113635.100.6.2.6]'
+SIGNING_REQUIREMENT="$SIGNING_REQUIREMENT"' and certificate leaf[field.1.2.840.113635.100.6.1.13]'
+SIGNING_REQUIREMENT="$SIGNING_REQUIREMENT"' and certificate leaf[subject.OU] = "'"$EXPECTED_TEAM_ID"'"'
+
+# Verification is a function, not an inline call, because round 3 found the
+# inline version only guarded the download path — every route to an existing
+# binary reached `exec` unchecked.
+verify_binary() {
+    codesign --verify --strict -R "$SIGNING_REQUIREMENT" "$1" 2>/dev/null
+}
 # Overridable so the sidecar/self-heal logic is testable without touching the
 # real ~/bin (#163 verify: "defect 3's fix ships with no test"). Production
 # behaviour is unchanged — the variable is unset outside tests.
@@ -185,8 +218,7 @@ if $NEED_DOWNLOAD; then
             # our Team. Verified against a real release (passes), an ad-hoc
             # binary (rejected), and a self-signed one (rejected).
             VERIFIED=false
-            if codesign --verify --strict -R "$SIGNING_REQUIREMENT" \
-                "${BINARY}.tmp" 2>/dev/null; then
+            if verify_binary "${BINARY}.tmp"; then
                 VERIFIED=true
             else
                 echo "$BINARY_NAME: ERROR — binary is not signed by the expected identity (Team $EXPECTED_TEAM_ID); refusing to install" >&2
@@ -214,10 +246,13 @@ if $NEED_DOWNLOAD; then
             if ! $VERIFIED; then
                 rm -f "${BINARY}.tmp" 2>/dev/null
                 if [[ -x "$BINARY" ]]; then
+                    # Fall through to the single gated exec below rather than
+                    # exec'ing here: an existing binary is not trusted just
+                    # because it predates this run (#163 round-3 H1).
                     echo "$BINARY_NAME: keeping the existing binary" >&2
-                    exec "$BINARY" "$@"
+                else
+                    exit 1
                 fi
-                exit 1
             fi
 
             chmod +x "${BINARY}.tmp"
@@ -246,4 +281,19 @@ if $NEED_DOWNLOAD; then
     fi
 fi
 
+# The only exec in this script, and it is gated. Round 2 verified the binary at
+# download time only, so the fast path (sidecar already matches) and all three
+# keep-existing branches ran whatever was on disk without a check — including,
+# after a failed re-download, the very binary the user was trying to replace.
+# Verifying here costs one codesign call per spawn and covers every route.
+if [[ ! -x "$BINARY" ]]; then
+    echo "$BINARY_NAME: ERROR — no binary at $BINARY" >&2
+    exit 1
+fi
+if ! verify_binary "$BINARY"; then
+    echo "$BINARY_NAME: ERROR — $BINARY does not satisfy the pinned signing requirement" >&2
+    echo "  (expected identifier '$EXPECTED_IDENTIFIER', Developer ID Application, Team $EXPECTED_TEAM_ID)" >&2
+    echo "  Refusing to run it. Delete it and re-run to reinstall from the release." >&2
+    exit 1
+fi
 exec "$BINARY" "$@"

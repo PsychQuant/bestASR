@@ -53,6 +53,30 @@ SIGN_ARGS=(--force --options runtime --timestamp --sign "$DEVELOPER_ID")
 codesign "${SIGN_ARGS[@]}" "$BIN"
 codesign --verify --strict --verbose=2 "$BIN"
 
+# Verify against the EXACT requirement the wrapper will enforce at install
+# time (#163 round-3). `--verify --strict` above only checks self-consistency;
+# it passes for an unsigned binary. Two rounds of review shipped a requirement
+# that was weaker than intended, and nothing in this pipeline would have
+# noticed — the wrapper is the only thing that ever ran it, on the user's
+# machine, after the release was already public.
+#
+# Kept as a literal rather than sourced from the wrapper: the point is to fail
+# when the two DISAGREE, so reading one from the other would defeat it. If you
+# change one, change both — this check is what tells you that you must.
+RELEASE_REQUIREMENT='=identifier "bestasr-mcp"'
+RELEASE_REQUIREMENT="$RELEASE_REQUIREMENT"' and anchor apple generic'
+RELEASE_REQUIREMENT="$RELEASE_REQUIREMENT"' and certificate 1[field.1.2.840.113635.100.6.2.6]'
+RELEASE_REQUIREMENT="$RELEASE_REQUIREMENT"' and certificate leaf[field.1.2.840.113635.100.6.1.13]'
+RELEASE_REQUIREMENT="$RELEASE_REQUIREMENT"' and certificate leaf[subject.OU] = "6W377FS7BS"'
+codesign --verify --strict -R "$RELEASE_REQUIREMENT" "$BIN" || {
+  echo "x the signed binary does not satisfy the requirement the wrapper enforces:" >&2
+  echo "    $RELEASE_REQUIREMENT" >&2
+  echo "  Apple's own view of this binary:" >&2
+  codesign -d -r- "$BIN" >&2 2>&1 || true
+  echo "  Releasing it would produce an artifact no user can install." >&2
+  exit 1
+}
+
 echo "== [3/6] smoke-test the SIGNED binary under hardened runtime =="
 # A binary that crashes under hardened runtime must never reach a release.
 # Drive a real stdio JSON-RPC round-trip: initialize + tools/list.

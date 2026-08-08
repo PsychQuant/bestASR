@@ -40,19 +40,44 @@ All notable changes to bestASR are documented here. The format follows
   number above the stale pin.
 
   Precisely: it guarantees the machine *re-resolves*, not that it heals in
-  exactly one attempt. Two non-fatal paths return without upgrading the
-  sidecar — the registry offering no matching asset, and a clean install
-  whose verification fails — and both retry on the next spawn. An earlier
-  draft of this entry claimed "exactly one re-resolution", which is a
-  stronger promise than the code makes.
+  exactly one attempt. Three non-fatal paths return without upgrading the
+  sidecar — the registry offering no matching asset, the download failing,
+  and verification failing — and all of them retry on the next spawn. An
+  earlier draft of this entry claimed "exactly one re-resolution", which is a
+  stronger promise than the code makes; a later one said "two paths", which
+  undercounted.
 
-- **The wrapper installed unverified binaries (#163)**: it downloaded an
+- **The wrapper ran binaries it never checked (#163)**: it downloaded an
   executable, stripped its quarantine attribute, and exec'd it with no integrity
   check — while every release had been publishing a `.sha256` that nothing
-  consumed. Downloads are now rejected unless the checksum matches and
-  `codesign --verify --strict` passes, and quarantine is stripped only after
-  both. Stripping quarantine does not make Gatekeeper "run cleanly"; it skips
-  the evaluation, which is why these checks are the ones that matter here.
+  consumed. Stripping quarantine does not make Gatekeeper "run cleanly"; it
+  skips the evaluation, which is why the wrapper has to do this itself.
+
+  What it now enforces, before installing *and* before every exec, is the
+  designated requirement Apple's own tooling generates for our release binary
+  (`codesign -d -r-`): the program's identifier, an Apple-anchored chain, a
+  Developer ID Application leaf certificate, and our Team ID. All four.
+
+  It took three rounds to get there, and the two failures in between are worth
+  recording because both looked correct:
+
+  - `codesign --verify --strict` alone pins *nothing*. It checks that a
+    signature is internally consistent, not who produced it — an unsigned
+    binary passes it, and so does `codesign --sign -`.
+  - Pinning only `subject.OU` (the Team ID) pins *who signed*, not *what was
+    signed*, and not *what kind of certificate*. Any other binary from the
+    same team passed — every MCP server we publish is a same-team release
+    asset — and so did an "Apple Development" certificate, which Xcode issues
+    automatically and which signs without a password prompt.
+
+  The checksum is a secondary, advisory check. It shares a channel with the
+  artifact it validates, so it attests transport integrity, not provenance; a
+  mismatch is fatal, a missing `.sha256` is not, because letting a forgotten
+  upload brick every clean install trades one outage for another.
+
+  `scripts/release-mcp.sh` now verifies each signed binary against the same
+  requirement before publishing, so a release the wrapper could not install
+  fails at release time instead of on users' machines.
 
 
 ### Added
