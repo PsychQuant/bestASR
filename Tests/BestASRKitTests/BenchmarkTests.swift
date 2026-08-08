@@ -253,6 +253,22 @@ struct ContextDeltaBenchmarkTests {
         }
     }
 
+    /// Baseline succeeds; the with-context pass throws. A real backend can hit
+    /// this transiently (model eviction, a decode error on the second pass).
+    static func contextFailingEngine() -> MockEngine {
+        MockEngine(
+            id: .whisperKit, available: true, promptCapability: .supported(maxTokens: 224)
+        ) { _, options in
+            if options.prompt != nil {
+                throw NSError(
+                    domain: "MockEngine", code: 2,
+                    userInfo: [NSLocalizedDescriptionKey: "context pass exploded"])
+            }
+            return RawTranscription(
+                segments: [.init(start: 0, end: 2, text: "hello")], language: "en", duration: 2)
+        }
+    }
+
     static func witnessEngine(_ id: BackendID, _ witness: PromptWitness) -> MockEngine {
         MockEngine(id: id, available: true) { _, options in
             witness.record(options.prompt)
@@ -384,6 +400,39 @@ struct ContextDeltaBenchmarkTests {
         #expect(byBackend["fluid-parakeet"]?.contextErrorRate == nil)
         #expect(witness.all.allSatisfy { $0 == nil })
         #expect(outcome.notes.contains { $0.contains("fluid-parakeet") })
+    }
+
+    /// #164 verify round 2 (logic lens). The capability gate closed one route to
+    /// an unexplained blank in the DELTA column; a second route was left open.
+    ///
+    /// A backend that *does* declare support, whose baseline pass succeeds but
+    /// whose with-context pass throws, gets `contextErrorRate == nil` and does
+    /// not enter `contextSkipped` — so the report shows the same blank cell with
+    /// no reason given. The `try?` predates this change, but round 2 added a
+    /// completeness claim above it that this path did not honour.
+    ///
+    /// Reported separately from the capability skip on purpose: telling a user
+    /// their whisper.cpp run "declares no prompt support" would be false.
+    @Test func `A failed with-context pass is reported, not left as a blank cell`() async {
+        let runner = BenchmarkRunner(
+            engines: [Self.contextFailingEngine()], host: Fixtures.m5Max,
+            probe: FakeClock(step: 1).probe())
+        let outcome = await runner.run(
+            candidates: [candidate], notes: [], audio: audio,
+            referenceText: "hello world", metricKind: .wer, language: "en",
+            contextPrompt: "鄭澈, world"
+        )
+        // The candidate is still measured — a context-pass failure is not a
+        // candidate failure (spec benchmark: warn-continue).
+        #expect(outcome.measured.count == 1)
+        #expect(outcome.failures.isEmpty)
+        #expect(outcome.measured.first?.contextErrorRate == nil)
+        #expect(
+            outcome.notes.contains { $0.contains("with-context pass failed") },
+            "a blank DELTA cell must carry its reason; got: \(outcome.notes)")
+        #expect(
+            !outcome.notes.contains { $0.contains("no prompt support") },
+            "a failed pass must not be reported as a capability skip")
     }
 
     /// The benchmark has no one "selected" engine, which is why `loadContext`

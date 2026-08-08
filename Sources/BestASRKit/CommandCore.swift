@@ -159,6 +159,18 @@ public struct CommandCore: Sendable {
     /// - candidates disagreeing → nil (keep the global default): one prompt
     ///   cannot honour two budgets, and the smaller backend's own clamp is
     ///   the remaining backstop.
+    ///
+    /// Note the deliberate asymmetry with `promptCapability(for:)`, whose nil
+    /// means "unknown — no engine registered" and tells its caller to keep the
+    /// global default. Here an unregistered candidate contributes nothing and
+    /// a grid of *only* unregistered candidates therefore yields `.unsupported`
+    /// rather than nil. That is intentional: this function's job is "can the
+    /// with-context pass happen at all", and a candidate with no engine cannot
+    /// run any pass — `BenchmarkRunner` will not measure it either. The case is
+    /// unreachable from `benchmark()` regardless, because `enumerateCandidates`
+    /// derives candidates from the same `engines` array, but the reasoning is
+    /// recorded here because two reviewers read the old wording in opposite
+    /// ways (#164 verify round 2).
     func benchmarkPromptCapability(for candidates: [BenchmarkCandidate]) -> PromptCapability? {
         var budgets = Set<Int>()
         for candidate in candidates {

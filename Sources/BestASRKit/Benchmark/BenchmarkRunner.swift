@@ -177,6 +177,9 @@ public struct BenchmarkRunner {
         // Candidates whose backend declares no prompt support, so the ±context
         // pass was not run for them (#164 verify). Reported, never silent.
         var contextSkipped: [String] = []
+        // Candidates that CAN take a prompt but whose with-context pass threw.
+        // Kept apart from contextSkipped: same blank cell, different reason.
+        var contextFailed: [String] = []
 
         guard let audioDuration = audio.duration, audioDuration > 0 else {
             return BenchmarkOutcome(
@@ -255,16 +258,22 @@ public struct BenchmarkRunner {
                     language: language)
 
                 // Optional second pass with the context prompt (spec benchmark:
-                // Measure the context-biasing delta). Model is warm; failures
-                // here degrade to a note-worthy nil, not a candidate failure.
+                // Measure the context-biasing delta). Model is warm; a failure
+                // here is not a candidate failure — the baseline measurement
+                // still stands.
                 //
                 // Gated on the candidate's own declaration (#164 verify): a
                 // backend that takes no prompt must never receive one (spec
                 // asr-engine), and measuring a "with-context" pass there would
                 // publish a delta of ~0 that reads as "context does not help
                 // this backend" when the truth is that it cannot use context
-                // at all. Skipped candidates are named in the notes rather
-                // than dropping out silently.
+                // at all.
+                //
+                // Both ways of ending up without a delta are named in the
+                // notes, and named SEPARATELY: "declares no prompt support"
+                // and "the pass threw" are different facts about the backend,
+                // and reporting a transient decode failure as a capability
+                // limit would be false.
                 var contextErrorRate: Double?
                 if contextPrompt != nil, !engine.promptCapability.supportsPrompt {
                     contextSkipped.append(candidate.backend.rawValue)
@@ -277,12 +286,16 @@ public struct BenchmarkRunner {
                         prompt: contextPrompt,
                         deterministicDecode: deterministicDecode
                     )
-                    if let contextTranscript = try? await engine.transcribe(
-                        audioPath: normalizedAudio.path, options: contextOptions)
-                    {
+                    do {
+                        let contextTranscript = try await engine.transcribe(
+                            audioPath: normalizedAudio.path, options: contextOptions)
                         contextErrorRate = ErrorRate.compute(
                             hypothesis: contextTranscript.text,
                             reference: referenceText, kind: metricKind, language: language)
+                    } catch {
+                        let reason = (error as? TranscriptionError)?.errorDescription
+                            ?? error.localizedDescription
+                        contextFailed.append("\(candidate.backend.rawValue) (\(reason))")
                     }
                 }
                 let record = BenchmarkRecord(
@@ -321,10 +334,17 @@ public struct BenchmarkRunner {
                     + Set(contextSkipped).sorted().joined(separator: ", ")
                     + " — these backends declare no prompt support"
             ]
+        let failNote = contextFailed.isEmpty
+            ? []
+            : [
+                "context: with-context pass failed for "
+                    + Set(contextFailed).sorted().joined(separator: "; ")
+                    + " — the baseline measurement for these candidates still stands"
+            ]
         return BenchmarkOutcome(
             measured: measured,
             failures: failures,
-            notes: initialNotes + skipNote,
+            notes: initialNotes + skipNote + failNote,
             metricKind: metricKind,
             language: language
         )
