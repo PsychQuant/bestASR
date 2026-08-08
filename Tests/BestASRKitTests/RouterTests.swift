@@ -101,7 +101,10 @@ struct RouterCrossFamilyTests {
         // #50 verify M6: --backend fluid-paraformer with no records falls back
         // to its catalog model (large-zh, priority 2, unverified — upstream
         // decode bug). The route succeeds (explicit user choice) but the
-        // reasons must carry the unverified warning, not silently proceed.
+        // WARNINGS must carry the unverified notice, not silently proceed.
+        // (#136 verify: this comment said "reasons" for one round after the
+        // assertion below was corrected — the same name-says-one-thing defect
+        // the fix was about, left sitting above the line that fixed it.)
         let rec = try Router.recommend(
             host: Fixtures.m5Max, profile: .high, requestedLanguage: "zh",
             backendOverride: "fluid-paraformer", modelOverride: nil,
@@ -109,7 +112,13 @@ struct RouterCrossFamilyTests {
         )
         #expect(rec.backend == .fluidParaformer)
         #expect(rec.model == "large-zh")
-        #expect(rec.reason.contains { $0.contains("unverified") })
+        // `warnings`, not `reason` (#136 verify). This assertion used to read
+        // `rec.reason` under a test named "…**warns** about unestablished
+        // quality" — name saying one thing, assertion certifying the other. That
+        // is what kept the misclassification alive through #136's first fix: the
+        // notice was not merely in the wrong array, it had a passing test
+        // vouching for the wrong array.
+        #expect(rec.warnings.contains { $0.contains("unverified") })
     }
 
     @Test func `Locking the OS-native backend routes instead of silently substituting`() throws {

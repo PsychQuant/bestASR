@@ -7,14 +7,26 @@ import Testing
 private func makeCore(
     engines: [any Engine],
     cacheDir: URL,
-    host: SystemInfo = Fixtures.m5Max
+    host: SystemInfo = Fixtures.m5Max,
+    languageDetector: (any AudioLanguageDetecting)? = nil
 ) -> CommandCore {
     CommandCore(
         engines: engines,
         detect: { host },
         store: BenchmarkStore(directory: cacheDir.appendingPathComponent("store")),
-        probe: FakeClockProbe.probe()
+        probe: FakeClockProbe.probe(),
+        languageDetector: languageDetector ?? StubLanguageDetector(language: "en")
     )
+}
+
+/// Language detection defaults to `WhisperKitLanguageDetector`, which downloads
+/// and runs a real model. Leaving it in place made these tests depend on a
+/// cached WhisperKit and a network — passing on a developer machine and failing
+/// in CI, where the miss surfaces as a `--language auto` warning on every run.
+/// Stubbing it keeps the suite hermetic, per the file's own contract.
+private struct StubLanguageDetector: AudioLanguageDetecting {
+    let language: String
+    func detectLanguage(audioPath: String) async throws -> String { language }
 }
 
 private enum FakeClockProbe {
@@ -61,11 +73,73 @@ struct RecommendCommandTests {
         let object =
             try JSONSerialization.jsonObject(with: Data(output.utf8)) as? [String: Any]
         let json = try #require(object)
-        for key in ["backend", "model", "quantization", "data_source", "reason", "warnings"] {
+        // The unconditional enumeration the cli spec's `recommend` requirement
+        // makes normative — including `profile`, which the code has always
+        // emitted and the spec omitted until #136 went looking.
+        for key in [
+            "backend", "model", "quantization", "profile",
+            "data_source", "reason", "warnings",
+        ] {
             #expect(json[key] != nil, "missing key \(key)")
         }
+        // `language` is conditional, and present here because this fixture
+        // resolves one. See the absent case below.
+        #expect(json["language"] as? String == "en")
+        // And their SHAPE, not just their presence. A notice that migrates
+        // between `reason` and `warnings` (#136 moved the #50 one) is invisible
+        // to a key-presence check, and so is a field that degrades to a string.
+        for key in ["reason", "warnings"] {
+            #expect(
+                json[key] is [String],
+                "`\(key)` is not an array of strings: \(String(describing: json[key]))")
+        }
         #expect(json["data_source"] as? String == "cold_start_prior")
-        #expect(json["measured"] is NSNull || json["measured"] == nil)
+        // Absent, not null. `JSONEncoder` omits a nil optional rather than
+        // encoding `null`, so a consumer keying on `"measured" in obj` and one
+        // keying on `obj["measured"] is None` do not agree. The spec said
+        // "null otherwise" until this assertion was tightened enough to
+        // contradict it; the payload is the shipped surface, so the spec moved.
+        #expect(
+            json["measured"] == nil,
+            "`measured` should be absent without benchmark data, not \(String(describing: json["measured"]))"
+        )
+    }
+
+    /// The conditional keys are absent, not null — and `language` is one of them.
+    ///
+    /// `JSONEncoder` omits a nil optional rather than encoding `null`, so a
+    /// consumer keying on `"language" in obj` and one keying on
+    /// `obj["language"] is None` do not agree. The spec listed `language` as an
+    /// unconditional SHALL until this test existed; the tightening that caught
+    /// the same error for `measured` could not see it, because every other
+    /// fixture in this file injects a detector that always resolves.
+    @Test func `language and measured are absent when neither resolves`() async throws {
+        struct FailingDetector: AudioLanguageDetecting {
+            func detectLanguage(audioPath: String) async throws -> String {
+                throw BestASRError.usage("detection unavailable")
+            }
+        }
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let audio = try makeWavFile(in: dir)
+        let core = makeCore(
+            engines: [MockEngine.fixed(.whisperKit)], cacheDir: dir,
+            languageDetector: FailingDetector())
+
+        let output = try await core.recommendJSON(audioPath: audio, selection: auto)
+        let json = try #require(
+            try JSONSerialization.jsonObject(with: Data(output.utf8)) as? [String: Any])
+
+        #expect(json["data_source"] as? String == "cold_start_prior")
+        #expect(
+            json["language"] == nil,
+            "`language` should be absent when none resolved, not \(String(describing: json["language"]))"
+        )
+        #expect(json["measured"] == nil)
+        // The unconditional keys are still all there.
+        for key in ["backend", "model", "quantization", "profile", "reason", "warnings"] {
+            #expect(json[key] != nil, "missing key \(key)")
+        }
     }
 
     @Test func `recommend reflects benchmark data when the cache has a usable record`() async throws {
@@ -135,6 +209,55 @@ struct TranscribeCommandTests {
         #expect(written == "hello world")  // transcript only — no reasons in the file
         #expect(outcome.explanation.contains("because"))
         #expect(outcome.explanation.contains("cold start"))
+    }
+
+    @Test func `an unavailable requested backend surfaces a warning off the explanation`()
+        async throws
+    {
+        // #136: every router warning was folded into `explanation`, which the
+        // CLI prints ONLY under --explain. So a user who asked for one backend
+        // and silently received another's output saw nothing at all. Measured
+        // during #121: `--backend apple-speech` wrote mlx-audio Whisper output
+        // under the user's chosen name, with `Wrote txt transcript to …` as the
+        // entire output.
+        //
+        // Warnings must therefore be reachable WITHOUT parsing the prose block,
+        // so the CLI can print them on the default path.
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let audio = try makeWavFile(in: dir)
+        let core = makeCore(engines: [MockEngine.fixed(.whisperKit)], cacheDir: dir)
+
+        let request = SelectionRequest(
+            profileName: "auto", backendOverride: "fluid-parakeet",  // not among the mock's engines
+            modelOverride: nil, requestedLanguage: nil)
+        let outcome = try await core.transcribe(
+            audioPath: audio, selection: request, formatName: "txt", outputPath: nil)
+
+        #expect(!outcome.warnings.isEmpty, "the substitution produced no structured warning")
+        #expect(outcome.warnings.contains { $0.contains("fluid-parakeet") })
+        #expect(outcome.warnings.contains { $0.contains("unavailable") })
+        // The explanation keeps carrying them too, so nothing is lost by the
+        // move and nothing is duplicated. Not "unchanged": the #50 notice
+        // renders as `  ! …` rather than `  - warning: …` now that it lives in
+        // `warnings`. Three rounds asserted the stronger claim; it is false.
+        #expect(outcome.explanation.contains("fluid-parakeet"))
+    }
+
+    @Test func `a clean run carries no warnings, so the default path stays quiet`()
+        async throws
+    {
+        // The other half of the contract: warnings print unconditionally, so an
+        // ordinary run must not produce any, or the new output becomes noise
+        // that trains the reader to ignore it.
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let audio = try makeWavFile(in: dir)
+        let core = makeCore(engines: [MockEngine.fixed(.whisperKit)], cacheDir: dir)
+
+        let outcome = try await core.transcribe(
+            audioPath: audio, selection: auto, formatName: "txt", outputPath: nil)
+        #expect(outcome.warnings.isEmpty, "clean run emitted: \(outcome.warnings)")
     }
 }
 
@@ -427,4 +550,617 @@ struct ContextCommandTests {
         let reasons = try #require(json["reason"] as? [String])
         #expect(reasons.contains { $0.contains("context:") && $0.contains("5 value(s) injected") })
     }
+}
+
+/// The #136 contract at the two layers the original fix left uncovered: which
+/// notices the router classifies as warnings, and whether the CLI's rendering
+/// of them actually reaches stderr.
+struct RouterWarningVisibilityTests {
+
+    /// Capture what `emit` writes, by handing it a real `FILE*` on a temp file.
+    ///
+    /// Deliberately NOT `dup2` on the process's fd 2, which is the more direct
+    /// way to prove the destination and is unsafe inside a test bundle: after
+    /// `close(2)` the next `open()` anywhere in the process receives fd 2, and
+    /// restoring it then closes that resource out from under whoever opened it
+    /// — including the harness's own result channel, which hangs the run. The
+    /// default-destination assertion below covers what this cannot.
+    private func captured(_ body: (UnsafeMutablePointer<FILE>) -> Void) throws -> String {
+        let path = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("idd136-\(UUID().uuidString)").path
+        defer { try? FileManager.default.removeItem(atPath: path) }
+        guard let f = fopen(path, "w") else { throw CocoaError(.fileWriteUnknown) }
+        body(f)
+        fclose(f)
+        return (try? String(contentsOfFile: path, encoding: .utf8)) ?? ""
+    }
+
+    // MARK: - classification (verify F1)
+
+    @Test func `the unverified-model notice is a warning, not a reason`() throws {
+        // Issue #136 names this notice explicitly among the warnings that "were
+        // written to be seen. None is, by default." The first fix separated the
+        // CLI's rendering but left this one in `reason`, so it stayed
+        // --explain-only while the CHANGELOG said it had been unhidden.
+        //
+        // The tell was in the string itself: it began with the token "warning: "
+        // while living in the reasons array — the exact reason/warning
+        // conflation #136 exists to end, one layer below the one it fixed.
+        let rec = try Router.recommend(
+            host: Fixtures.m5Max, profile: .high, requestedLanguage: "zh",
+            backendOverride: "fluid-paraformer", modelOverride: nil,
+            records: [], availability: [.fluidParaformer: true]
+        )
+        #expect(rec.backend == .fluidParaformer)
+        #expect(
+            rec.warnings.contains { $0.contains("unverified") },
+            "the #50 notice is not in warnings: \(rec.warnings)")
+        #expect(
+            !rec.reason.contains { $0.contains("unverified") },
+            "the #50 notice is still duplicated into reasons: \(rec.reason)")
+    }
+
+    @Test func `the unverified-model warning is not double-prefixed`() throws {
+        // The CLI adds its own "warning: " prefix, so a straight move of the
+        // string would render `warning: warning: '…' is unverified`.
+        let rec = try Router.recommend(
+            host: Fixtures.m5Max, profile: .high, requestedLanguage: "zh",
+            backendOverride: "fluid-paraformer", modelOverride: nil,
+            records: [], availability: [.fluidParaformer: true]
+        )
+        let notice = try #require(rec.warnings.first { $0.contains("unverified") })
+        #expect(!notice.lowercased().hasPrefix("warning:"), "double prefix: \(notice)")
+    }
+
+    // MARK: - rendering (verify F2)
+
+    // The original fix asserted only that `TranscribeOutcome.warnings` was
+    // populated — the data was reachable, which is necessary and is not the
+    // acceptance criterion. Deleting the CLI's entire printing branch left all
+    // 447 tests green, reproducing one layer up the exact failure mode the
+    // issue's third acceptance line names.
+    //
+    // Three properties have to hold, and no single assertion covers them:
+    // which lines (branch), how they read (prefix), and WHERE they go. The
+    // last one is why `destination` is a named constant rather than an inlined
+    // `stderr` — a pure test of the rendered strings stays green when they are
+    // sent to stdout, which for anyone piping a transcript is #136 again.
+
+    @Test func `the default path renders each warning with a prefix`() throws {
+        let outcome = TranscribeOutcome(
+            outputPath: "/tmp/x.txt", format: "txt", explanation: "Selected … because:",
+            warnings: ["a", "b"])
+        #expect(
+            TranscribeDiagnostics.lines(for: outcome, explain: false) == ["warning: a", "warning: b"]
+        )
+    }
+
+    @Test func `--explain renders the explanation and never duplicates warnings`() throws {
+        let outcome = TranscribeOutcome(
+            outputPath: "/tmp/x.txt", format: "txt", explanation: "Selected … because:\n  ! a",
+            warnings: ["a"])
+        let lines = TranscribeDiagnostics.lines(for: outcome, explain: true)
+        #expect(lines == ["Selected … because:\n  ! a"])
+        #expect(!lines.contains { $0.hasPrefix("warning:") })
+    }
+
+    @Test func `a clean run renders nothing at all`() throws {
+        let outcome = TranscribeOutcome(
+            outputPath: "/tmp/x.txt", format: "txt", explanation: "", warnings: [])
+        #expect(TranscribeDiagnostics.lines(for: outcome, explain: false).isEmpty)
+    }
+
+    @Test func `diagnostics go to stderr, never stdout`() throws {
+        // The destination assertion. Flipping this constant to `stdout` is a
+        // one-word change that every string-level test above tolerates.
+        #expect(TranscribeDiagnostics.destination == stderr)
+        #expect(TranscribeDiagnostics.destination != stdout)
+    }
+
+    @Test func `emit writes the rendered lines to the stream it is given`() throws {
+        let outcome = TranscribeOutcome(
+            outputPath: "/tmp/x.txt", format: "txt", explanation: "", warnings: ["substituted"])
+        let text = try captured { TranscribeDiagnostics.emit(for: outcome, explain: false, to: $0) }
+        #expect(text == "warning: substituted\n", "got: \(text)")
+    }
+
+    @Test func `emitting nothing writes nothing`() throws {
+        let outcome = TranscribeOutcome(
+            outputPath: "/tmp/x.txt", format: "txt", explanation: "", warnings: [])
+        let text = try captured { TranscribeDiagnostics.emit(for: outcome, explain: false, to: $0) }
+        #expect(text.isEmpty, "a clean run wrote: \(text)")
+    }
+
+    @Test func `an unwritable stream does not raise, unlike the old FileHandle API`() throws {
+        // `FileHandle.write(_:)` raises an uncatchable ObjC exception on write
+        // failure, so a closed fd 2 (`2>&-`) turned a completed transcription
+        // into SIGABRT — file already on disk, "Wrote …" already printed, exit
+        // code 134. An early-exiting stderr reader gave SIGPIPE the same way.
+        // Pre-existing API misuse, promoted from --explain-only to the default
+        // path by the #136 fix, and reached through the templates in
+        // plugins/bestasr/skills/ that gate on `$?`.
+        //
+        // A read-only stream reproduces the EBADF-class failure without
+        // touching the process's own descriptors. Scoped deliberately: this
+        // covers the uncatchable-exception class, NOT SIGPIPE — that is a
+        // signal from the underlying write and no choice of stdio API
+        // suppresses it, so an early-exiting reader can still take the process
+        // down. The test name used to claim the wider property.
+        let path = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("idd136-ro-\(UUID().uuidString)").path
+        FileManager.default.createFile(atPath: path, contents: Data())
+        defer { try? FileManager.default.removeItem(atPath: path) }
+        let ro = try #require(fopen(path, "r"))
+        defer { fclose(ro) }
+        let outcome = TranscribeOutcome(
+            outputPath: "/tmp/x.txt", format: "txt", explanation: "", warnings: ["x"])
+        TranscribeDiagnostics.emit(for: outcome, explain: false, to: ro)  // must not trap
+    }
+}
+
+/// The behavioural half of link 6: that `report`'s stream *defaults* — the two
+/// values the CLI actually relies on, since it passes neither — really put
+/// diagnostics on fd 2 and the success line on fd 1 in a real process.
+///
+/// Every other test in this file passes both streams explicitly, so none of them
+/// executes those defaults. Round 3 measured the consequence: changing
+/// `err: … = destination` to `= stdout` in the declaration alone, with the call
+/// site untouched, sends every warning to **stdout** — #136's original scenario —
+/// and leaves **461/461 green**. `destination == stderr` stayed green (the
+/// constant was unchanged), the stream-pair test stayed green (it overrides both
+/// streams), and the wiring lock stayed green. Flipping `out:` the other way
+/// took the success line off stdout, also green.
+///
+/// This test only measures the defaults for as long as the call sites keep
+/// reading them, and that is now asserted rather than assumed — at the CLI by
+/// the wiring lock's label pin, and at the fixture by
+/// `the probe passes no stream arguments…` below. An earlier version of this
+/// comment claimed the lock already guaranteed it; for one commit it did not,
+/// and adding `err: stdout` at the call site restored #136 with the suite green.
+///
+/// So this spawns a process. `bestasr-diagnostics-probe` is a dozen lines that
+/// build a `TranscribeOutcome` from argv and call `report` **passing no
+/// streams** — no `CommandCore.live()`, no model, no `$HOME` dependence. It
+/// cannot show that `Transcribe.run()` calls `report` (that is the text pin
+/// above), but it does show that a byte reached fd 2, which nothing previously
+/// did.
+struct TranscribeDiagnosticsDefaultStreamTests {
+
+    private final class Anchor: NSObject {}
+
+    /// The products directory, via the loaded test bundle. `Bundle.main` and
+    /// `argv[0]` both point into the toolchain's `swiftpm-testing-helper`, not
+    /// the build, and `Bundle.allBundles` is populated lazily enough that
+    /// scanning it first can miss the `.xctest` entry entirely — measured.
+    private var probeURL: URL {
+        Bundle(for: Anchor.self).bundleURL
+            .deletingLastPathComponent()
+            .appendingPathComponent("bestasr-diagnostics-probe")
+    }
+
+    private func runProbe(
+        explain: Bool, explanation: String = "", warnings: [String] = []
+    ) throws -> (out: String, err: String, status: Int32) {
+        let probe = probeURL
+        try #require(
+            FileManager.default.isExecutableFile(atPath: probe.path),
+            """
+            \(probe.path) is missing. It is a test fixture built by the package \
+            (target `bestasr-diagnostics-probe`, a dependency of this test target); \
+            if it is absent the build is not what this test assumes.
+            """)
+
+        let process = Process()
+        process.executableURL = probe
+        process.arguments =
+            ["report", explain ? "1" : "0", "/tmp/idd136-probe.txt", "txt", explanation] + warnings
+        let outPipe = Pipe(), errPipe = Pipe()
+        process.standardOutput = outPipe
+        process.standardError = errPipe
+        try process.run()
+        // Read before waiting. Sequential reads are safe only because the
+        // payload is a few hundred bytes, far under the pipe buffer; a larger
+        // fixture would need concurrent draining to avoid deadlock.
+        let outData = outPipe.fileHandleForReading.readDataToEndOfFile()
+        let errData = errPipe.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        return (
+            String(decoding: outData, as: UTF8.self), String(decoding: errData, as: UTF8.self),
+            process.terminationStatus)
+    }
+
+    @Test func `with no streams passed, warnings reach fd 2 and the success line fd 1`() throws {
+        let (out, err, status) = try runProbe(
+            explain: false, warnings: ["backend 'x' is unavailable; selecting automatically"])
+
+        #expect(status == 0, "the probe exited \(status); its output no longer describes a clean run")
+        // EXACT, not `contains`: a `contains` pair cannot see anything EXTRA on a
+        // stream. Measured on the round-4 tree — a raw, unprefixed copy of every
+        // warning written to stdout on the default path only (`if out == stdout`)
+        // left all 466 tests green, because this test's negative checks the
+        // PREFIXED form and the tests that check exact content pass both streams
+        // explicitly and so never execute the defaults.
+        #expect(
+            err == "warning: backend 'x' is unavailable; selecting automatically\n",
+            "fd 2 carried something other than exactly the warning: \(err.debugDescription)")
+        #expect(
+            out == "Wrote txt transcript to /tmp/idd136-probe.txt\n",
+            """
+            fd 1 carried something other than exactly the success line: \(out.debugDescription). \
+            Anything extra here is mixed into a piped transcript — that is #136.
+            """)
+    }
+
+    @Test func `with no streams passed, the explanation reaches fd 2 as well`() throws {
+        let (out, err, status) = try runProbe(
+            explain: true, explanation: "Selected whisperkit because …")
+
+        #expect(status == 0, "the probe exited \(status)")
+        #expect(err == "Selected whisperkit because …\n", "fd 2: \(err.debugDescription)")
+        #expect(
+            out == "Wrote txt transcript to /tmp/idd136-probe.txt\n",
+            "fd 1: \(out.debugDescription)")
+    }
+}
+
+/// Link 6, executed: that the `transcribe` command itself puts warnings on
+/// fd 2 and the success line on fd 1, on the default path.
+///
+/// For four rounds this was a source-text pin over `BestASRCommand.swift`,
+/// because `Transcribe.run()` called `CommandCore.live()` unconditionally and
+/// `NSHomeDirectory()` ignores `$HOME` on Darwin, so the command could not be
+/// run under test. Each round the pin was shown through on an axis nobody had
+/// encoded: the guard's spelling, then the stream labels, then the payload
+/// argument, then whether `--explain` still existed as a flag. Every one of
+/// those is measured here by running the command and reading the descriptors,
+/// which has to be told nothing.
+///
+/// A subprocess rather than in-process `dup2`: capturing the process's real
+/// fd 1 and fd 2 in-process is visible to every other test running at the same
+/// time — measured at 3 polluted runs in 10 under the default parallel
+/// `swift test`, 0 in 6 under `--no-parallel` at four times the wall clock.
+/// CI and `scripts/release.sh` both run bare `swift test`, so `--no-parallel`
+/// is not a property that survives.
+struct TranscribeCommandWiringTests {
+
+    private final class Anchor: NSObject {}
+
+    private var probeURL: URL {
+        Bundle(for: Anchor.self).bundleURL
+            .deletingLastPathComponent()
+            .appendingPathComponent("bestasr-diagnostics-probe")
+    }
+
+    private func runTranscribe(
+        _ args: [String], engineError: String? = nil
+    ) throws -> (out: String, err: String, status: Int32, dir: URL) {
+        let dir = try makeTempDir()
+        let audio = try makeWavFile(in: dir)
+        let probe = probeURL
+        try #require(FileManager.default.isExecutableFile(atPath: probe.path), "\(probe.path) is missing")
+
+        let process = Process()
+        process.executableURL = probe
+        process.arguments =
+            ["transcribe", dir.appendingPathComponent("store").path, "--", audio]
+            + ["--output", dir.appendingPathComponent("out.txt").path] + args
+        if let engineError {
+            // Through a file, not the environment: the payload under test has an
+            // embedded NUL and `environ` entries are NUL-terminated C strings —
+            // `Process` aborts with an uncaught NSException trying to form one.
+            let errFile = dir.appendingPathComponent("engine-error.bin")
+            try Data(engineError.utf8).write(to: errFile)
+            var env = ProcessInfo.processInfo.environment
+            env["BESTASR_PROBE_ENGINE_ERROR_FILE"] = errFile.path
+            process.environment = env
+        }
+        let outPipe = Pipe(), errPipe = Pipe()
+        process.standardOutput = outPipe
+        process.standardError = errPipe
+        try process.run()
+        let outData = outPipe.fileHandleForReading.readDataToEndOfFile()
+        let errData = errPipe.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        return (
+            String(decoding: outData, as: UTF8.self), String(decoding: errData, as: UTF8.self),
+            process.terminationStatus, dir)
+    }
+
+    /// The whole of #136 in one assertion: ask for a backend the fake does not
+    /// have, and the substitution warning must reach fd 2 without `--explain`
+    /// while the success line stays on fd 1.
+    ///
+    /// This is what a guard around the reporting call, a rebuilt `TranscribeOutcome`
+    /// that drops `warnings`, an overridden `err:`, a hardcoded `explain:`, a
+    /// deleted call, a decoy elsewhere in the file, or an unlabelled overload all
+    /// look like: nothing on fd 2.
+    @Test func `the default path puts the substitution warning on fd 2`() throws {
+        let io = try runTranscribe(["--backend", "fluid-parakeet"])
+        defer { try? FileManager.default.removeItem(at: io.dir) }
+
+        #expect(io.status == 0, "the command exited \(io.status); fd 2 was: \(io.err)")
+        #expect(
+            io.err.hasPrefix("warning: requested backend 'fluid-parakeet' is unavailable"),
+            """
+            fd 2 did not carry the substitution warning. That is #136: the user asked for one \
+            backend, received another's output, and nothing said so. fd 2 was \(io.err.debugDescription)
+            """)
+        #expect(
+            !io.out.contains("warning:"),
+            "a warning reached fd 1 and is now inside the piped transcript: \(io.out.debugDescription)")
+        #expect(
+            io.out.hasPrefix("Wrote txt transcript to "),
+            "fd 1 did not carry the success line: \(io.out.debugDescription)")
+    }
+
+    /// Ordering, on the real command rather than on `report` in isolation.
+    @Test func `the warning precedes the success line`() throws {
+        let io = try runTranscribe(["--backend", "fluid-parakeet"])
+        defer { try? FileManager.default.removeItem(at: io.dir) }
+        // Separate descriptors cannot be compared for order, so this asserts the
+        // property that is actually observable: each stream carries its own line
+        // and neither carries the other's. `TranscribeReportTests` owns the
+        // relative order, over a shared stream.
+        #expect(io.err.contains("warning:") && !io.err.contains("Wrote "))
+        #expect(io.out.contains("Wrote ") && !io.out.contains("warning:"))
+    }
+
+    /// `--explain` must still exist as a flag, and must still change what is
+    /// rendered. A `var explain: Bool { false }` that replaces the `@Flag`
+    /// leaves the call site's text identical and is invisible to any source pin;
+    /// here the parse fails and the probe exits 65.
+    @Test func `--explain is a real flag and switches the rendering`() throws {
+        let io = try runTranscribe(["--backend", "fluid-parakeet", "--explain"])
+        defer { try? FileManager.default.removeItem(at: io.dir) }
+
+        #expect(
+            io.status == 0,
+            "the command rejected `--explain` (exit \(io.status)): \(io.err.debugDescription)")
+        #expect(
+            io.err.contains("Selected ") && io.err.contains("because"),
+            "fd 2 did not carry the explanation block: \(io.err.debugDescription)")
+        #expect(
+            !io.err.hasPrefix("warning: "),
+            """
+            Under --explain the notices belong inside the explanation block, not as \
+            top-level `warning:` lines as well: \(io.err.debugDescription)
+            """)
+    }
+
+    /// A clean run says nothing on fd 2 — the property that makes the warning
+    /// meaningful when it does appear.
+    @Test func `a clean run leaves fd 2 empty`() throws {
+        let io = try runTranscribe([])
+        defer { try? FileManager.default.removeItem(at: io.dir) }
+
+        #expect(io.status == 0)
+        #expect(io.err.isEmpty, "a clean run wrote to fd 2: \(io.err.debugDescription)")
+        #expect(io.out.hasPrefix("Wrote txt transcript to "))
+    }
+
+    /// The OTHER typed-failure branch. `runMapped` has two, and driving one
+    /// says nothing about the other — round 5 found the count-of-two source pin
+    /// could not tell them apart either, and an executed test inherits the same
+    /// blind spot unless it walks both paths. A missing audio file raises
+    /// `BestASRError.usage`; the engine stub raises `TranscriptionError`.
+    @Test func `a usage failure also reports on fd 2`() throws {
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let probe = probeURL
+        try #require(FileManager.default.isExecutableFile(atPath: probe.path))
+
+        let process = Process()
+        process.executableURL = probe
+        process.arguments = [
+            "transcribe", dir.appendingPathComponent("store").path, "--",
+            dir.appendingPathComponent("does-not-exist.wav").path,
+        ]
+        let outPipe = Pipe(), errPipe = Pipe()
+        process.standardOutput = outPipe
+        process.standardError = errPipe
+        try process.run()
+        let out = String(decoding: outPipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+        let err = String(decoding: errPipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+        process.waitUntilExit()
+
+        #expect(process.terminationStatus == 2, "expected the usage exit code")
+        #expect(
+            err.hasPrefix("error: "),
+            "fd 2 did not carry the usage error: \(err.debugDescription)")
+        #expect(
+            !out.contains("error:"),
+            "the error line reached fd 1: \(out.debugDescription)")
+    }
+
+    /// The typed-failure channel: still on fd 2, still through `ConsoleLine`.
+    ///
+    /// The NUL is the point. An external adapter's stderr reaches
+    /// `TranscriptionError.message` verbatim (#51), and `fputs` truncates there
+    /// and swallows the terminator. Reverting that line to `fputs`, or sending
+    /// it to stdout, both show up here as bytes in the wrong shape or the wrong
+    /// place — neither is visible to a test of the writer alone.
+    @Test func `a typed failure reports on fd 2 without truncating at a NUL`() throws {
+        let io = try runTranscribe([], engineError: "adapter exited 3: boom\u{0}TRAILING-DETAIL")
+        defer { try? FileManager.default.removeItem(at: io.dir) }
+
+        #expect(io.status == 1, "expected the mapped exit code, got \(io.status)")
+        #expect(
+            io.err.hasPrefix("error: ") && io.err.contains("TRAILING-DETAIL"),
+            """
+            fd 2 lost the text after the NUL, so the error channel truncates again: \
+            \(io.err.debugDescription)
+            """)
+        #expect(
+            !io.out.contains("error:"),
+            "the error line reached fd 1 and is now inside the transcript: \(io.out.debugDescription)")
+    }
+}
+
+/// `report` puts both streams under test at once, which is the only place the
+/// success line gets any assertion at all.
+struct TranscribeReportTests {
+
+    private func capture(
+        _ body: (UnsafeMutablePointer<FILE>, UnsafeMutablePointer<FILE>) -> Void
+    ) throws -> (out: String, err: String) {
+        let dir = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("idd136-rep-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let op = dir.appendingPathComponent("out").path
+        let ep = dir.appendingPathComponent("err").path
+        guard let fo = fopen(op, "w"), let fe = fopen(ep, "w") else {
+            throw CocoaError(.fileWriteUnknown)
+        }
+        body(fo, fe)
+        fclose(fo)
+        fclose(fe)
+        // Read before the defer removes the directory; `String(contentsOfFile:)`
+        // throwing would otherwise be indistinguishable from "wrote nothing".
+        let out = try String(contentsOfFile: op, encoding: .utf8)
+        let err = try String(contentsOfFile: ep, encoding: .utf8)
+        return (out, err)
+    }
+
+    @Test func `warnings go to stderr and the success line to stdout, warnings first`() throws {
+        let outcome = TranscribeOutcome(
+            outputPath: "/tmp/x.srt", format: "srt", explanation: "", warnings: ["substituted"])
+        let io = try capture { TranscribeDiagnostics.report(outcome, explain: false, out: $0, err: $1) }
+        #expect(io.err == "warning: substituted\n")
+        #expect(io.out == "Wrote srt transcript to /tmp/x.srt\n")
+        // Ordering is a property of `report`, so it is asserted where it lives
+        // rather than inferred from two adjacent statements at the call site.
+        #expect(!io.out.contains("warning:"), "a warning leaked onto stdout")
+    }
+
+    @Test func `the warning precedes the success line when both share a stream`() throws {
+        // Ordering is only observable when the two land in the same place, which
+        // is the `2>&1` case the claim is about. Captured separately it is
+        // invisible — two files have no relative order — so this is the one
+        // assertion that can fail if `report` is reordered.
+        let dir = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("idd136-ord-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let path = dir.appendingPathComponent("merged").path
+        let merged = try #require(fopen(path, "w"))
+        let outcome = TranscribeOutcome(
+            outputPath: "/tmp/x.srt", format: "srt", explanation: "", warnings: ["substituted"])
+        TranscribeDiagnostics.report(outcome, explain: false, out: merged, err: merged)
+        fclose(merged)
+        let text = try String(contentsOfFile: path, encoding: .utf8)
+        let w = try #require(text.range(of: "warning: substituted"))
+        let s = try #require(text.range(of: "Wrote srt transcript"))
+        #expect(w.lowerBound < s.lowerBound, "the success line came first: \(text)")
+    }
+
+    @Test func `an embedded NUL neither truncates a warning nor glues the next one to it`() throws {
+        // `fputs` stops at the first NUL and drops the newline with it, so two
+        // warnings arrived as one physical line with the tail of the first
+        // missing. `TranscribeOutcome` is public, so this is reachable by a
+        // library caller even though argv cannot carry a NUL.
+        let outcome = TranscribeOutcome(
+            outputPath: "/tmp/x.txt", format: "txt", explanation: "",
+            warnings: ["abc\u{0}def", "second"])
+        let io = try capture { TranscribeDiagnostics.report(outcome, explain: false, out: $0, err: $1) }
+        #expect(io.err.contains("def"), "the warning was truncated at the NUL: \(io.err)")
+        #expect(
+            io.err.components(separatedBy: "\n").filter { $0.hasPrefix("warning:") }.count == 2,
+            "the two warnings were glued into one line: \(io.err)")
+    }
+
+    @Test func `a clean run still announces the transcript`() throws {
+        let outcome = TranscribeOutcome(
+            outputPath: "/tmp/x.txt", format: "txt", explanation: "", warnings: [])
+        let io = try capture { TranscribeDiagnostics.report(outcome, explain: false, out: $0, err: $1) }
+        #expect(io.err.isEmpty, "a clean run wrote to stderr: \(io.err)")
+        #expect(io.out == "Wrote txt transcript to /tmp/x.txt\n")
+    }
+}
+
+/// The writer both reporting channels share.
+///
+/// `TranscribeReportTests` covers it through the diagnostics path. This suite
+/// pins it directly, because the *other* caller — the CLI's typed-failure
+/// channel — is where a NUL is actually reachable: `ExternalProcessEngine`
+/// embeds an external adapter's stderr verbatim into `TranscriptionError`, and
+/// adapters are third-party programs registered from `~/.bestasr/engines.json`
+/// (#51). An intermediate version of the #136 fix put that channel on `fputs`,
+/// which truncates there.
+struct ConsoleLineTests {
+
+    private func captured(_ body: (UnsafeMutablePointer<FILE>) -> Void) throws -> String {
+        let path = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("idd136-cl-\(UUID().uuidString)").path
+        defer { try? FileManager.default.removeItem(atPath: path) }
+        let f = try #require(fopen(path, "w"))
+        body(f)
+        fclose(f)
+        return (try? String(contentsOfFile: path, encoding: .utf8)) ?? ""
+    }
+
+    @Test func `an embedded NUL neither truncates the line nor swallows its terminator`() throws {
+        let text = try captured { f in
+            ConsoleLine.write("error: adapter said boom\u{0}DETAIL\n", to: f)
+            ConsoleLine.write("error: second failure\n", to: f)
+        }
+
+        #expect(text.contains("DETAIL"), "the text after the NUL was lost: \(text.debugDescription)")
+        let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
+            .filter { $0.hasPrefix("error:") }
+        #expect(
+            lines.count == 2,
+            """
+            expected two physical `error:` lines, got \(lines.count) — the terminator was \
+            swallowed and the next message glued onto this one: \(text.debugDescription)
+            """)
+    }
+
+    @Test func `writing to an unwritable stream does not raise`() throws {
+        // The property `FileHandle.write(_:)` lacks. It asserts nothing because
+        // the failure mode is a trap: if this returns, it held. (SIGPIPE is a
+        // different signal on a different path and is NOT covered — see
+        // `ConsoleLine`'s documentation.)
+        let path = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("idd136-ro-\(UUID().uuidString)").path
+        FileManager.default.createFile(atPath: path, contents: Data())
+        defer { try? FileManager.default.removeItem(atPath: path) }
+        let ro = try #require(fopen(path, "r"))
+        defer { fclose(ro) }
+        ConsoleLine.write("error: this cannot be written\n", to: ro)
+    }
+
+    @Test func `an empty string writes nothing`() throws {
+        #expect(try captured { ConsoleLine.write("", to: $0) }.isEmpty)
+    }
+
+    /// That it flushes — which is the premise of the ordering argument, not an
+    /// implementation detail.
+    ///
+    /// `report`'s documentation and the CLI's call-site comment both say
+    /// warning-first is a presentation choice rather than a buffering
+    /// necessity, *because* every write is flushed. Deleting the `fflush` left
+    /// the whole suite green: the ordering test passes one `FILE*` as both
+    /// streams, so write order is call order regardless of flushing, and every
+    /// other test reads after `fclose`. This one reads a fully-buffered stream
+    /// while it is still open, so only a real flush satisfies it.
+    @Test func `write flushes, so the line is on disk before the stream closes`() throws {
+        let path = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("idd136-flush-\(UUID().uuidString)").path
+        defer { try? FileManager.default.removeItem(atPath: path) }
+        let f = try #require(fopen(path, "w"))
+        defer { fclose(f) }
+
+        ConsoleLine.write("visible before close\n", to: f)
+
+        let onDisk = (try? String(contentsOfFile: path, encoding: .utf8)) ?? ""
+        #expect(
+            onDisk == "visible before close\n",
+            """
+            Nothing reached the file while the stream was open (read \(onDisk.debugDescription)). \
+            A regular-file stream is fully buffered, so this means the write was not flushed — \
+            and the documented reason warning-first holds under `2>&1` no longer applies.
+            """)
+    }
+
 }

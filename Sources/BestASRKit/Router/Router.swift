@@ -207,8 +207,27 @@ public enum Router {
                     + "using its catalog model '\(catalogFallback)'")
             if let row = ModelGrid.rows(backend: backend.rawValue, priorityCeiling: nil)
                 .first(where: { $0.size == catalogFallback }), !row.verified {
-                reasons.append(
-                    "warning: '\(catalogFallback)' on \(backend.rawValue) is unverified "
+                // WARNING, not a reason (#136 verify). Issue #136 names this
+                // notice among the ones that "were written to be seen. None is,
+                // by default" — and the first fix left it here, in `reasons`,
+                // while the record said it had been surfaced. The tell was the
+                // string: it began with the literal token "warning: " while
+                // living in the reasons array, which is the reason/warning
+                // conflation #136 exists to end, one layer below the CLI.
+                //
+                // The prefix is gone because the CLI adds its own; a straight
+                // move would have rendered `warning: warning: '…' is unverified`.
+                //
+                // Contrast the quality-floor bypass notice above, which stays in
+                // `reasons` deliberately: `openspec/specs/asr-routing/spec.md` is
+                // normative that it belongs there and a scenario governs it, so
+                // moving that one would be a spec change, not a bug fix. That is
+                // why `cli/spec.md` describes the split as editorial rather than
+                // as a classification rule — read as a rule it would place the
+                // quality-floor notice ("output quality is not established") in
+                // `warnings`, contradicting `asr-routing`.
+                warnings.append(
+                    "'\(catalogFallback)' on \(backend.rawValue) is unverified "
                         + "on this machine — quality is not established (#50)")
             }
             model = catalogFallback

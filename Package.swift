@@ -30,9 +30,22 @@ let package = Package(
             resources: [.copy("Supply/weights-manifest.json")],
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
+        // The `transcribe` command, in a library so tests can RUN it (#136).
+        // Not a package product: `public` here reaches the rest of this package
+        // and nothing outside it. See its source for why only this one command
+        // moved.
+        .target(
+            name: "BestASRCLICore",
+            dependencies: [
+                "BestASRKit",
+                .product(name: "ArgumentParser", package: "swift-argument-parser"),
+            ],
+            swiftSettings: [.swiftLanguageMode(.v5)]
+        ),
         .executableTarget(
             name: "bestasr",
             dependencies: [
+                "BestASRCLICore",
                 "BestASRKit",
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
             ],
@@ -63,6 +76,24 @@ let package = Package(
             dependencies: ["BestASRGUICore"],
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
+        // Test fixture, deliberately NOT in `products`, so nothing ships it:
+        // `release-app.sh` and `release-mcp.sh` build per-product and
+        // `install.sh` copies two named binaries. (`swift run
+        // bestasr-diagnostics-probe` *does* work — `swift run` takes target
+        // names, not just product names — but that is a developer convenience,
+        // not a distribution path.) `swift test` builds it so
+        // `TranscribeDiagnosticsDefaultStreamTests` can spawn it. It exists to
+        // execute `TranscribeDiagnostics.report`'s stream defaults in a real
+        // process — see its source for why the real CLI cannot stand in (#136).
+        .executableTarget(
+            name: "bestasr-diagnostics-probe",
+            dependencies: [
+                "BestASRCLICore",
+                "BestASRKit",
+                .product(name: "ArgumentParser", package: "swift-argument-parser"),
+            ],
+            swiftSettings: [.swiftLanguageMode(.v5)]
+        ),
         .testTarget(
             name: "BestASRKitTests",
             dependencies: [
@@ -70,8 +101,16 @@ let package = Package(
                 "BestASRMCPCore",
                 "BestASRGUICore",
                 // CLI parse regression tests (#101: ArgumentParser negative-value
-                // form) — SwiftPM links executable targets into tests since 5.5.
+                // form). `Transcribe` now lives in BestASRCLICore; `bestasr`
+                // stays so the other nine commands remain reachable.
+                "BestASRCLICore",
                 "bestasr",
+                // Depended on so `swift test` builds it into the products
+                // directory, where the test spawns it as a subprocess. SwiftPM
+                // also links its objects into the test bundle (`nm` finds
+                // `_bestasr_diagnostics_probe_main` there); no test references
+                // any of its symbols, but the dependency is not symbol-free.
+                "bestasr-diagnostics-probe",
                 .product(name: "WhisperKit", package: "WhisperKit"),
             ],
             swiftSettings: [.swiftLanguageMode(.v5)]

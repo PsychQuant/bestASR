@@ -155,6 +155,212 @@ All notable changes to bestASR are documented here. The format follows
 
 ### Fixed
 
+- **Router warnings never reached the user without `--explain` (#136)**: every
+  warning the router produced was folded into the `explanation` prose block,
+  which `bestasr transcribe` printed **only** under `--explain`. So the entire
+  output of a run that silently substituted a different backend was:
+
+  ```
+  Wrote txt transcript to …/cv-zhtw-2.txt
+  ```
+
+  Warnings now print to stderr on the **default** path. The split is the point:
+  `reason` explains a choice and is legitimately opt-in, but a warning is what
+  the reader needs in order to trust the file that was just written. Both arrays
+  already existed on `ASRRecommendation`; only the CLI conflated them.
+
+  ```
+  warning: backend 'fluid-parakeet' model '0.6b-v3' does not list support for language 'zh' — output quality is not established
+  Wrote txt transcript to /tmp/pk.txt
+  ```
+
+  Warnings are emitted **before** the success line, as a presentation choice.
+  An earlier version of this entry called it the only order that holds under
+  both a terminal and a pipe, reasoning from stderr being unbuffered and stdout
+  line-buffered. That reasoning does not apply to this code: `report` flushes
+  both streams, so the observed order is just the call order — measured stable
+  in *both* directions on a pty, a pipe and a file. Warning-first is chosen
+  because the reverse announces the file as written before the reason to
+  distrust it; across two separate pipes nothing is guaranteed either way.
+
+  Also unhidden by the same change: the `--backend X is unavailable; selecting
+  automatically` substitution notice (the #121 case) and the cold-start
+  memory-downgrade warnings. Under `--explain` the notices are **not
+  duplicated** — the two branches are mutually exclusive by construction, so
+  duplication is not merely absent, it is unrepresentable. That is the property
+  the issue's second acceptance line is about, and it holds. What is *not* true
+  is byte-identity, which earlier drafts of this entry claimed: the #50 notice
+  moved from `reason` to `warnings`, and the explanation block renders those
+  with different markers, so `  - warning: '…' (#50)` became `  ! '…' (#50)` —
+  marker and text. Nothing is lost or repeated; the line reads differently.
+
+  Verification found that the CLI-layer split had left the classification
+  underneath it half-done, and that the first version of this entry claimed
+  otherwise:
+
+  - **The unverified-model notice (#50)** — which this issue names explicitly —
+    was still `reasons.append`, so it stayed `--explain`-only while this entry
+    said it had been surfaced. The tell was in the string: it began with the
+    literal token `warning: ` while living in the reasons array, which is the
+    same conflation #136 exists to end, one layer below the one it fixed. It is
+    now a warning, without the inline prefix (the CLI adds its own, so a straight
+    move would have rendered `warning: warning: …`).
+  - **The quality-floor bypass notice stays in `reasons`, deliberately.** An
+    earlier draft of this entry listed it as unhidden too. `openspec/specs/asr-routing/spec.md`
+    is normative that an explicitly locked backend "bypasses the floor with a
+    quality warning **in the reasons**", with a scenario governing it — moving it
+    would be a spec change, not a bug fix. A test now pins each placement, and
+    the asymmetry is stated at both sites so the next reader does not take it for
+    an oversight.
+  - **Nothing tested the CLI's printing path**, so deleting the branch outright
+    left the whole suite green — the failure mode this issue's third acceptance
+    line names, reproduced one layer up. The rendering moved into `BestASRKit`
+    as `TranscribeDiagnostics`. A pure test of the rendered strings cannot see a
+    regression that sends them to **stdout**, so the destination is a named
+    constant that a test asserts, and `report(_:explain:out:err:)` puts both
+    streams under test together.
+
+    That still left the *wiring* uncovered, and #136 was a wiring bug: a
+    call-site `if explain` guard. Re-adding that guard to the fixed code
+    restored the reported behaviour **verbatim with the whole suite green** —
+    the first round's failure mode, one layer out.
+
+    Closing that took three attempts, and the second one is worth recording
+    because it failed in a way the first did not.
+
+    **Attempt 1** searched the file for the call's text and for one literal
+    guard spelling. **Five** regressions walked past it at 461/461 green:
+    `if (explain) {` (two parentheses), `guard explain else { return }`, a
+    hoisted `let shouldReport = explain`, the call wrapped in `/* … */` — which
+    left `transcribe` printing *nothing at all*, because a block comment deletes
+    the call while leaving the searched-for text in the file — and a
+    `print("Wrote …")` inserted ahead of it. In the other direction, renaming
+    the local `result` turned it **red**, which is a pure refactor.
+
+    **Attempt 2** made the anchor positional to fix that rename: walk to the
+    closing paren of the `transcribe(...)` call, require the diagnostics call
+    immediately after it, require nothing after that. The rename tolerance was
+    real. So was the cost, and it went unnoticed because the mutation battery
+    only re-ran what the *previous* lock had failed to catch: the old needle was
+    the whole call text, so it implicitly forbade extra arguments, and the new
+    one names none. **Adding `err: stdout` at the call site restored #136 at
+    466/466 green** — the same edit is red one commit earlier. `explain: false`
+    and `explain: true` were green too. Three further holes came with it: a
+    `guard` hoisted *above* the transcribe call (the anchor only looks after
+    it), a decoy string literal or `/* historical note */` planted earlier in
+    the file combined with deleting the real call, and — separately — the
+    probe's own call shape, which nothing pinned, so two innocuous-looking edits
+    restored #136 at 466/466.
+
+    **Attempt 3** is what ships. The anchor now runs over a token-hiding lexer
+    (line comments, block comments, string literals — a lexer, not a parser),
+    extends backwards to `runMapped {` requiring exactly one binding between,
+    and pins the argument *labels*: no `out:`/`err:`, and `explain:explain`
+    forwarded rather than decided. The probe fixture gets the same label pin.
+    Measured across **28 mutations**: the eleven above red, the fourteen every
+    earlier guard caught still red, and rename, reflow and a block comment
+    between the statements green — that last one was a false failure until now.
+
+    **What no text pin can do**, stated because three rounds of this entry
+    implied otherwise: its coverage is exactly the lexical block it anchors to.
+    Hoisting the same `guard` one level further out — into `run()`, above
+    `runMapped` — is green under every version above, and no finite set of
+    anchors changes that. Extracting the command body so the branch becomes
+    executable code is filed separately; it would shrink the residue to a single
+    delegation line, not remove it.
+
+    A source-level lock still cannot prove the line *executes*. It is not asked
+    to: `TranscribeDiagnosticsDefaultStreamTests` covers that half — see below.
+    Executing the whole command was tried and abandoned: `Transcribe.run()`
+    calls `CommandCore.live()` unconditionally, there is no injection seam, and
+    `$HOME` is not one either — `NSHomeDirectory()` ignores it on Darwin, so a
+    subprocess test aimed at a fake home silently loads the developer's real
+    `~/.bestasr/engines.json` and can spawn a real model.
+  - **The destination was decided by two default arguments that nothing
+    executed.** `report` declares `out: = stdout` and `err: = destination`; the
+    CLI passes neither, and every test passed both explicitly. So the two values
+    production actually used were covered by nothing — while the wiring lock, by
+    matching the whole call text, happened to forbid an override, which is what
+    made the defaults load-bearing in the first place. (That property was lost
+    for one commit when the lock went positional, and is now asserted
+    deliberately rather than as a side effect of the needle's shape.) Changing
+    `err:`'s default alone, with the call site untouched,
+    put every warning on **stdout** — #136's original scenario — at 461/461
+    green, with `destination == stderr` green, the stream-pair test green and
+    the lock green. This entry previously named those two tests as what proves a
+    byte reaches fd 2. They do not: one asserts a constant the call site no
+    longer names, the other overrides both streams.
+
+    `bestasr-diagnostics-probe` is a dozen-line executable that builds a
+    `TranscribeOutcome` from argv and calls `report` **passing no streams**; a
+    test spawns it with separate pipes on fd 1 and fd 2. It loads no model and
+    does not touch `$HOME`, because which descriptor a byte lands on does not
+    depend on any of that. Measured: flipping `err:`'s default now breaks 4
+    assertions, flipping `out:` breaks 3. That is the first assertion in this
+    issue that observes a real file descriptor rather than a `FILE*` a test
+    handed in.
+  - **A closed stderr turned a successful run into a fatal signal.**
+    `FileHandle.write(_:)` raises an *uncatchable* Objective-C exception on write
+    failure, so `2>&-` produced SIGABRT (exit 134) and an early-exiting reader
+    such as `2> >(head -n1)` produced SIGPIPE (exit 141) — transcript already on
+    disk, `Wrote …` already printed. Pre-existing API misuse, promoted from
+    `--explain`-only to the default path by this fix, and reachable from the
+    skill templates in `plugins/bestasr/` that gate on `$?`.
+
+    An intermediate version of this fix moved both channels to `fputs`, then
+    moved only the diagnostics one to `fwrite` — because `fputs` takes a
+    NUL-terminated C string, so an embedded U+0000 truncates the line and
+    swallows its terminator, gluing the next line onto the remains of this one.
+    That left the *reachable* instance unfixed while fixing the hypothetical
+    one: the diagnostics NUL requires a library caller to construct it, but the
+    `error:` channel embeds an external adapter's stderr **verbatim** into
+    `TranscriptionError.message` (`ExternalProcessEngine`), and adapters are
+    third-party programs registered from `~/.bestasr/engines.json` (#51). An
+    adapter emitting `printf 'boom\0DETAIL' >&2` truncated the reported error
+    and glued the following one to it, measured end-to-end. Both channels now
+    go through one writer, `ConsoleLine`, which is `fwrite` over UTF-8 bytes and
+    is pinned by its own tests.
+
+    Three honest limits. It fixes the **uncatchable-exception** class (`EBADF`
+    on a closed descriptor); it does **not** suppress `SIGPIPE`, which is raised
+    by the underlying write regardless of which API calls it — a stderr reader
+    that exits early can still take the process down, and now does so *before*
+    the success line rather than after. Ignoring the write result trades a loud
+    failure for a silent one: under `2>&-` a run discards every warning and
+    exits 0, where before it aborted, so a caller gating on `$?` with a closed
+    fd 2 now trusts a transcript whose warning was destroyed without trace. And
+    short writes are not retried — measured under `RLIMIT_FSIZE`, a full or
+    quota'd filesystem can truncate a line so that it still reads as complete,
+    which is the same corruption the NUL fix closed arriving by another route.
+
+  **An external surface changed and is worth naming.** Moving the #50 notice
+  from `reason` to `warnings` migrates it between fields of the `recommend`
+  JSON, which `BestASRMCPCore/Server.swift` returns verbatim as an MCP tool
+  result. No field was added or removed and the payload still carries the
+  notice, but its *location* changed, and that is observable: a client keying on
+  `reason` specifically stops seeing it. A repo-wide sweep finds no such
+  consumer, but the real consumers are agents on the far side of the MCP
+  boundary, where a sweep cannot look — so this is a change that is very likely
+  harmless rather than one that provably breaks nothing.
+
+  `openspec/specs/cli/spec.md` describes that payload normatively and, before
+  this change, enumerated `reason` without mentioning `warnings`. It now
+  enumerates both, states that each is an array of strings, and says a consumer
+  needing every notice must read both. Two further gaps surfaced while making
+  the shape normative: `profile` and `language` had shipped since the original
+  CLI commit and were never specified, and the requirement said `measured` was
+  `null` without benchmark data when in fact `JSONEncoder` **omits** the key
+  entirely — a distinction that decides whether `"measured" in obj` works. The
+  spec moved to match the shipped payload rather than the reverse, and the
+  contract test now asserts the shape it describes instead of only key presence.
+
+  Pre-existing since the original CLI commit (`471218a`, 2026-07-02), affecting
+  every backend. `diagnose` and `recommend` were already unaffected — the former
+  prints warnings unconditionally, the latter emits them in its JSON.
+  `benchmark` never calls `Router.recommend` at all, so it has no suppressed
+  router warning either; the issue asked about it and the first write-up
+  answered for `diagnose` instead.
+
 - **`--backend apple-speech` was silently substituted (#121)**: `Router`'s
   backend-membership list omitted the new backend, so an explicit `--backend
   apple-speech` was discarded and another backend's output was written under
