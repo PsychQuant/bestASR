@@ -89,8 +89,31 @@ struct PromptForwardingTests {
         let big = Array(0..<500)
         let clamped = WhisperKitEngine.clampedPromptTokens(big)
         #expect(clamped.count == 224)
-        #expect(clamped.last == 499)  // suffix keeps the most recent tokens
         #expect(WhisperKitEngine.clampedPromptTokens([1, 2, 3]) == [1, 2, 3])
+    }
+
+    /// Design D4 — the clamp must keep the same end of the list the renderer
+    /// considers most important.
+    ///
+    /// `PromptRenderer` emits names, then terms, then phrases, so the front of
+    /// the list is the highest-value content. The clamp took the *suffix*,
+    /// which discards exactly those names. There is no observable difference
+    /// while the budget (200) sits below the clamp (224) — which is precisely
+    /// why this is fixed first and separately: once the budget is raised to 224
+    /// the two mechanisms disagree, and a combined change would make the cause
+    /// unattributable.
+    ///
+    /// Feeds more than 224 tokens directly rather than going through the
+    /// budget, so the test cannot silently pass just because the budget is
+    /// currently lower than the clamp.
+    @Test func `The clamp keeps the highest-priority tokens, not the most recent`() {
+        let tokens = Array(0..<500)
+        let clamped = WhisperKitEngine.clampedPromptTokens(tokens)
+        #expect(clamped.count == 224)
+        #expect(
+            clamped.first == 0,
+            "the clamp dropped the front of the prompt — that is where the names are")
+        #expect(clamped.last == 223, "expected the first 224 tokens, got a different window")
     }
 
     @Test func `Options prompt flows through the engine seam`() async throws {

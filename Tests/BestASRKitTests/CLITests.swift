@@ -327,8 +327,15 @@ final class OptionsBox: @unchecked Sendable {
     }
 }
 
+/// Stands in for the WhisperKit backend, so it declares what that backend
+/// declares. A mock claiming `.whisperKit` while reporting no prompt support
+/// would be the exact declaration/behavior mismatch #164 removes — and the
+/// context here would be skipped, which is what caught this.
 private func capturingEngine(_ box: OptionsBox) -> MockEngine {
-    MockEngine(id: .whisperKit, available: true) { _, options in
+    MockEngine(
+        id: .whisperKit, available: true,
+        promptCapability: .supported(maxTokens: 224)
+    ) { _, options in
         box.append(options)
         return RawTranscription(
             segments: [.init(start: 0.0, end: 2.5, text: "hello world")],
@@ -400,14 +407,19 @@ struct ContextCommandTests {
         defer { try? FileManager.default.removeItem(at: dir) }
         let audio = try makeWavFile(in: dir)
         let ctxDir = try makeContextFixture(in: dir)
+        // Stands in for whisperKit, so it declares whisperKit's capability —
+        // otherwise the context is correctly skipped and there is no injected
+        // count to assert (#164).
         let core = CommandCore(
-            engines: [MockEngine.fixed(.whisperKit)],
+            engines: [
+                MockEngine.fixed(.whisperKit, promptCapability: .supported(maxTokens: 224))
+            ],
             detect: { Fixtures.m5Max },
             store: BenchmarkStore(directory: dir.appendingPathComponent("store")),
             probe: FakeClockProbe.probe()
         )
         let selection = SelectionRequest(
-            profileName: "medium", backendOverride: nil, modelOverride: nil,
+            profileName: "medium", backendOverride: "whisperkit", modelOverride: nil,
             requestedLanguage: "auto", contextDir: ctxDir)
         let output = try await core.recommendJSON(audioPath: audio, selection: selection)
         let json = try #require(

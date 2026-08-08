@@ -31,6 +31,10 @@ extension WhisperKit: TranscribingPipeline {
 public struct WhisperKitEngine: Engine {
     public let id: BackendID = .whisperKit
 
+    /// Whisper conditions on `initial_prompt`; the decoder window caps it at
+    /// `n_text_ctx / 2` = 224 tokens, which `clampedPromptTokens` also enforces.
+    public let promptCapability: PromptCapability = .supported(maxTokens: 224)
+
     public init() {
         self.init(pipelineFactory: { model in
             try await WhisperKit(WhisperKitConfig(model: model, download: true))
@@ -60,10 +64,20 @@ public struct WhisperKitEngine: Engine {
         }
     }
 
-    /// Whisper's practical prompt window is ~224 tokens; the renderer budgets
-    /// ~200 with a heuristic, this clamp is the tokenizer-measured net.
+    /// Keeps the FRONT of the prompt, because that is where the value is.
+    ///
+    /// This clamp is the tokenizer-measured net under Whisper's ~224-token
+    /// window; the renderer's budget now comes from `promptCapability` rather
+    /// than a global constant, so the two numbers finally agree.
+    ///
+    /// `PromptRenderer` orders names, then terms, then phrases — highest-value
+    /// first. This used to take the suffix, so overflow discarded exactly the
+    /// names the context directory exists to inject. No observable difference
+    /// while the budget (200) stayed below this limit (224); raising the budget
+    /// per-engine is what would have made the two mechanisms disagree, so the
+    /// direction is corrected first and on its own (design D4).
     static func clampedPromptTokens(_ tokens: [Int], limit: Int = 224) -> [Int] {
-        tokens.count <= limit ? tokens : Array(tokens.suffix(limit))
+        tokens.count <= limit ? tokens : Array(tokens.prefix(limit))
     }
 
     /// Decode options for one run. skipSpecialTokens MUST stay true: without it

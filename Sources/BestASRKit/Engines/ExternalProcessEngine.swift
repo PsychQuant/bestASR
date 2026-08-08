@@ -20,6 +20,11 @@ public struct ExternalProcessEngine: Engine {
     static let supportedProtocols: Set<Int> = [1]
 
     public let id: BackendID
+
+    /// Protocol v1 has no prompt field, so there is nowhere to put conditioning
+    /// text even if an adapter wanted it. Adding one would be a protocol
+    /// version bump, not a declaration change.
+    public let promptCapability: PromptCapability = .unsupported
     let command: [String]
     /// Test seam — production timeout is `max(120s, 4x audio duration)` (D3);
     /// duration is unknown before probing, so the floor applies to short files.

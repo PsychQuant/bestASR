@@ -8,6 +8,11 @@ import Foundation
 struct MockEngine: Engine {
     let id: BackendID
     let available: Bool
+    /// Declared like any other engine — the protocol requirement has no default
+    /// (design D2), and a test double is exactly where a silent default would
+    /// hide a wrong assumption. `var` with a default keeps every existing
+    /// call site working while letting a test drive the supported branch.
+    var promptCapability: PromptCapability = .unsupported
     let raw: @Sendable (String, TranscribeOptions) throws -> RawTranscription
 
     func isAvailable() async -> Bool { available }
@@ -20,13 +25,14 @@ struct MockEngine: Engine {
     static func fixed(
         _ id: BackendID,
         available: Bool = true,
+        promptCapability: PromptCapability = .unsupported,
         segments: [RawTranscription.RawSegment] = [
             .init(start: 0.0, end: 2.5, text: "hello world")
         ],
         language: String? = "en",
         duration: Double? = 2.5
     ) -> MockEngine {
-        MockEngine(id: id, available: available) { _, _ in
+        MockEngine(id: id, available: available, promptCapability: promptCapability) { _, _ in
             RawTranscription(segments: segments, language: language, duration: duration)
         }
     }
