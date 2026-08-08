@@ -52,9 +52,22 @@
     - Sources/BestASRKit/Engines/AppleSpeechEngine.swift
     - Sources/BestASRKit/Engines/ChineseFamilyEngine.swift
     - Sources/BestASRKit/Engines/ExternalProcessEngine.swift
-    - Sources/BestASRKit/Context/PromptRenderer.swift
     - Sources/BestASRKit/CommandCore.swift
-    - Tests/BestASRKitTests/ContextTests.swift
+    - Sources/BestASRKit/Benchmark/BenchmarkRunner.swift
     - Tests/BestASRKitTests/BackendEngineTests.swift
-  - New: (none)
+    - Tests/BestASRKitTests/BenchmarkTests.swift
+    - Tests/BestASRKitTests/CLITests.swift
+    - Tests/BestASRKitTests/PipelineWiringTests.swift
+    - Tests/BestASRKitTests/TestSupport.swift
+    - CHANGELOG.md
+  - New:
+    - Sources/BestASRKit/Engines/PromptCapability.swift
+    - Tests/BestASRKitTests/PromptCapabilityTests.swift
+    - Tests/BestASRKitTests/EngineCapabilityTests.swift
+    - Tests/BestASRKitTests/ContextBudgetTests.swift
   - Removed: (none)
+
+> 本清單於 #164 verify round 1 對齊實作：原先列了 `Context/PromptRenderer.swift`
+> 與 `ContextTests.swift`（兩者實際未動——`ContextTests` 全部直接呼叫
+> `PromptRenderer.render`，不經 `ContextBundle.rendered`），且漏列全部新檔與
+> `BenchmarkRunner.swift`。

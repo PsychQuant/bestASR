@@ -33,9 +33,19 @@ All notable changes to bestASR are documented here. The format follows
   Second, on the Whisper backends the budget rises from 200 to their measured
   224-token ceiling, so **more of the same context directory now reaches the
   model**. Expect slightly different transcripts there. This is the intended
-  improvement, not model drift — and the clamp direction was corrected in the
-  same change: overflow now discards the lowest-priority phrases rather than the
-  names at the front of the prompt, which is what it had been dropping.
+  improvement, not model drift.
+
+  The engine-side clamp direction was reversed in the same change: overflow now
+  discards the lowest-priority phrases rather than the names at the front of the
+  prompt, which is what it had been dropping. Read that as a reversible bet, not
+  a settled correction. It trades against a different mechanism the previous
+  direction was built on — Whisper's reference decoder truncates an over-long
+  prompt by keeping its *tail*, and content nearest the transcription boundary
+  is widely reported to weigh more. Neither direction has been measured here.
+  If a WER regression shows up on long-context Whisper runs, this is the line to
+  suspect; the durable fix is to reorder the renderer so the highest-value items
+  land at the tail, not to flip the clamp back. See `PipelineWiringTests` for
+  the trade-off in full.
 
   Selection warns but does not re-rank. Whether a lower measured error rate is
   worth losing context biasing has not been measured, so the trade-off is

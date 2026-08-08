@@ -187,6 +187,52 @@ struct ContextBudgetTests {
         #expect(!json.contains("does not support context biasing"), "got: \(json)")
     }
 
+    /// #164 verify round 1: the spec sentence is about *selection* — "backend
+    /// selection SHALL … warn when the selected backend declares no prompt
+    /// support" — and is not qualified by subcommand. `transcribe` selects a
+    /// backend too, so it must carry the warning `recommend` carries; it used
+    /// to fill `warnings` with language-detection notes only.
+    ///
+    /// Deliberately not fixed here: `transcribe` prints nothing without
+    /// `--explain` — pre-existing for *every* warning it produces, so it is a
+    /// separate issue rather than something #164 introduced. This asserts the
+    /// warning reaches the surface `transcribe` actually has.
+    @Test func `Transcribe carries the same prompt-capability warning as recommend`() async throws {
+        let (dir, audio) = try audioFixture()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let ctx = try makeContextDir()
+        defer { try? FileManager.default.removeItem(at: ctx) }
+
+        let subject = core(engines: [MockEngine.fixed(.fluidParakeet)])
+        let outcome = try await subject.transcribe(
+            audioPath: audio,
+            selection: Self.selection(contextDir: ctx.path, backend: "fluid-parakeet"),
+            formatName: "txt",
+            outputPath: dir.appendingPathComponent("out.txt").path)
+
+        #expect(
+            outcome.explanation.contains("! the selected backend does not support context biasing"),
+            "transcribe must warn like recommend does; got: \(outcome.explanation)")
+    }
+
+    @Test func `A supporting backend transcribes without a capability warning`() async throws {
+        let (dir, audio) = try audioFixture()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let ctx = try makeContextDir()
+        defer { try? FileManager.default.removeItem(at: ctx) }
+
+        let subject = core(engines: [
+            MockEngine.fixed(.whisperKit, promptCapability: .supported(maxTokens: 224))
+        ])
+        let outcome = try await subject.transcribe(
+            audioPath: audio,
+            selection: Self.selection(contextDir: ctx.path, backend: "whisperkit"),
+            formatName: "txt",
+            outputPath: dir.appendingPathComponent("out.txt").path)
+
+        #expect(!outcome.explanation.contains("! the selected backend does not support"))
+    }
+
     /// With no context resolved, capability must not influence selection at all
     /// — no warning, no change of criteria.
     @Test func `No context means no prompt-capability warning`() async throws {

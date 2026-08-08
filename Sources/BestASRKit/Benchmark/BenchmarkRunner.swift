@@ -174,6 +174,9 @@ public struct BenchmarkRunner {
     ) async -> BenchmarkOutcome {
         var measured: [MeasuredCandidate] = []
         var failures: [BenchmarkFailure] = []
+        // Candidates whose backend declares no prompt support, so the ±context
+        // pass was not run for them (#164 verify). Reported, never silent.
+        var contextSkipped: [String] = []
 
         guard let audioDuration = audio.duration, audioDuration > 0 else {
             return BenchmarkOutcome(
@@ -254,8 +257,19 @@ public struct BenchmarkRunner {
                 // Optional second pass with the context prompt (spec benchmark:
                 // Measure the context-biasing delta). Model is warm; failures
                 // here degrade to a note-worthy nil, not a candidate failure.
+                //
+                // Gated on the candidate's own declaration (#164 verify): a
+                // backend that takes no prompt must never receive one (spec
+                // asr-engine), and measuring a "with-context" pass there would
+                // publish a delta of ~0 that reads as "context does not help
+                // this backend" when the truth is that it cannot use context
+                // at all. Skipped candidates are named in the notes rather
+                // than dropping out silently.
                 var contextErrorRate: Double?
-                if let contextPrompt {
+                if contextPrompt != nil, !engine.promptCapability.supportsPrompt {
+                    contextSkipped.append(candidate.backend.rawValue)
+                }
+                if let contextPrompt, engine.promptCapability.supportsPrompt {
                     let contextOptions = TranscribeOptions(
                         model: candidate.model,
                         quantization: candidate.quantization,
@@ -297,10 +311,20 @@ public struct BenchmarkRunner {
             }
         }
 
+        // Naming the skipped backends keeps a mixed grid honest: without this
+        // line a report showing a DELTA column for some rows and blanks for
+        // others gives no reason for the blanks.
+        let skipNote = contextSkipped.isEmpty
+            ? []
+            : [
+                "context: no with-context pass for "
+                    + Set(contextSkipped).sorted().joined(separator: ", ")
+                    + " — these backends declare no prompt support"
+            ]
         return BenchmarkOutcome(
             measured: measured,
             failures: failures,
-            notes: initialNotes,
+            notes: initialNotes + skipNote,
             metricKind: metricKind,
             language: language
         )
