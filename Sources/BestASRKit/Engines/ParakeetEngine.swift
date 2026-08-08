@@ -4,9 +4,10 @@ import Foundation
 
 /// FluidAudio Parakeet backend (#35, spec parakeet-engine) — the first
 /// non-Whisper family in the competition pool, zero new dependencies
-/// (FluidAudio 0.15.4 is already exact-pinned for diarization, #25).
+/// (FluidAudio 0.15.5 is already exact-pinned for diarization, #25).
 ///
-/// API mapping (task 1.1 spike, FluidAudio 0.15.4 → BestASRKit):
+/// API mapping (current FluidAudio 0.15.5 → BestASRKit; originally validated by
+/// the task 1.1 spike against 0.15.4, and re-checked by compiling at 0.15.5):
 ///
 /// | FluidAudio                                              | here                          |
 /// |---------------------------------------------------------|-------------------------------|
@@ -169,7 +170,9 @@ public struct ParakeetEngine: Engine {
             )
         }
 
-        // Duration fallback (#69): FluidAudio 0.15.4 returns duration 0,
+        // Duration fallback (#69): FluidAudio 0.15.4 returns duration 0
+        // (observed at 0.15.4; NOT re-verified at 0.15.5 — the guard is kept
+        // because a stale guard costs nothing and an unchecked removal could),
         // which collapses the #53 sanitizer's upper bound to a zero point —
         // every real timing gets distrusted and the SRT cue becomes
         // 00:00:00 --> 00:00:00. Never trust the upstream field alone: fall

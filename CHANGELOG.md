@@ -106,6 +106,219 @@ All notable changes to bestASR are documented here. The format follows
   gate benchmarks with no `--run-kind` at all), so closing it at the row type
   would trade a loud CI failure for a silently dropped row.
 
+### Changed
+
+- **FluidAudio pinned 0.15.4 → 0.15.5 (#122)**: 0.15.5 completes the Parakeet
+  Unified frontend — the CoreML preprocessor bundle is dropped in favour of a
+  native Swift mel extractor, and the streaming encoder gains a per-latency-tier
+  context suffix — which is what #123 needs. **TDT-ja was already reachable at
+  0.15.4**: `AsrModelVersion.tdtJa` and the `parakeet-0.6b-ja-coreml` repo are
+  present and byte-identical there, and the `Unified*` managers exist there too
+  — they are not byte-identical, which is the point: 0.15.5 rewrites their
+  frontend rather than introducing them. An earlier
+  version of this entry said the models "exist only in 0.15.5"; that was wrong,
+  and it put #124's *blocked by #122* premise in doubt along with it.
+
+  #110 flagged `DownloadUtils → ModelHub` as a breaking change. It is not one
+  *for this repo* — **no compiled call site references either symbol** (verified
+  repo-wide, not inferred from the build) — but two narrower claims in the first
+  version of this entry were false:
+
+  - **The `AsrModels` signatures did change.** Every public entry point took
+    `progressHandler: DownloadUtils.ProgressHandler?` and now takes
+    `progressHandler: ProgressHandler?`, as did every other consumed factory.
+    Source-compatible here only because this repo never passes one — which is a
+    different statement from "unchanged", and the issue's open question asked
+    for the first, not the second.
+  - **The consumed surface is not "entirely high-level."** The enumeration
+    omitted `DiarizerModels.downloadIfNeeded()`, `AudioConverter.resampleAudioFile`,
+    `DiarizerManager.initialize` / `.performCompleteDiarization`, and
+    `AsrModelVersion`. The first of those is a **download-layer entry point**,
+    which undercuts the framing that the download-layer rewrite cannot reach
+    this repo: it reaches it through a facade rather than by name.
+
+  Two behaviour changes on call sites this repo does use went unmentioned and
+  are benign: `AsrModels.download` now performs an extra fetch of the vocab JSON
+  (upstream #748 — the weight manifest already pins both vocab files, so the
+  newly-guaranteed fetch lands *inside* the pinned set), and
+  `performCompleteDiarization` gained a defaulted trailing `progressHandler`.
+
+  **Accuracy: an identical transcript on a corpus that could have differed.**
+
+  `ChunkProcessor` was touched by **two** upstream commits carrying **five**
+  distinct changes, not the one the first version of this entry named.
+
+  `7e856da4` (#706/#708) contributes two: `caseVariantCanonicalIds` feeds a new
+  post-merge `collapseSeamWordDuplicates` — case-gated, Latin-gated — *and* is
+  threaded into the overlap matcher itself, where `tokensMatch` went from exact
+  token-ID equality to case-folded equality. The second is easy to miss and is
+  the more interesting one: it changes which token pairs anchor the merge, i.e.
+  **where the seam is cut**, rather than what is removed afterwards.
+
+  `0ac0e414` (#683/#759) contributes three word-boundary-safe fallbacks on
+  seam-merge drop paths, keyed off `spliceSafeTokenIds`. Neither case- nor
+  Latin-gated — but all three are **strictly conditional**, differing from 0.15.4
+  only when no splice-safe token exists at the seam. Upstream's own
+  instrumentation in that commit message reports ~67 chunk-merge events over
+  ~15 minutes of deliberately adversarial agglutinative audio hitting the guarded
+  logic on ~70 % of seams and **never falling through to any of the three**. They
+  are defensive.
+
+  The first version of this entry named only the first commit, and wrote off all
+  seven of its rows on that basis. The honest decomposition is narrower:
+
+  | row | path | blind to the merge change? |
+  |---|---|---|
+  | `jfk` parakeet | 11.0 s → **one chunk** | yes — the merger never runs |
+  | `cv-zhtw-4` parakeet | 25.68 s → **two chunks** | **unknown** — it reaches `ChunkProcessor`, but whether its seams reach the *changed* merge code was never measured |
+  | 3 × sensevoice, 2 × paraformer | never enter `ChunkProcessor` at all | yes, but because of the subtree, not because of case |
+
+  So the old table could not support "accuracy is unchanged" — one of its two
+  parakeet rows was structurally blind and the other confounds six bestASR
+  versions — but it was not empty, and the reason five of its rows carried no
+  information was the ASR subtree they run in, not the absence of case.
+
+  Measured on a corpus that **can** exercise it — `osr-harvard-1`, 33.6 s of
+  English — by building the same tree against each pin in turn:
+
+  | pin | corpus | backend | WER |
+  |---|---|---|---|
+  | 0.15.4 (`b9d43724`) | `osr-harvard-1` | parakeet | **0.037500** |
+  | 0.15.5 (`19600a48`) | `osr-harvard-1` | parakeet | **0.037500** |
+
+  Bit-identical, not equal-after-rounding. The resolved version string alone
+  would not settle which code actually ran — a stale build artifact can survive
+  a pin change — and neither does the checked-out source, for the same reason.
+  The artifact to interrogate is the **binary**: `nm` on the built `bestasr`
+  reports the `ChunkProcessor.caseVariantCanonicalIds` symbol present under the
+  0.15.5 pin and absent under 0.15.4.
+
+  What this does and does not establish, stated narrowly because two earlier
+  attempts at this paragraph overstated it in opposite directions.
+
+  The transcripts are byte-identical — SHA-256 `02af260c…`, in SRT as well as
+  txt, compared byte for byte rather than by equal WER. Each pin was run twice
+  and the same-pin runs match, which bounds decoder variability rather than
+  excluding it: no run-to-run difference was observed in four runs.
+
+  **Which of the five changes actually ran was then measured, not inferred.**
+  Two earlier versions of this entry inferred it backwards from the output and
+  were wrong in opposite directions: the first said the fallbacks *were
+  exercised*, the second said **none** of the five *was reached*. Neither
+  inference was available — identical output and "not entered" are separated by
+  the whole class of entered-but-neutral, which is what this run turns out to
+  be. Instrumenting `ChunkProcessor` (3 chunks, 2 merges; the probe build's
+  transcript hash equals the clean build's, so no final-output perturbation was
+  observed — which is not the same as proving the instrumentation was
+  control-flow-neutral):
+
+  | change | measured |
+  |---|---|
+  | case-folding in the overlap matcher (`tokenIdsMatch`) | **matched twice**, on a pair 0.15.4 rejects — token ids 375 (` r`) and 518 (` R`), canonical 375. Called 844 times: 71 return early on equal ids, 773 reach the guard, 640 of those find an id absent from the map, and of the 133 with both present, 131 resolve to different canonicals |
+  | post-merge `collapseSeamWordDuplicates` | **called**, and removed no tokens (154 in, 154 out) |
+  | `0ac0e414`'s three word-boundary fallbacks | **never entered** |
+
+  So the changed predicate was evaluated and answered differently from 0.15.4 —
+  and the output is identical anyway. A counterfactual inside the same binary
+  shows where that goes: computing each merge twice, once with `caseVariantIds`
+  and once with `nil` (which reduces the matcher to `left == right`, 0.15.4's
+  behaviour), yields identical token ids **and** identical timestamps both
+  times. That isolates the incremental effect of the case-folding within a
+  0.15.5 build; it is not a 0.15.4 execution.
+
+  This is more informative than equal WER on this one corpus; it does not
+  support a general "accuracy is unchanged" claim, and it says nothing about
+  corpora whose seams differ in shape. On this corpus the case-folded matcher is
+  exercised and is output-neutral, the collapse removes nothing, and the
+  fallbacks are not reached at all. It is a measurement that could have come out
+  differently. The values are in `benchmarks/evidence/issue-122-fluidaudio-ab.json`,
+  which records what was measured; the inference is here.
+
+  Exercising the collapse's *effect* deliberately would need audio with a
+  case-variant repetition across a ~15 s boundary; entering the fallbacks would
+  need a seam with no splice-safe token, which upstream's own instrumentation
+  reached on none of ~67 adversarial chunk-merge events. Neither is in this repo's corpus set, and constructing them
+  is #123/#124 work rather than a dependency bump's.
+
+  **The earlier table was not a before/after comparison at all**, and is removed
+  rather than repaired. Its "0.15.4" column reconciles to store rows captured
+  `2026-07-05/06` under **app_version 0.10.0**; its "0.15.5" column is the
+  `2026-08-02` batch under **0.16.0** — four weeks and six bestASR versions
+  apart. A `fluid-*` batch does exist in between (24 rows on `2026-07-19` under
+  `0.14.0`), and it shares **zero corpora** with the after-batch, which is what
+  forced the older rows into the "before" column: the choice was constrained by
+  overlap, not made carelessly. The seven **stored error-rate values** are exactly
+  equal, to the last digit (the mismatched 2 dp / 1 dp rendering obscured that).
+  The rows themselves are not identical — they differ in `app_version`,
+  `decode_deterministic`, `measured_at`, `rtf`, and four of them in
+  `peak_memory_gb` — so these are seven independent executions that landed on
+  the same error rate four weeks and six app versions apart. That is strong
+  circumstantial evidence that those paths are stable, though not proof: equal
+  aggregate error rates do not by themselves establish equal transcripts. It is
+  simply not evidence about this dependency bump either way.
+  Issue #122 asked for a sweep on **each side** of the upgrade, and only the
+  after side was ever run.
+
+  Two labelling corrections while the table is being rewritten: the figures are
+  **error rates**, not "accuracy" — values like 178 % are impossible under any
+  bounded accuracy definition, and the earlier heading inverted the direction as
+  well as the meaning. And two of the seven rows were `fluid-paraformer`, which
+  the grid marks `priority: 2, verified: false` and the sweep script excludes by
+  default as "demoted for a known upstream decode bug"; stable numbers from a
+  known-broken backend evidence that the bug is stable, not that quality is
+  preserved.
+
+  Throughput moved (parakeet on `jfk` 161.6× → 126.5×, a 21.7 % single-run
+  decline). One uncontrolled run is not enough to attribute that to the
+  dependency — but calling it "not evidence of a change either way" was too
+  strong. It is weak evidence, and the honest form is that this run cannot
+  attribute the difference, not that no difference was observed.
+
+  **Comparability caveat, carried from #110's residue**: the measurement schema
+  records `app_version` (bestASR's own) but **not** the FluidAudio version, so a
+  row cannot be attributed to a dependency version from the store alone. (An
+  earlier version of this caveat said the two batches were "indistinguishable in
+  the store"; they are not — they differ in `app_version` and in
+  `decode_deterministic`. The sentence described a hypothetical confound while
+  the real one, six app versions, went unstated.) Per the standing rule that a
+  tool version change makes a new *condition*, rows either side of this bump
+  should not be ranked against each other on the strength of the schema alone;
+  the durable fix is a `build_id` or lockfile hash on the row. **#111 and #118
+  are both closed**, so that gap currently has no owner — saying it is their
+  territory would read as though someone had picked it up. It is filed with the
+  `--store-dir` gap below, which is the same store's adjacent defect.
+
+  One durable side effect is worth stating here rather than only in the evidence
+  file: an early A/B run wrote a `measurements.jsonl` row it could not label
+  honestly (stamped `app_version 0.16.0` on the 0.15.4 arm, because the schema
+  has no dependency field). That row was **removed** from a store whose own
+  documentation calls it append-only, with a machine-local backup that this repo
+  cannot audit. The re-measurement that produced the numbers above wrote nothing
+  to the store, which took routing the run through `transcribe` rather than
+  `benchmark` — see the `--store-dir` gap below.
+
+  Issue #122's second open question — whether this repo depends on the
+  experimental zh-CN CTC / Qwen3 backends dropped in 0.15.3 — is **no**, checked
+  rather than assumed: the FluidAudio-backed backends here are exactly
+  `fluid-parakeet`, `fluid-paraformer` and `fluid-sensevoice` (`ModelGrid.swift`),
+  and the repo's only `qwen3-*` rows belong to `mlx-audio`, which is unrelated.
+
+  **Not covered here**: the diarizer subtree also moved substantially upstream
+  (`KMeansClustering`, `OfflineReconstruction`, new `ZeroVoteReembedder` /
+  `OfflineEmbeddingExtractor` / `OfflineSortformerDiarizer`), and this repo
+  consumes diarization. No DER row exists on either side of the bump and
+  `scripts/validate-diarization.sh` was not run, so that surface is
+  **unestablished rather than unchanged**. Separately, `weights-manifest.json`
+  still pins `silero-vad-unified-256ms-v6.0.0` while 0.15.5 moved to `v6.2.1` —
+  inert today (this repo has no VAD usage and no seam verifies that repo), and
+  recorded because it demonstrates the pinning mechanism's blind spot: an
+  upstream **rename** degrades a repo from "pinned" to "effectively unverified"
+  without ever failing loudly. Not because the verifier is quiet about a missing
+  pin — it reports one — but because **nothing calls it for that repo**:
+  `verifyBundled` has call sites for `speaker-diarization` and
+  `parakeet-tdt-0.6b-v3` only, so the six `silero-vad-coreml` entries are never
+  checked at all.
+
 ### Fixed
 
 - **`--backend apple-speech` was silently substituted (#121)**: `Router`'s

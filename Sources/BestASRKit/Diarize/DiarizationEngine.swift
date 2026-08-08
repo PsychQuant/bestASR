@@ -3,7 +3,7 @@ import Foundation
 
 /// Acoustic speaker diarization over a whole audio file (spec diarization; #25).
 ///
-/// Thin wrapper around FluidAudio's batch pipeline (pinned v0.15.4, design D3):
+/// Thin wrapper around FluidAudio's batch pipeline (pinned v0.15.5, design D3):
 /// CoreML models are fetched and cached by the vendored SDK on first use
 /// (trusted-vendor boundary — the SDK manages its own model revisions and
 /// supports an offline mode). Failures throw: with `--diarize` explicitly
