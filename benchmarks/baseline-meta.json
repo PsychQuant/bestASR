@@ -1,6 +1,21 @@
 {
   "_comment": "Seeding provenance for baseline.json (#34 verify). The corpora are digest-pinned end-to-end; the reference model is the one link WhisperKit resolves dynamically, so this file records what 'large-v3-turbo' meant when the goldens were seeded. It is an AUDIT ANCHOR, not a cryptographic pin: WhisperKit resolved 'main' at download time and the local CoreML cache was not re-hashed. If the gate fails with no code or corpus change, compare the model repo's current revision against model_repo_revision_at_seeding before blaming code (design D2/A3 triage).",
   "seeded_at": "2026-07-05",
+  "corpora": [
+    "jfk",
+    "osr-harvard-1",
+    "osr-harvard-2",
+    "osr-harvard-3",
+    "fleurs-ja-1",
+    "fleurs-ja-2",
+    "fleurs-ja-3",
+    "fleurs-ja-4",
+    "cv-zhtw-1",
+    "cv-zhtw-2",
+    "cv-zhtw-3",
+    "cv-zhtw-4"
+  ],
+  "corpora_comment": "The corpus set this baseline was seeded over (#134 verify). The gate passes this to the compare stage as the expected set: a baseline.json truncated to a subset would otherwise report 'all N corpora within tolerance' over a release it barely verified. Changing the set is a re-seed and must move seeded_at with it.",
   "model": "large-v3-turbo",
   "model_repo": "argmaxinc/whisperkit-coreml",
   "model_repo_revision_at_seeding": "97a5bf9bbc74c7d9c12c755d04dea59e672e3808",
