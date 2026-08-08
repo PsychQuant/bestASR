@@ -37,27 +37,27 @@ import Testing
 /// - **They cannot tell a method from filler.** A probe entry must cite
 ///   something other than itself, and any backticked token satisfies that:
 ///   ``"the `usual` way."`` passes, so does a denial, so do two entries citing
-///   each other.
+///   each other. Seven entries are additionally pinned by `laws`, because they
+///   quote their own field's value; the other thirteen are not.
 /// - **They cannot check that a method is true of the code**, or that a
 ///   citation is apt.
 /// - **The dangling-name and bare-name rules see only underscored,
-///   all-lowercase, non-`__` names.** `chunks` and `merges` are single words
-///   and invisible to them. Single words cannot be required to carry backticks:
-///   the file legitimately writes `nil`, `left`, `grep`.
-/// - **Prose figures are not bound to the fields they quote.** Re-measure a
-///   count, update every field consistently, and sentences still quoting the
-///   old number stay green.
-/// - **The case-fold census is internally consistent and externally
-///   unanchored, and that cannot be fixed from inside this file.** The four
-///   sums are a homogeneous, underdetermined system — nine counts, four
-///   equations — so they admit a family of solutions, and the minimums only
-///   exclude the zero one. Measured: scaling the nine census counts by ten
-///   passes; so does moving along a free direction (854 / 71 / 783 / 650 / 0 /
-///   650 / 133 / 2 / 131); so does setting both collapse counts to 1. Scaling
-///   `chunks` and `merges` too is caught, but only by `merges == chunks - 1`.
-///   Nothing recorded here determines how many times `tokenIdsMatch` is called,
-///   so no relation can pin that census — the information is not in the file.
-///   The sums are also permutation-invariant within a side.
+///   all-lowercase, non-`__` names.** `chunks` and `merges` are single words and
+///   invisible to them, as is a mixed-case name. Single words cannot be required
+///   to carry backticks: the file legitimately writes `nil`, `left`, `grep`.
+/// - **`text` requires one rendering character, not a meaningful one.** A single
+///   `x` satisfies it. The allowlist rules out a file that renders as blank; it
+///   does not rule out one that says nothing.
+/// - **Ratios are constrained, magnitudes often are not.** `metric.value` is
+///   derived from `edits` and `reference_words`, so all three can be rescaled
+///   together. The case-fold census is anchored by the figures the file quotes
+///   in prose — that is what rules out scaling it — but a field quoted nowhere
+///   and in no identity is constrained only by its kind and bounds.
+/// - **The prose anchors depend on the prose keeping its wording.** Rewriting
+///   "All three agree at 773" without the phrase makes that law vacuous rather
+///   than failing. It is a pin against silent numeric drift, not against an
+///   author rewriting both sides deliberately — which is the first blind spot
+///   again.
 struct EvidenceFileTests {
     static let repoRoot = URL(fileURLWithPath: #filePath)
         .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
@@ -118,7 +118,14 @@ struct EvidenceFileTests {
     }
     private static func sum(_ json: [String: Any], _ paths: [String]) -> Int? {
         var total = 0
-        for p in paths { guard let v = int(json, "path_coverage." + p) else { return nil }; total += v }
+        for p in paths {
+            guard let v = int(json, "path_coverage." + p) else { return nil }
+            // Shape-valid Int.max values would trap here and crash the process
+            // instead of failing the expectation.
+            let (sum, overflow) = total.addingReportingOverflow(v)
+            if overflow { return nil }
+            total = sum
+        }
         return total
     }
     private static func equalCounts(_ label: String, _ lhs: [String], _ rhs: [String]) -> Relation {
@@ -152,7 +159,8 @@ struct EvidenceFileTests {
     /// produced no chunks produced no evidence, while a guard cause that never
     /// fired is a real zero.
     static let fluidAudioMeasurements: [String: Node] = [
-        "chunks": .count(min: 1), "merges": .count(min: 1),
+        // `merges == chunks - 1`, so a single-chunk run has none.
+        "chunks": .count(min: 1), "merges": .count(min: 0),
         "case_folded_calls": .count(min: 1),
         "case_folded_early_return_ids_equal": .count(min: 0),
         "case_folded_reached_guard": .count(min: 1),
@@ -182,7 +190,7 @@ struct EvidenceFileTests {
                 "session": .object([
                     "measured_at": .text, "machine": .text, "toolchain": .text,
                     "toolchain_caveat": .text, "corpus": .text,
-                    "corpus_duration_seconds": .real(min: 0), "language": .text,
+                    "corpus_duration_seconds": .real(min: 0.001), "language": .text,
                     "audio_sha256": .hex(64), "reference_sha256": .hex(64),
                     "transcribe_command": .text, "nm_command": .text,
                     "notes": .array(of: .text, min: 4, distinct: true),
@@ -238,10 +246,93 @@ struct EvidenceFileTests {
                     else { return false }
                     return pair.map(\.intValue).contains(id)
                 },
-                // The collapse counts are taken at that function's entry and
-                // exit, so they mean nothing if it was never called.
-                Relation(label: "collapse counts exist only if collapse_called") {
-                    (value($0, "path_coverage.collapse_called") as? Bool) == true
+                // The file records its own census, in prose, twice over.
+                // `isolating_the_counterfactual` states the untagged and the
+                // two-invocation-summed quadruples, and both are pure functions
+                // of the recorded counts. Round 15's comment claimed no relation
+                // could pin this census and that the information was not in the
+                // file; it was, one line above, in the prose that same comment
+                // disclaimed as unbound. Nothing here is hardcoded — the figures
+                // are parsed out of what the file says and compared to arithmetic
+                // on what the file records.
+                Relation(label: "the counterfactual figures in prose match the census") {
+                    guard let pc = $0["path_coverage"] as? [String: Any],
+                        let how = pc["how"] as? [String: Any],
+                        let text = how["isolating_the_counterfactual"] as? String,
+                        let calls = int($0, "path_coverage.case_folded_calls"),
+                        let early = int($0, "path_coverage.case_folded_early_return_ids_equal"),
+                        let reached = int($0, "path_coverage.case_folded_reached_guard"),
+                        let guardElse = int($0, "path_coverage.case_folded_guard_else")
+                    else { return false }
+                    let quad = #/(\d+)\s*/\s*\*{0,2}(\d+)\*{0,2}\s*/\s*\*{0,2}(\d+)\*{0,2}\s*/\s*\*{0,2}(\d+)\*{0,2}/#
+                    let found = text.matches(of: quad).compactMap { m -> [Int]? in
+                        guard let a = Int(m.1), let b = Int(m.2), let c = Int(m.3), let d = Int(m.4)
+                        else { return nil }
+                        return [a, b, c, d]
+                    }
+                    guard found.count == 2 else { return false }
+                    return found[0] == [2 * calls, 2 * early, 2 * reached, guardElse + reached]
+                        && found[1] == [2 * calls, 2 * early, 2 * reached, 2 * guardElse]
+                },
+                // Seven probe entries quote the value of the field they describe.
+                Relation(label: "each probe entry agrees with the figure it quotes") {
+                    guard let pc = $0["path_coverage"] as? [String: Any],
+                        let probes = (pc["how"] as? [String: Any])?["probes"] as? [String: String]
+                    else { return false }
+                    func n(_ k: String) -> Int? { (pc[k] as? NSNumber)?.intValue }
+                    func quotes(_ entry: String, _ phrase: String) -> Bool {
+                        probes[entry]?.contains(phrase) ?? false
+                    }
+                    guard let reached = n("case_folded_reached_guard"),
+                        let both = n("case_folded_both_ids_in_map"),
+                        let matches = n("case_folded_matches"),
+                        let canonical = n("case_folded_canonical_id"),
+                        let mapNil = n("case_folded_guard_else_map_nil"),
+                        let fallbacks = n("word_boundary_fallbacks_entered"),
+                        let tokensEqual = pc["counterfactual_tokens_equal"] as? Bool
+                    else { return false }
+                    return quotes("case_folded_reached_guard", "agree at \(reached)")
+                        && quotes("case_folded_both_ids_in_map", "agree at \(both)")
+                        && quotes("case_folded_matched_token_ids", "there were \(matches) match events")
+                        && quotes("case_folded_canonical_id", "gave \(canonical)")
+                        && (!quotes("case_folded_guard_else_map_nil", "never nil") || mapNil == 0)
+                        && (!quotes("word_boundary_fallbacks_entered", "each 0") || fallbacks == 0)
+                        && (!quotes("counterfactual_tokens_equal", "recorded true") || tokensEqual)
+                },
+                // The array records the pair emitted AT the fold match, so its
+                // presence is itself a lower bound on the match count.
+                Relation(label: "a recorded matched pair implies at least one match") {
+                    guard let pc = $0["path_coverage"] as? [String: Any],
+                        let pair = pc["case_folded_matched_token_ids"] as? [Any],
+                        let matches = int($0, "path_coverage.case_folded_matches")
+                    else { return false }
+                    return pair.isEmpty || matches >= 1
+                },
+                // Each `edit_list` entry names its operations in parentheses --
+                // "(substitution + insertion)" is two edits, "(substitution)" is
+                // one -- so the numerator is derivable from the list rather than
+                // merely bounded by its length. With `metric.value` pinned by
+                // `_reproducing`, this pins the denominator too, which is what
+                // rules out rescaling all three together.
+                Relation(label: "metric.edits equals the operations edit_list names") {
+                    guard let list = value($0, "metric.edit_list") as? [String],
+                        let edits = int($0, "metric.edits") else { return false }
+                    let op = #/substitution|insertion|deletion/#
+                    let named = list.reduce(0) { $0 + $1.lowercased().matches(of: op).count }
+                    return named > 0 && named == edits
+                },
+                // `_reproducing` walks through three wrong artifact pairings and
+                // ends "Only the combination above gives the recorded 0.0375".
+                // The ratio law alone cannot see a rescaled metric or the
+                // documented wrong answer, because 30/800 and 6/80 are both
+                // internally consistent; the prose is what distinguishes them.
+                Relation(label: "metric.value is the figure `_reproducing` calls the recorded one") {
+                    guard let prose = $0["_reproducing"] as? String,
+                        let recorded = double($0, "metric.value") else { return false }
+                    let stated = #/gives the recorded ([0-9]+\.[0-9]+)/#
+                    guard let m = prose.firstMatch(of: stated), let want = Double(m.1)
+                    else { return false }
+                    return abs(recorded - want) < 1e-12
                 },
                 // The conclusion follows from its two comparisons.
                 Relation(label: "changed_merge_output == !(tokens_equal && timestamps_equal)") {
@@ -253,9 +344,16 @@ struct EvidenceFileTests {
                 },
             ],
             observations: [
+                Relation(label: "collapse was called in this run") {
+                    ($0["path_coverage"] as? [String: Any])?["collapse_called"] as? Bool == true
+                },
                 Relation(label: "collapse removed no token in this run") {
-                    int($0, "path_coverage.collapse_tokens_in")
-                        == int($0, "path_coverage.collapse_tokens_out")
+                    // Bound before comparing. `Optional == Optional` is true when
+                    // both sides are nil, so an unguarded comparison of two
+                    // accessors is satisfied by deleting both fields.
+                    guard let a = int($0, "path_coverage.collapse_tokens_in"),
+                        let b = int($0, "path_coverage.collapse_tokens_out") else { return false }
+                    return a == b
                 },
             ]),
     ]
@@ -267,21 +365,25 @@ struct EvidenceFileTests {
             guard let arms = json["arms"] as? [String: Any],
                 let a = arms["0.15.4"] as? [String: Any], let b = arms["0.15.5"] as? [String: Any]
             else { return false }
-            return (a["transcript_sha256_srt_run1"] as? String)
-                == (b["transcript_sha256_srt_run1"] as? String)
+            guard let x = a["transcript_sha256_srt_run1"] as? String,
+                let y = b["transcript_sha256_srt_run1"] as? String else { return false }
+            return x == y
         },
         Relation(label: "the txt transcripts are identical across arms") { json in
             guard let arms = json["arms"] as? [String: Any],
                 let a = arms["0.15.4"] as? [String: Any], let b = arms["0.15.5"] as? [String: Any]
             else { return false }
-            return (a["transcript_sha256_txt"] as? String) == (b["transcript_sha256_txt"] as? String)
+            guard let x = a["transcript_sha256_txt"] as? String,
+                let y = b["transcript_sha256_txt"] as? String else { return false }
+            return x == y
         },
         Relation(label: "run 1 and run 2 agree within each arm") { json in
             guard let arms = json["arms"] as? [String: Any] else { return false }
             return ["0.15.4", "0.15.5"].allSatisfy { name in
-                guard let arm = arms[name] as? [String: Any] else { return false }
-                return (arm["transcript_sha256_srt_run1"] as? String)
-                    == (arm["transcript_sha256_srt_run2"] as? String)
+                guard let arm = arms[name] as? [String: Any],
+                    let one = arm["transcript_sha256_srt_run1"] as? String,
+                    let two = arm["transcript_sha256_srt_run2"] as? String else { return false }
+                return one == two
             }
         },
         Relation(label: "the nm counts differ between arms — the A/B result itself") { json in
@@ -310,43 +412,78 @@ struct EvidenceFileTests {
     /// different error rate to every other consumer.
     static func duplicateKeys(in json: String) -> [String] {
         var duplicates: [String] = []
-        var stack: [Set<String>] = []
-        let chars = Array(json)
+        var stack: [(isObject: Bool, keys: Set<String>)] = []
+        let chars = Array(json.unicodeScalars)
         var i = 0
-        var pendingKey: String?
 
+        /// Decodes JSON escapes, so `"\u0061"` and `"a"` are recognised as the
+        /// same key and `"\/"` and `"\\"` as different ones. The previous
+        /// version replaced every escape with a single `?`, which both missed
+        /// real duplicates and invented false ones.
         func readString() -> String {
-            var out = ""
+            var out = String.UnicodeScalarView()
             i += 1  // opening quote
             while i < chars.count {
-                if chars[i] == "\\" { i += 2; out += "?"; continue }
-                if chars[i] == "\"" { i += 1; return out }
-                out.append(chars[i]); i += 1
+                let c = chars[i]
+                if c == "\\" {
+                    i += 1
+                    guard i < chars.count else { break }
+                    switch chars[i] {
+                    case "u":
+                        let hex = String(String.UnicodeScalarView(chars[(i + 1)..<Swift.min(i + 5, chars.count)]))
+                        i += 4
+                        if var code = UInt32(hex, radix: 16) {
+                            // A high surrogate takes the following \uXXXX with it.
+                            if (0xD800...0xDBFF).contains(code), i + 6 < chars.count,
+                                chars[i + 1] == "\\", chars[i + 2] == "u",
+                                let low = UInt32(
+                                    String(String.UnicodeScalarView(chars[(i + 3)..<Swift.min(i + 7, chars.count)])),
+                                    radix: 16),
+                                (0xDC00...0xDFFF).contains(low)
+                            {
+                                code = 0x10000 + ((code - 0xD800) << 10) + (low - 0xDC00)
+                                i += 6
+                            }
+                            if let scalar = Unicode.Scalar(code) { out.append(scalar) }
+                        }
+                    case "b": out.append("\u{08}")
+                    case "f": out.append("\u{0C}")
+                    case "n": out.append("\n")
+                    case "r": out.append("\r")
+                    case "t": out.append("\t")
+                    default: out.append(chars[i])  // covers \" \\ \/
+                    }
+                    i += 1
+                    continue
+                }
+                if c == "\"" { i += 1; return String(out) }
+                out.append(c)
+                i += 1
             }
-            return out
+            return String(out)
         }
 
         while i < chars.count {
             switch chars[i] {
-            case "{": stack.append([]); pendingKey = nil; i += 1
-            case "}": if !stack.isEmpty { stack.removeLast() }; pendingKey = nil; i += 1
-            case "[": i += 1
-            case "]": i += 1
+            case "{": stack.append((isObject: true, keys: [])); i += 1
+            case "[": stack.append((isObject: false, keys: [])); i += 1
+            case "}", "]": if !stack.isEmpty { stack.removeLast() }; i += 1
             case "\"":
                 let s = readString()
-                // A string is a key if the next non-space character is a colon
-                // and we are directly inside an object.
+                // A string is a key when the next character — skipping all four
+                // JSON whitespace characters, carriage return included — is a
+                // colon, and the enclosing container is an object.
                 var j = i
-                while j < chars.count, chars[j] == " " || chars[j] == "\n" || chars[j] == "\t" { j += 1 }
-                if j < chars.count, chars[j] == ":", !stack.isEmpty {
-                    if stack[stack.count - 1].contains(s) { duplicates.append(s) }
-                    stack[stack.count - 1].insert(s)
+                while j < chars.count,
+                    chars[j] == " " || chars[j] == "\n" || chars[j] == "\r" || chars[j] == "\t"
+                { j += 1 }
+                if j < chars.count, chars[j] == ":", let top = stack.last, top.isObject {
+                    if stack[stack.count - 1].keys.contains(s) { duplicates.append(s) }
+                    stack[stack.count - 1].keys.insert(s)
                 }
-                pendingKey = nil
             default: i += 1
             }
         }
-        _ = pendingKey
         return duplicates.sorted()
     }
 
@@ -402,11 +539,17 @@ struct EvidenceFileTests {
 
     // MARK: - Matching a value against a declared node
 
-    /// Characters that occupy no visual space. Foundation trims U+FEFF and
-    /// U+200B but not the format category, so a file of U+2060 word joiners
-    /// passed every non-empty check while rendering as blank.
-    private static let invisible = CharacterSet(charactersIn: "\u{00AD}\u{200E}\u{200F}\u{2060}\u{2061}\u{2062}\u{2063}\u{2064}\u{3164}\u{2800}\u{180E}")
-        .union(.whitespacesAndNewlines)
+    /// What counts as a character that renders. An **allowlist**: round 16
+    /// showed a denylist cannot work, because Unicode's default-ignorable set is
+    /// far larger than any enumeration of it — U+200C, U+200D, U+034F, U+FEFF,
+    /// the directional isolates, variation selectors and tag characters all got
+    /// through the previous list while rendering as nothing.
+    /// `alphanumerics` includes the Mark categories, so U+034F and U+FE0F were
+    /// admitted although a combining mark alone renders as nothing; they are
+    /// subtracted back out.
+    private static let visible = CharacterSet.alphanumerics
+        .union(.punctuationCharacters).union(.symbols)
+        .subtracting(.nonBaseCharacters)
 
     static func mismatches(_ value: Any?, against node: Node, at path: String) -> [String] {
         func plain(_ v: Any?) -> NSNumber? {
@@ -428,20 +571,28 @@ struct EvidenceFileTests {
             return out
         case .text:
             guard let s = value as? String else { return ["\(here): not a string"] }
-            return s.unicodeScalars.contains(where: { !invisible.contains($0) })
+            return s.unicodeScalars.contains(where: { visible.contains($0) })
                 ? [] : ["\(here): no visible characters"]
         case .hex(let length):
             guard let s = value as? String else { return ["\(here): not a string"] }
-            guard s.count == length, s.allSatisfy({ $0.isHexDigit && !$0.isUppercase }) else {
-                return ["\(here): not \(length) lowercase hex digits"]
-            }
+            // ASCII scalars, not `Character.isHexDigit` — that is Unicode, so
+            // the fullwidth compatibility forms qualify and 40 copies of U+FF41
+            // passed as a git revision.
+            let scalars = Array(s.unicodeScalars)
+            guard scalars.count == length,
+                scalars.allSatisfy({ ("0"..."9").contains($0) || ("a"..."f").contains($0) })
+            else { return ["\(here): not \(length) ASCII lowercase hex digits"] }
             return []
         case .count(let min):
             guard let n = plain(value) else { return ["\(here): not a number"] }
-            guard n.doubleValue == Double(n.intValue) else { return ["\(here): \(n) is not whole"] }
+            // The token has to have been written as an integer. Checking only
+            // `doubleValue == Double(intValue)` accepts 0.99999999999999999,
+            // which the parser rounds to 1.0 before any rule sees it.
+            guard !CFNumberIsFloatType(n) else { return ["\(here): \(n) was written as a real, not a count"] }
             return n.intValue >= min ? [] : ["\(here): \(n) is below the declared minimum \(min)"]
         case .real(let min):
             guard let n = plain(value) else { return ["\(here): not a number"] }
+            guard n.doubleValue.isFinite else { return ["\(here): not finite"] }
             return n.doubleValue >= min ? [] : ["\(here): \(n) is below the declared minimum \(min)"]
         case .flag:
             guard let n = value as? NSNumber, CFGetTypeID(n) == CFBooleanGetTypeID() else {
@@ -453,9 +604,13 @@ struct EvidenceFileTests {
             var out: [String] = []
             if a.count < min { out.append("\(here): has \(a.count) element(s), needs \(min)") }
             if distinct {
-                let rendered = a.map { "\($0)" }
+                // Compare what renders. A trailing space or a zero-width
+                // character made five copies of one sentence "distinct".
+                let rendered = a.map { element -> String in
+                    String(String(describing: element).unicodeScalars.filter { visible.contains($0) })
+                }
                 if Set(rendered).count != rendered.count {
-                    out.append("\(here): has repeated elements, so its length overstates its content")
+                    out.append("\(here): has elements that render identically, so its length overstates its content")
                 }
             }
             return out + a.enumerated().flatMap { mismatches($1, against: element, at: "\(here)[\($0)]") }
