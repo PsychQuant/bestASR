@@ -27,37 +27,41 @@ import Testing
 /// being identical across arms, run-to-run equality, the `nm` counts differing.
 /// Changing one of those means changing the declaration, on purpose.
 ///
-/// **The blind spots this leaves**, written from the mutations that got past it
-/// rather than from intent:
+/// **The blind spots this leaves.** Every item below was a mutation that
+/// passed. The list has been wrong in each of rounds 9 to 18 — most recently by
+/// stating the vacuity case backwards — so it is written from what got through,
+/// and where a claim would need testing to make, it is not made.
 ///
 /// - **A declaration detects one-sided change.** A deletion, rename or typo
-///   applied to both the artifact and the declaration agrees with itself and
-///   passes. That is the dual of a derived schema, which cannot detect absence
-///   at all. Neither covers the other; this is the declared kind.
-/// - **They cannot tell a method from filler.** A probe entry must cite
-///   something other than itself, and any backticked token satisfies that:
-///   ``"the `usual` way."`` passes, so does a denial, so do two entries citing
-///   each other. Seven entries are additionally pinned by `laws`, because they
-///   quote their own field's value; the other thirteen are not.
-/// - **They cannot check that a method is true of the code**, or that a
-///   citation is apt.
+///   applied to both the artifact and the declaration agrees with itself. That
+///   is the dual of a derived schema, which cannot detect absence at all.
+/// - **`.text` is a floor, not a legibility test.** It rejects the empty
+///   string, the Marks, and the eight blank-rendering scalars found so far. No
+///   Foundation predicate answers "does this render", so a scalar nobody has
+///   tried will pass — and a single `x` passes by design.
+/// - **The prose anchors protect against silent numeric drift, not against
+///   false prose.** They match phrases and parse figures; they do not read
+///   affirmation, negation or subject. `"They do not agree at 773"` passes.
+///   Removing a phrase makes three of the seven probe clauses vacuous — the
+///   ones guarded `!quotes(…) || …`, namely `never nil`, `each 0` and
+///   `recorded true`; removing any of the other four, or either quadruple, or
+///   `_reproducing`'s figure, makes its law **fail**.
+/// - **The quadruple parser is strict about syntax and blind to context.** It
+///   needs exactly two parseable matches in textual order; a third anywhere in
+///   the string breaks it, and moving both into a negated passage still passes.
+/// - **A probe entry may cite any backticked token**, so filler, a denial or
+///   mutual citation pass — except where a prose law pins the entry. The
+///   twenty methods must now be distinct, and each must name something other
+///   than its own field.
+/// - **No rule checks a method is true of the code**, or that a citation is apt.
 /// - **The dangling-name and bare-name rules see only underscored,
-///   all-lowercase, non-`__` names.** `chunks` and `merges` are single words and
-///   invisible to them, as is a mixed-case name. Single words cannot be required
-///   to carry backticks: the file legitimately writes `nil`, `left`, `grep`.
-/// - **`text` requires one rendering character, not a meaningful one.** A single
-///   `x` satisfies it. The allowlist rules out a file that renders as blank; it
-///   does not rule out one that says nothing.
-/// - **Ratios are constrained, magnitudes often are not.** `metric.value` is
-///   derived from `edits` and `reference_words`, so all three can be rescaled
-///   together. The case-fold census is anchored by the figures the file quotes
-///   in prose — that is what rules out scaling it — but a field quoted nowhere
-///   and in no identity is constrained only by its kind and bounds.
-/// - **The prose anchors depend on the prose keeping its wording.** Rewriting
-///   "All three agree at 773" without the phrase makes that law vacuous rather
-///   than failing. It is a pin against silent numeric drift, not against an
-///   author rewriting both sides deliberately — which is the first blind spot
-///   again.
+///   all-lowercase, non-`__` names**, so `chunks` and `merges` are invisible to
+///   them in backticks or out. Single words cannot be required to carry
+///   backticks: the file legitimately writes `nil`, `left`, `grep`.
+/// - **Figures quoted in prose outside `how.probes` and `_limits[1]` are
+///   unbound**, and a legitimate re-measurement that changes an observation or
+///   a pinned figure requires editing this declaration — deliberately, which is
+///   what `observations` is for, but it is a cost.
 struct EvidenceFileTests {
     static let repoRoot = URL(fileURLWithPath: #filePath)
         .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
@@ -149,6 +153,7 @@ struct EvidenceFileTests {
             "patch": .text, "build": .text, "probe_implementation": .text,
             "isolating_the_counterfactual": .text,
             "method_limits": .array(of: .text, min: 5, distinct: true),
+            // `.text` alone let all twenty methods be the same string.
             "probes": .object(measurements.mapValues { _ in Node.text }),
         ])
         keys["_limits"] = .array(of: .text, min: 5, distinct: true)
@@ -271,8 +276,22 @@ struct EvidenceFileTests {
                         return [a, b, c, d]
                     }
                     guard found.count == 2 else { return false }
-                    return found[0] == [2 * calls, 2 * early, 2 * reached, guardElse + reached]
-                        && found[1] == [2 * calls, 2 * early, 2 * reached, 2 * guardElse]
+                    // Every construction reports overflow. `sum` was given this
+                    // treatment when it was reported; the relation written beside
+                    // it in the same commit was not, and Int.max is a valid count,
+                    // so it terminated the process instead of failing.
+                    func twice(_ v: Int) -> Int? {
+                        let (r, o) = v.multipliedReportingOverflow(by: 2)
+                        return o ? nil : r
+                    }
+                    func plus(_ a: Int, _ b: Int) -> Int? {
+                        let (r, o) = a.addingReportingOverflow(b)
+                        return o ? nil : r
+                    }
+                    guard let c2 = twice(calls), let e2 = twice(early), let r2 = twice(reached),
+                        let g2 = twice(guardElse), let mixed = plus(guardElse, reached)
+                    else { return false }
+                    return found[0] == [c2, e2, r2, mixed] && found[1] == [c2, e2, r2, g2]
                 },
                 // Seven probe entries quote the value of the field they describe.
                 Relation(label: "each probe entry agrees with the figure it quotes") {
@@ -280,8 +299,16 @@ struct EvidenceFileTests {
                         let probes = (pc["how"] as? [String: Any])?["probes"] as? [String: String]
                     else { return false }
                     func n(_ k: String) -> Int? { (pc[k] as? NSNumber)?.intValue }
+                    /// Containment with a digit boundary. Plain `contains` let
+                    /// prose that had drifted to "agree at 7730" satisfy a seek
+                    /// for "agree at 773".
                     func quotes(_ entry: String, _ phrase: String) -> Bool {
-                        probes[entry]?.contains(phrase) ?? false
+                        guard let text = probes[entry] else { return false }
+                        for range in text.ranges(of: phrase) {
+                            if range.upperBound == text.endIndex { return true }
+                            if !text[range.upperBound].isNumber { return true }
+                        }
+                        return false
                     }
                     guard let reached = n("case_folded_reached_guard"),
                         let both = n("case_folded_both_ids_in_map"),
@@ -298,6 +325,33 @@ struct EvidenceFileTests {
                         && (!quotes("case_folded_guard_else_map_nil", "never nil") || mapNil == 0)
                         && (!quotes("word_boundary_fallbacks_entered", "each 0") || fallbacks == 0)
                         && (!quotes("counterfactual_tokens_equal", "recorded true") || tokensEqual)
+                },
+                // `_limits[1]` restates five of the same counts in prose. Left
+                // unbound, the file could hold two mutually contradictory
+                // censuses two keys apart and report nothing.
+                Relation(label: "the census restated in `_limits` matches the recorded one") {
+                    guard let pc = $0["path_coverage"] as? [String: Any],
+                        let limits = pc["_limits"] as? [String], limits.count > 1
+                    else { return false }
+                    let text = limits[1]
+                    func n(_ k: String) -> Int? { (pc[k] as? NSNumber)?.intValue }
+                    func statesDigitBounded(_ v: Int) -> Bool {
+                        for range in text.ranges(of: String(v)) {
+                            let beforeOK = range.lowerBound == text.startIndex
+                                || !text[text.index(before: range.lowerBound)].isNumber
+                            let afterOK = range.upperBound == text.endIndex
+                                || !text[range.upperBound].isNumber
+                            if beforeOK && afterOK { return true }
+                        }
+                        return false
+                    }
+                    guard let reached = n("case_folded_reached_guard"),
+                        let both = n("case_folded_both_ids_in_map"),
+                        let matches = n("case_folded_matches"),
+                        let mapNil = n("case_folded_guard_else_map_nil"),
+                        let guardElse = n("case_folded_guard_else")
+                    else { return false }
+                    return [reached, both, matches, mapNil, guardElse].allSatisfy(statesDigitBounded)
                 },
                 // The array records the pair emitted AT the fold match, so its
                 // presence is itself a lower bound on the match count.
@@ -317,7 +371,8 @@ struct EvidenceFileTests {
                 Relation(label: "metric.edits equals the operations edit_list names") {
                     guard let list = value($0, "metric.edit_list") as? [String],
                         let edits = int($0, "metric.edits") else { return false }
-                    let op = #/substitution|insertion|deletion/#
+                    // Word-bounded: the unbounded form counted `nonsubstitution`.
+                    let op = #/\b(substitution|insertion|deletion)\b/#
                     let named = list.reduce(0) { $0 + $1.lowercased().matches(of: op).count }
                     return named > 0 && named == edits
                 },
@@ -385,6 +440,20 @@ struct EvidenceFileTests {
                     let two = arm["transcript_sha256_srt_run2"] as? String else { return false }
                 return one == two
             }
+        },
+        // What must DIFFER. The previous set declared only what must match, so
+        // both arms could carry the same revision and the same executable hash —
+        // one binary measured twice — while reporting nm counts of 0 and 4. That
+        // is the premise of the whole comparison, and it was unchecked.
+        Relation(label: "the two arms are different builds of different pins") { json in
+            guard let arms = json["arms"] as? [String: Any],
+                let a = arms["0.15.4"] as? [String: Any], let b = arms["0.15.5"] as? [String: Any],
+                let revA = a["fluidaudio_revision"] as? String,
+                let revB = b["fluidaudio_revision"] as? String,
+                let exeA = a["executable_sha256"] as? String,
+                let exeB = b["executable_sha256"] as? String
+            else { return false }
+            return revA != revB && exeA != exeB
         },
         Relation(label: "the nm counts differ between arms — the A/B result itself") { json in
             guard let arms = json["arms"] as? [String: Any],
@@ -544,12 +613,21 @@ struct EvidenceFileTests {
     /// far larger than any enumeration of it — U+200C, U+200D, U+034F, U+FEFF,
     /// the directional isolates, variation selectors and tag characters all got
     /// through the previous list while rendering as nothing.
-    /// `alphanumerics` includes the Mark categories, so U+034F and U+FE0F were
-    /// admitted although a combining mark alone renders as nothing; they are
-    /// subtracted back out.
+    /// Neither a denylist nor a category allowlist is sound on its own, so this
+    /// is both. Round 16 replaced a denylist with an allowlist of general
+    /// categories; the allowlist then re-admitted two scalars the denylist had
+    /// caught — U+3164 HANGUL FILLER (`Lo`, so `alphanumerics`) and U+2800
+    /// BRAILLE PATTERN BLANK (`So`, so `symbols`) — along with two more Hangul
+    /// fillers. General category is not a renderability predicate, and no
+    /// predicate in Foundation is. **This is a floor, not a test for
+    /// legibility**: it rejects the blank-rendering scalars that have actually
+    /// been found, and a scalar nobody has thought of will pass.
+    private static let knownBlank = CharacterSet(charactersIn:
+        "\u{115F}\u{1160}\u{3164}\u{FFA0}\u{2800}\u{180E}\u{200B}\u{FEFF}")
     private static let visible = CharacterSet.alphanumerics
         .union(.punctuationCharacters).union(.symbols)
         .subtracting(.nonBaseCharacters)
+        .subtracting(knownBlank)
 
     static func mismatches(_ value: Any?, against node: Node, at path: String) -> [String] {
         func plain(_ v: Any?) -> NSNumber? {
@@ -747,6 +825,9 @@ struct EvidenceFileTests {
                     !Self.backtickedTokens(in: method).subtracting([field]).isEmpty,
                     "\(e.path): how.probes[\(field)] names nothing but itself: \"\(method)\"")
             }
+            #expect(
+                Set(probes.values).count == probes.count,
+                "\(e.path): how.probes has repeated methods, so some field's method describes another's")
         }
     }
 
