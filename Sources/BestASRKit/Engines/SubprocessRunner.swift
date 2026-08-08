@@ -126,12 +126,28 @@ public enum SubprocessRunner {
                 underlying: error)
         }
 
-        // Guarantee 1 — drains start before any wait. They are detached and
-        // blocking; the box (not an `await`) is how the deadline path reads
-        // them, so a drain that never returns cannot extend the deadline.
+        // Guarantee 1 — drains start before any wait, and run on a thread pool
+        // that is not the one enforcing the deadline. The box (not an `await`)
+        // is how the deadline path reads them, so no drain — however many, and
+        // however long they block — can extend the deadline.
         let box = OutputBox()
-        Task.detached { box.finishOut(outPipe.fileHandleForReading.readDataToEndOfFile()) }
-        Task.detached { box.finishErr(errPipe.fileHandleForReading.readDataToEndOfFile()) }
+        // `DispatchQueue`, not `Task.detached` (#165 round 3). Detached tasks run
+        // on the cooperative pool, which has one thread per core, and
+        // `readDataToEndOfFile()` blocks the thread it lands on. Two blocking
+        // drains per run meant that enough concurrent runs left the pool with no
+        // thread free to resume `raceCompletion`'s sleep continuation — so the
+        // deadline check stopped being scheduled and the budget was blown by the
+        // time the drains took to clear. Measured on an 18-core machine against a
+        // 1 s budget: fine to concurrency 8, 6.6x over at 16, 18.6x over at 32.
+        //
+        // That falsified the earlier wording of Guarantee 1 above, which said a
+        // drain could not extend the deadline. A drain that never returns
+        // could not extend it *directly*, but N of them could starve the
+        // executor that enforces it. Dispatch's pool grows past a blocked
+        // worker, so blocking here costs a thread instead of the whole runtime.
+        let drainQueue = DispatchQueue.global(qos: .userInitiated)
+        drainQueue.async { box.finishOut(outPipe.fileHandleForReading.readDataToEndOfFile()) }
+        drainQueue.async { box.finishErr(errPipe.fileHandleForReading.readDataToEndOfFile()) }
 
         // Idempotent teardown, shared by the timeout and cancellation paths.
         let teardown: @Sendable () -> Void = {
