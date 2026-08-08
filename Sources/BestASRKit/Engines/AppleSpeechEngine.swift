@@ -52,6 +52,11 @@ import Speech
 public struct AppleSpeechEngine: Engine {
     public let id: BackendID = .appleSpeech
 
+    /// `SpeechAnalyzer` exposes no conditioning-text parameter. (It does have a
+    /// separate contextual-strings facility; that is a different mechanism and
+    /// is not wired here — declaring support would misdescribe what happens.)
+    public let promptCapability: PromptCapability = .unsupported
+
     public init() {}
 
     // MARK: - Diagnostics

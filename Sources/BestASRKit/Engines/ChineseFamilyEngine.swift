@@ -51,6 +51,10 @@ struct FluidAudioSenseVoicePipeline: TextTranscribing {
 public struct ChineseFamilyEngine: Engine {
     public let id: BackendID
 
+    /// Paraformer / SenseVoice take no conditioning text. The family shares one
+    /// engine type, so the declaration is shared too.
+    public let promptCapability: PromptCapability = .unsupported
+
     let probeDuration: @Sendable (String) throws -> TimeInterval
     let pipelineFactory: @Sendable (String) async throws -> any TextTranscribing
     let pipelines = CreateOnceStore<any TextTranscribing>()
