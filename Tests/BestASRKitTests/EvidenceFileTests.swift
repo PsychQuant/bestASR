@@ -28,45 +28,95 @@ import Testing
 /// Changing one of those means changing the declaration, on purpose.
 ///
 /// **The blind spots this leaves.** Every item below was a mutation that
-/// passed. The list has been wrong in each of rounds 9 to 18 — most recently by
-/// stating the vacuity case backwards — so it is written from what got through,
-/// and where a claim would need testing to make, it is not made.
+/// passed. The list has been wrong in each of rounds 9 to 19 — by stating the
+/// vacuity case backwards, then by claiming a set of figures was unbound when
+/// three of them fail on change — so it is written from what got through, and
+/// where a claim would need testing to make, it is not made.
 ///
+/// - **Prose *content* is not under test.** Only fields a relation reads are
+///   pinned at all, and it pins the figure it quotes, not the sentence. Every
+///   other string may be replaced by `"x"`: the file goes from 23,891 bytes to
+///   4,083 with nothing reported, losing the reproduction recipe, the commands
+///   that produced every number, the provenance paragraph saying the verifier
+///   runs were not blind and not independently designed, the four-cell `nm`
+///   table, sixteen of twenty probe methods and every `method_limits` entry.
+///   A passing run does **not** mean the file still says what it said.
 /// - **A declaration detects one-sided change.** A deletion, rename or typo
 ///   applied to both the artifact and the declaration agrees with itself. That
 ///   is the dual of a derived schema, which cannot detect absence at all.
 /// - **`.text` is a floor, not a legibility test.** It rejects the empty
-///   string, the Marks, and the eight blank-rendering scalars found so far. No
+///   string, the Marks, and the ten blank-rendering scalars found so far. No
 ///   Foundation predicate answers "does this render", so a scalar nobody has
-///   tried will pass — and a single `x` passes by design.
-/// - **The prose anchors protect against silent numeric drift, not against
-///   false prose.** They match phrases and parse figures; they do not read
-///   affirmation, negation or subject. `"They do not agree at 773"` passes.
-///   Removing a phrase makes three of the seven probe clauses vacuous — the
+///   tried will pass — and a single `x` passes by design. It is also not sound
+///   in the other direction: subtracting the non-base characters rejects a
+///   lone spacing mark such as U+0903, which does render.
+/// - **The prose anchors protect against numeric drift, not against false
+///   prose.** A quoted figure must appear as a complete numeric token, so
+///   `7730`, `1773`, `773,000` and `773.5` no longer satisfy a seek for `773`.
+///   Nothing reads affirmation, negation or subject: an entry saying "They do
+///   not agree at 773" satisfies the anchor. (The bare sentence alone still
+///   fails — a different rule catches it for citing nothing.)
+/// - **Removing a phrase makes three of the seven probe clauses vacuous** — the
 ///   ones guarded `!quotes(…) || …`, namely `never nil`, `each 0` and
-///   `recorded true`; removing any of the other four, or either quadruple, or
+///   `recorded true`. Removing any of the other four, or either quadruple, or
 ///   `_reproducing`'s figure, makes its law **fail**.
 /// - **The quadruple parser is strict about syntax and blind to context.** It
-///   needs exactly two parseable matches in textual order; a third anywhere in
-///   the string breaks it, and moving both into a negated passage still passes.
+///   needs exactly two parseable matches in textual order, and moving both into
+///   a negated passage still passes. A third quadruple breaks it only if it
+///   parses — one whose digits overflow `Int` is dropped and the law passes.
 /// - **A probe entry may cite any backticked token**, so filler, a denial or
-///   mutual citation pass — except where a prose law pins the entry. The
-///   twenty methods must now be distinct, and each must name something other
-///   than its own field.
+///   mutual citation pass — except where a prose law pins the entry. The twenty
+///   methods must render differently from each other, and each must name
+///   something other than its own field.
 /// - **No rule checks a method is true of the code**, or that a citation is apt.
-/// - **The dangling-name and bare-name rules see only underscored,
-///   all-lowercase, non-`__` names**, so `chunks` and `merges` are invisible to
-///   them in backticks or out. Single words cannot be required to carry
-///   backticks: the file legitimately writes `nil`, `left`, `grep`.
-/// - **Figures quoted in prose outside `how.probes` and `_limits[1]` are
-///   unbound**, and a legitimate re-measurement that changes an observation or
-///   a pinned figure requires editing this declaration — deliberately, which is
-///   what `observations` is for, but it is a cost.
+/// - **The two name rules are not one rule.** The dangling-name rule sees
+///   underscored, all-lowercase, non-`__` names; the bare-name rule has no
+///   lowercase filter and excludes a *single* leading underscore, so `_limits`
+///   may be written bare. `chunks` and `merges` are invisible to both, in
+///   backticks or out — single words cannot be required to carry backticks,
+///   since the file legitimately writes `nil`, `left`, `grep`.
+/// - **Which prose figures are bound is an explicit list, not a region.**
+///   Bound: the four `how.probes` phrases, both quadruples in
+///   `isolating_the_counterfactual`, `_reproducing`'s recorded value, the five
+///   figures restated in `_limits[1]`, and `edit_list`'s operation words.
+///   Everything else drifts silently — `_limits[0]`'s token ids, `_nm_note`'s
+///   four cells, `method_limits`' counts, the toolchain version.
+/// - **The census is pinned by `observations`, not by any relation.** The sum
+///   identities are homogeneous, so they hold under uniform scaling and under
+///   reallocation between `matches` and `canonicals_differed`; the anchors pin
+///   the same ratios. Nothing internal to the file can tell those apart from an
+///   honest run, so re-measuring means editing this declaration, on purpose.
+///   That is the cost, and it is the point.
 struct EvidenceFileTests {
     static let repoRoot = URL(fileURLWithPath: #filePath)
         .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
 
     static let evidenceDirectory = repoRoot.appendingPathComponent("benchmarks/evidence")
+
+    /// The FluidAudio pin as `Package.resolved` records it, or `nil` if it is
+    /// unreadable or absent.
+    ///
+    /// Everything else in this file checks the artifact against itself. That
+    /// leaves the one thing the artifact exists to establish unchecked: swapping
+    /// the two arms' revisions passed every rule, and the file then said the
+    /// 0.15.5 pin exports no case-variant symbol and 0.15.4 exports four — the
+    /// reverse of this PR's conclusion. The evidence file already names the
+    /// missing check; `_reproducing` says `fluidaudio_revision` is recomputable
+    /// from `Package.resolved`.
+    static let pinnedFluidAudio: (version: String, revision: String)? = {
+        guard let data = try? Data(contentsOf: repoRoot.appendingPathComponent("Package.resolved")),
+            let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+            let pins = root["pins"] as? [[String: Any]]
+        else { return nil }
+        for pin in pins where (pin["identity"] as? String) == "fluidaudio" {
+            guard let state = pin["state"] as? [String: Any],
+                let version = state["version"] as? String,
+                let revision = state["revision"] as? String
+            else { return nil }
+            return (version, revision)
+        }
+        return nil
+    }()
 
     // MARK: - The declaration
 
@@ -228,12 +278,22 @@ struct EvidenceFileTests {
                             ["case_folded_both_ids_in_map"],
                             ["case_folded_matches", "case_folded_canonicals_differed"]),
                 // One merge joins each chunk after the first — stated exactly in
-                // `merges`' own probe entry, and the reason a uniform scaling of
-                // the census does not satisfy this set.
+                // `merges`' own probe entry. It pins `chunks` and `merges` to
+                // each other and nothing else: the nine `case_folded_*` counts
+                // are joined to them by no relation, which is why a uniform
+                // scaling of the census satisfies every law here and has to be
+                // stopped in `observations` instead.
                 Relation(label: "merges == chunks - 1") {
                     guard let c = int($0, "path_coverage.chunks"),
                         let m = int($0, "path_coverage.merges") else { return false }
-                    return m == c - 1
+                    // `Int.min - 1` traps, and a trap is not a failed
+                    // expectation: it kills the process before any of the seven
+                    // tests reports, so the reader is told a signal happened and
+                    // nothing else. Two relations in this array were given the
+                    // reporting form when that was found; this third one, above
+                    // both of them, was missed.
+                    let (want, overflow) = c.subtractingReportingOverflow(1)
+                    return !overflow && m == want
                 },
                 // The metric's own note says the numerator and denominator are
                 // recorded so the value can be re-derived. So re-derive it.
@@ -304,11 +364,7 @@ struct EvidenceFileTests {
                     /// for "agree at 773".
                     func quotes(_ entry: String, _ phrase: String) -> Bool {
                         guard let text = probes[entry] else { return false }
-                        for range in text.ranges(of: phrase) {
-                            if range.upperBound == text.endIndex { return true }
-                            if !text[range.upperBound].isNumber { return true }
-                        }
-                        return false
+                        return statesWholeNumber(text, phrase)
                     }
                     guard let reached = n("case_folded_reached_guard"),
                         let both = n("case_folded_both_ids_in_map"),
@@ -336,14 +392,7 @@ struct EvidenceFileTests {
                     let text = limits[1]
                     func n(_ k: String) -> Int? { (pc[k] as? NSNumber)?.intValue }
                     func statesDigitBounded(_ v: Int) -> Bool {
-                        for range in text.ranges(of: String(v)) {
-                            let beforeOK = range.lowerBound == text.startIndex
-                                || !text[text.index(before: range.lowerBound)].isNumber
-                            let afterOK = range.upperBound == text.endIndex
-                                || !text[range.upperBound].isNumber
-                            if beforeOK && afterOK { return true }
-                        }
-                        return false
+                        statesWholeNumber(text, String(v))
                     }
                     guard let reached = n("case_folded_reached_guard"),
                         let both = n("case_folded_both_ids_in_map"),
@@ -398,7 +447,7 @@ struct EvidenceFileTests {
                     return c == !(t && s)
                 },
             ],
-            observations: [
+            observations: measuredCensus + [
                 Relation(label: "collapse was called in this run") {
                     ($0["path_coverage"] as? [String: Any])?["collapse_called"] as? Bool == true
                 },
@@ -410,12 +459,86 @@ struct EvidenceFileTests {
                         let b = int($0, "path_coverage.collapse_tokens_out") else { return false }
                     return a == b
                 },
-            ]),
+                Relation(label: "the fold matched on the pair [375, 518] in this run") {
+                    guard let ids = value($0, "path_coverage.case_folded_matched_token_ids") as? [Any]
+                    else { return false }
+                    return ids.compactMap { ($0 as? NSNumber)?.intValue } == [375, 518]
+                },
+                Relation(label: "supplying the case-variant ids changed neither tokens nor timestamps") { json in
+                    // The file's verdict. The only law touching these three
+                    // derives one from the other two, which constrains them
+                    // relative to each other and pins none: flipping
+                    // `timestamps_equal` and the conclusion together satisfied it
+                    // and inverted what the file concludes, while `arms` three
+                    // keys away went on recording byte-identical SRT — and SRT
+                    // carries timestamps.
+                    let want = ["counterfactual_tokens_equal": true,
+                                "counterfactual_timestamps_equal": true,
+                                "case_folded_changed_merge_output": false]
+                    return want.allSatisfy { field, expected in
+                        value(json, "path_coverage." + field) as? Bool == expected
+                    }
+                },
+                Relation(label: "the corpus was 33.623125 seconds long in this run") {
+                    // `.real(min: 0.001)` was the only constraint, and nothing
+                    // relates duration to the 3 chunks, 154 seam tokens or 80
+                    // reference words recorded elsewhere — so one millisecond of
+                    // audio yielding all three passed.
+                    guard let d = double($0, "session.corpus_duration_seconds") else { return false }
+                    return abs(d - 33.623125) < 1e-9
+                },
+                Relation(label: "the metric was 3 edits over 80 reference words in this run") {
+                    // `value` is pinned by `_reproducing` and derived from these
+                    // two, so the pair was free to scale: 6/160 is also 0.0375,
+                    // and the operation count that was supposed to pin the
+                    // numerator is read out of prose the same edit rewrites.
+                    int($0, "metric.edits") == 3 && int($0, "metric.reference_words") == 80
+                },
+            ] + armObservations),
     ]
+
+    /// The census as measured, one relation per field.
+    ///
+    /// The four sum identities are **homogeneous** — `both = matches + differed`
+    /// holds at (2, 131) and at (133, 0); `reached = guard_else + both` holds at
+    /// ×1 and at ×2 — so they constrain ratios and not magnitudes. The prose
+    /// anchors added in rounds 17 to 19 anchor the same ratios (each recorded
+    /// quadruple is exactly twice the counts), so three rounds of hardening
+    /// landed inside one null space: a uniformly doubled census passed, and so
+    /// did one that moved all 133 eligible calls into `matches`, which reverses
+    /// what the file says about how often the new path decides anything.
+    ///
+    /// No relation internal to the file can separate a scaled or reallocated
+    /// census from an honest one. That is what `observations` is for, and what
+    /// `arms` has always done for the nm counts.
+    private static let measuredCensus: [Relation] = ([
+        "chunks": 3, "merges": 2,
+        "case_folded_calls": 844,
+        "case_folded_early_return_ids_equal": 71,
+        "case_folded_reached_guard": 773,
+        "case_folded_guard_else": 640,
+        "case_folded_guard_else_map_nil": 0,
+        "case_folded_guard_else_id_absent": 640,
+        "case_folded_both_ids_in_map": 133,
+        "case_folded_canonicals_differed": 131,
+        "case_folded_matches": 2,
+        "case_folded_canonical_id": 375,
+        "collapse_tokens_in": 154, "collapse_tokens_out": 154,
+        "word_boundary_fallbacks_entered": 0,
+    ] as [String: Int]).sorted { $0.key < $1.key }.map { field, measured in
+        Relation(label: "`\(field)` was measured as \(measured) in this run") {
+            int($0, "path_coverage." + field) == measured
+        }
+    }
 
     /// `arms` keys contain dots, which the dotted-path accessor cannot address,
     /// so the arm relations are written directly.
-    static let armObservations: [Relation] = [
+    ///
+    /// These belong to the FluidAudio A/B shape and are spliced into its
+    /// `observations`. They used to be applied to every file in the directory,
+    /// which would have failed all of them the moment a second evidence file for
+    /// a different issue appeared.
+    private static let armObservations: [Relation] = [
         Relation(label: "the srt transcripts are identical across arms") { json in
             guard let arms = json["arms"] as? [String: Any],
                 let a = arms["0.15.4"] as? [String: Any], let b = arms["0.15.5"] as? [String: Any]
@@ -455,12 +578,34 @@ struct EvidenceFileTests {
             else { return false }
             return revA != revB && exeA != exeB
         },
+        // …and which arm is which. Differing from each other left the labels
+        // free: the two revisions could be exchanged, so the arm named for the
+        // pin under test carried the revision of the pin it is being compared
+        // against. The arm whose key is the version `Package.resolved` pins must
+        // carry the revision it pins; the other must not. If the package is ever
+        // bumped past both arms this fails, which is correct — the evidence then
+        // describes a dependency the repo no longer builds against.
+        Relation(label: "each arm carries the revision `Package.resolved` records for it") { json in
+            guard let pin = pinnedFluidAudio,
+                let arms = json["arms"] as? [String: Any],
+                let underTest = arms[pin.version] as? [String: Any],
+                underTest["fluidaudio_revision"] as? String == pin.revision
+            else { return false }
+            let others = arms.compactMap { key, value -> String? in
+                guard key != pin.version, let arm = value as? [String: Any] else { return nil }
+                return arm["fluidaudio_revision"] as? String
+            }
+            return !others.isEmpty && others.allSatisfy { $0 != pin.revision }
+        },
         Relation(label: "the nm counts differ between arms — the A/B result itself") { json in
             guard let arms = json["arms"] as? [String: Any],
                 let a = (arms["0.15.4"] as? [String: Any])?["nm_caseVariantCanonicalIds"] as? NSNumber,
                 let b = (arms["0.15.5"] as? [String: Any])?["nm_caseVariantCanonicalIds"] as? NSNumber
             else { return false }
-            return a.intValue == 0 && b.intValue > 0
+            // The magnitude, not just the sign. `> 0` let the count that carries
+            // the whole A/B claim drift to any positive value while `_nm_note`
+            // two keys away went on stating the measured cell.
+            return a.intValue == 0 && b.intValue == 4
         },
     ]
 
@@ -623,11 +768,19 @@ struct EvidenceFileTests {
     /// legibility**: it rejects the blank-rendering scalars that have actually
     /// been found, and a scalar nobody has thought of will pass.
     private static let knownBlank = CharacterSet(charactersIn:
-        "\u{115F}\u{1160}\u{3164}\u{FFA0}\u{2800}\u{180E}\u{200B}\u{FEFF}")
+        "\u{115F}\u{1160}\u{3164}\u{FFA0}\u{2800}\u{180E}\u{200B}\u{FEFF}\u{FFFC}\u{1D159}")
     private static let visible = CharacterSet.alphanumerics
         .union(.punctuationCharacters).union(.symbols)
         .subtracting(.nonBaseCharacters)
         .subtracting(knownBlank)
+
+    /// What a reader sees, for the purpose of telling two strings apart. Every
+    /// distinctness rule must go through this: `.array` already did, and the
+    /// probe-method rule added beside it compared raw `String`s, so two methods
+    /// differing only by a trailing space or a U+200B counted as two.
+    static func rendered(_ s: String) -> String {
+        String(String(s).unicodeScalars.filter { visible.contains($0) })
+    }
 
     static func mismatches(_ value: Any?, against node: Node, at path: String) -> [String] {
         func plain(_ v: Any?) -> NSNumber? {
@@ -684,9 +837,7 @@ struct EvidenceFileTests {
             if distinct {
                 // Compare what renders. A trailing space or a zero-width
                 // character made five copies of one sentence "distinct".
-                let rendered = a.map { element -> String in
-                    String(String(describing: element).unicodeScalars.filter { visible.contains($0) })
-                }
+                let rendered = a.map { Self.rendered(String(describing: $0)) }
                 if Set(rendered).count != rendered.count {
                     out.append("\(here): has elements that render identically, so its length overstates its content")
                 }
@@ -696,6 +847,36 @@ struct EvidenceFileTests {
     }
 
     // MARK: - Text helpers
+
+    /// Does `text` contain `needle` as a complete numeric token — nothing
+    /// numeric continuing it on either side?
+    ///
+    /// Three constructions defeated weaker forms of this, in order: plain
+    /// `contains`, so prose that had drifted to `773` inside `7730` still
+    /// matched; an after-only digit check, which left the mirror image open the
+    /// moment any anchor began with its figure; and a digit-only check on both
+    /// sides, which read `773,000` and `773.5` as the recorded `773` because a
+    /// comma and a period are not digits.
+    static func statesWholeNumber(_ text: String, _ needle: String) -> Bool {
+        for range in text.ranges(of: needle) {
+            if range.lowerBound > text.startIndex {
+                let before = text[text.index(before: range.lowerBound)]
+                // A sign belongs to the number: `-773` is not `773`.
+                if before.isNumber || before == "-" || before == "+" { continue }
+            }
+            var after = range.upperBound
+            if after < text.endIndex {
+                if text[after].isNumber { continue }
+                // A separator only continues the number if a digit follows it.
+                if text[after] == "," || text[after] == "." {
+                    after = text.index(after: after)
+                    if after < text.endIndex, text[after].isNumber { continue }
+                }
+            }
+            return true
+        }
+        return false
+    }
 
     private static let backtickSpan = #/`([^`]+)`/#
 
@@ -826,8 +1007,8 @@ struct EvidenceFileTests {
                     "\(e.path): how.probes[\(field)] names nothing but itself: \"\(method)\"")
             }
             #expect(
-                Set(probes.values).count == probes.count,
-                "\(e.path): how.probes has repeated methods, so some field's method describes another's")
+                Set(probes.values.map(Self.rendered)).count == probes.count,
+                "\(e.path): how.probes has methods that render identically, so some field's method describes another's")
         }
     }
 
@@ -840,11 +1021,6 @@ struct EvidenceFileTests {
                 #expect(law.holds(e.json), "\(e.path): the law \"\(law.label)\" does not hold")
             }
             for o in shape.observations {
-                #expect(
-                    o.holds(e.json),
-                    "\(e.path): the declared observation \"\(o.label)\" no longer holds — if the run changed, change the declaration too")
-            }
-            for o in Self.armObservations {
                 #expect(
                     o.holds(e.json),
                     "\(e.path): the declared observation \"\(o.label)\" no longer holds — if the run changed, change the declaration too")
