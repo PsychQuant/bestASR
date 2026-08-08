@@ -249,3 +249,103 @@ struct WrapperSidecarTests {
         return (object?["version"] as? String) ?? ""
     }
 }
+
+/// #163 round 4. Two CRITICALs and several HIGHs all lived on one path that no
+/// test reached: a download that completes and then FAILS verification while an
+/// existing binary is present. The round-3 security fix turned an `exec` there
+/// into a fall-through, and the fall-through ran into the install sequence — so
+/// a rejected binary stamped the sidecar with its version and announced
+/// "installed". The binary on disk was never replaced, but the bookkeeping lie
+/// was enough: the next spawn matched the poisoned sidecar, skipped resolution,
+/// and ran the stale binary forever. That is the self-heal defeat #163 exists
+/// to fix, reintroduced by its own fix.
+///
+/// These drive the real wrapper with a stubbed registry that serves an unsigned
+/// payload, so `codesign` runs for real and genuinely rejects it.
+struct WrapperVerificationRejectionTests {
+    private struct Sandbox {
+        let bin: URL
+        let root: URL
+        var sidecarPath: URL { bin.appendingPathComponent(".bestasr-mcp.version") }
+        var binaryPath: URL { bin.appendingPathComponent("bestasr-mcp") }
+        var sidecar: String? { try? String(contentsOf: sidecarPath, encoding: .utf8) }
+        var binaryBody: String? { try? String(contentsOf: binaryPath, encoding: .utf8) }
+    }
+
+    /// Serves release metadata for `servedTag` and an unsigned file as the
+    /// binary asset, so verification fails on genuine grounds.
+    private func makeSandbox(sidecar: String?, servedTag: String) throws -> Sandbox {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("wrapper-reject-\(UUID().uuidString)", isDirectory: true)
+        let bin = root.appendingPathComponent("bin", isDirectory: true)
+        let stubs = root.appendingPathComponent("stubs", isDirectory: true)
+        try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: stubs, withIntermediateDirectories: true)
+
+        let existing = bin.appendingPathComponent("bestasr-mcp")
+        try "#!/bin/sh\necho EXISTING\n".write(to: existing, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755], ofItemAtPath: existing.path)
+        if let sidecar {
+            try sidecar.write(
+                to: bin.appendingPathComponent(".bestasr-mcp.version"),
+                atomically: true, encoding: .utf8)
+        }
+
+        let curl = stubs.appendingPathComponent("curl")
+        try """
+            #!/bin/sh
+            for a in "$@"; do
+              case "$a" in
+                *api.github.com*)
+                  printf '{"tag_name":"v\(servedTag)","assets":[{"browser_download_url":"https://example.invalid/bestasr-mcp"}]}'
+                  exit 0;;
+              esac
+            done
+            prev=""
+            for a in "$@"; do
+              [ "$prev" = "-o" ] && { printf 'definitely not a signed mach-o\\n' > "$a"; exit 0; }
+              prev="$a"
+            done
+            exit 0
+            """.write(to: curl, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755], ofItemAtPath: curl.path)
+
+        var env = ProcessInfo.processInfo.environment
+        env["BESTASR_WRAPPER_INSTALL_DIR"] = bin.path
+        env["PATH"] = stubs.path + ":" + (env["PATH"] ?? "/usr/bin:/bin")
+        let wrapper = WrapperSidecarTests.wrapper.path
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/bin/bash")
+        p.arguments = [wrapper]
+        p.environment = env
+        p.standardOutput = Pipe()
+        p.standardError = Pipe()
+        try p.run()
+        p.waitUntilExit()
+        return Sandbox(bin: bin, root: root)
+    }
+
+    @Test func `A rejected download must not stamp the sidecar with its version`() throws {
+        let box = try makeSandbox(sidecar: "v2:0.15.0\n", servedTag: "0.16.0")
+        defer { try? FileManager.default.removeItem(at: box.root) }
+
+        let after = (box.sidecar ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        #expect(
+            after == "v2:0.15.0",
+            "the sidecar was moved to the REJECTED version — the next spawn will believe this machine is current and never re-resolve; got '\(after)'")
+        // And the binary itself must be untouched.
+        #expect(box.binaryBody?.contains("EXISTING") == true)
+    }
+
+    @Test func `A rejected download leaves the machine able to re-resolve`() throws {
+        // No sidecar at all: the wrapper must not invent one for a binary it
+        // refused to install.
+        let box = try makeSandbox(sidecar: nil, servedTag: "0.16.0")
+        defer { try? FileManager.default.removeItem(at: box.root) }
+        #expect(
+            box.sidecar == nil,
+            "a refused install wrote a sidecar, which suppresses the next re-resolution")
+    }
+}

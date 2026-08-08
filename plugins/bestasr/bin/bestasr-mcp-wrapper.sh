@@ -15,7 +15,10 @@
 # Note for contributors: if you built bestasr-mcp from source via
 # scripts/install.sh, this wrapper will replace ~/bin/bestasr-mcp with the
 # released (notarized) build on version mismatch. Re-run scripts/install.sh
-# afterward to go back to your local build.
+# afterward to go back to your local build — and set
+# BESTASR_MCP_ALLOW_UNSIGNED=1, because a local build is ad-hoc signed and the
+# signature gate below refuses it otherwise. Round 4 caught this file promising
+# a workflow that the same file's new gate made impossible.
 
 set -u
 
@@ -59,8 +62,12 @@ SIGNING_REQUIREMENT="$SIGNING_REQUIREMENT"' and certificate leaf[subject.OU] = "
 # Verification is a function, not an inline call, because round 3 found the
 # inline version only guarded the download path — every route to an existing
 # binary reached `exec` unchecked.
+# Sets VERIFY_ERR so callers can tell "this signature is wrong" apart from
+# "codesign could not run" — swallowing stderr made those identical, and the
+# second one is not a security failure (#163 round-4).
+VERIFY_ERR=""
 verify_binary() {
-    codesign --verify --strict -R "$SIGNING_REQUIREMENT" "$1" 2>/dev/null
+    VERIFY_ERR=$(codesign --verify --strict -R "$SIGNING_REQUIREMENT" "$1" 2>&1)
 }
 # Overridable so the sidecar/self-heal logic is testable without touching the
 # real ~/bin (#163 verify: "defect 3's fix ships with no test"). Production
@@ -243,31 +250,56 @@ if $NEED_DOWNLOAD; then
                 fi
             fi
 
+            # The install block is guarded (#163 round-4 CRITICAL). Round 3
+            # replaced an `exec` here with a fall-through so the single gated
+            # exec at the bottom would cover this path — but the fall-through
+            # ran straight into the install sequence below, so a REJECTED
+            # download still stamped the sidecar with its version and printed
+            # "installed". The binary itself was safe (the .tmp was already
+            # deleted, so mv failed harmlessly), but the bookkeeping lied: the
+            # next spawn read the poisoned sidecar, saw it match, skipped
+            # resolution entirely, and ran the stale binary forever. That is
+            # the exact self-heal defeat this whole issue is about, so the
+            # security fix had reintroduced the original bug through the back
+            # door. Reproduced with a stubbed registry before fixing.
             if ! $VERIFIED; then
                 rm -f "${BINARY}.tmp" 2>/dev/null
                 if [[ -x "$BINARY" ]]; then
-                    # Fall through to the single gated exec below rather than
-                    # exec'ing here: an existing binary is not trusted just
-                    # because it predates this run (#163 round-3 H1).
-                    echo "$BINARY_NAME: keeping the existing binary" >&2
+                    # Keep it, but leave the sidecar alone so the next spawn
+                    # re-resolves. The gated exec below still decides whether
+                    # this binary may run.
+                    echo "$BINARY_NAME: keeping the existing binary; the sidecar is left untouched so this machine re-resolves next time" >&2
                 else
                     exit 1
                 fi
-            fi
-
-            chmod +x "${BINARY}.tmp"
-            # Quarantine is stripped only after the checks above have passed.
-            xattr -d com.apple.quarantine "${BINARY}.tmp" 2>/dev/null || true
-            mv "${BINARY}.tmp" "$BINARY"
-            # Record what we RECEIVED, never what we asked for, schema-tagged so
-            # a future wrapper can tell this value apart from a pre-fix one.
-            echo "v2:${ACTUAL_VERSION:-unknown}" > "$VERSION_FILE"
-            if [[ -n "$DESIRED_VERSION" && -n "$ACTUAL_VERSION" \
-                  && "$ACTUAL_VERSION" != "$DESIRED_VERSION" ]]; then
-                echo "$BINARY_NAME: installed v${ACTUAL_VERSION} — note: plugin pins" \
-                     "v${DESIRED_VERSION}, which has no published release" >&2
             else
-                echo "$BINARY_NAME: installed v${ACTUAL_VERSION:-unknown}" >&2
+                chmod +x "${BINARY}.tmp"
+                # Quarantine is stripped only after the checks above have passed.
+                xattr -d com.apple.quarantine "${BINARY}.tmp" 2>/dev/null || true
+                # An unchecked mv let a failed install stamp the sidecar as
+                # upgraded — same falsified-bookkeeping class as above.
+                if ! mv "${BINARY}.tmp" "$BINARY"; then
+                    echo "$BINARY_NAME: ERROR — could not install the verified download; leaving the sidecar untouched" >&2
+                    rm -f "${BINARY}.tmp" 2>/dev/null
+                    exit 1
+                fi
+                # Record what we RECEIVED, never what we asked for, schema-tagged
+                # so a future wrapper can tell this value apart from a pre-fix
+                # one. Written atomically for the same reason the binary is.
+                if ! { echo "v2:${ACTUAL_VERSION:-unknown}" > "${VERSION_FILE}.tmp" \
+                       && mv "${VERSION_FILE}.tmp" "$VERSION_FILE"; }; then
+                    echo "$BINARY_NAME: WARNING — could not record the installed version; this machine will re-resolve next spawn" >&2
+                    rm -f "${VERSION_FILE}.tmp" 2>/dev/null
+                fi
+                # Only reachable on a verified, installed download — the
+                # "installed" line used to print for rejected ones too.
+                if [[ -n "$DESIRED_VERSION" && -n "$ACTUAL_VERSION" \
+                      && "$ACTUAL_VERSION" != "$DESIRED_VERSION" ]]; then
+                    echo "$BINARY_NAME: installed v${ACTUAL_VERSION} — note: plugin pins" \
+                         "v${DESIRED_VERSION}, which has no published release" >&2
+                else
+                    echo "$BINARY_NAME: installed v${ACTUAL_VERSION:-unknown}" >&2
+                fi
             fi
         else
             rm -f "${BINARY}.tmp" 2>/dev/null
@@ -291,9 +323,24 @@ if [[ ! -x "$BINARY" ]]; then
     exit 1
 fi
 if ! verify_binary "$BINARY"; then
-    echo "$BINARY_NAME: ERROR — $BINARY does not satisfy the pinned signing requirement" >&2
-    echo "  (expected identifier '$EXPECTED_IDENTIFIER', Developer ID Application, Team $EXPECTED_TEAM_ID)" >&2
-    echo "  Refusing to run it. Delete it and re-run to reinstall from the release." >&2
-    exit 1
+    # A local build from scripts/install.sh is ad-hoc signed and will land here.
+    # That workflow is documented at the top of this file, so the gate cannot
+    # simply forbid it — round 4 confirmed the gate bricked it outright. The
+    # opt-out is deliberate and loud rather than automatic: anything that
+    # detects "this is a dev build" from the file itself (a marker, a missing
+    # sidecar) is writable by whoever could plant a malicious binary, so it
+    # would be theatre. An environment variable at least means a human decided.
+    if [[ "${BESTASR_MCP_ALLOW_UNSIGNED:-}" == "1" ]]; then
+        echo "$BINARY_NAME: WARNING — signature check bypassed via BESTASR_MCP_ALLOW_UNSIGNED=1" >&2
+        echo "  Running $BINARY without verifying it came from us. Intended for local builds only." >&2
+    else
+        echo "$BINARY_NAME: ERROR — $BINARY does not satisfy the pinned signing requirement" >&2
+        echo "  (expected identifier '$EXPECTED_IDENTIFIER', Developer ID Application, Team $EXPECTED_TEAM_ID)" >&2
+        [[ -n "$VERIFY_ERR" ]] && echo "  codesign said: $VERIFY_ERR" >&2
+        echo "  If this is a release build: delete it and re-run to reinstall." >&2
+        echo "  If you built it yourself with scripts/install.sh: re-run with" >&2
+        echo "    BESTASR_MCP_ALLOW_UNSIGNED=1" >&2
+        exit 1
+    fi
 fi
 exec "$BINARY" "$@"

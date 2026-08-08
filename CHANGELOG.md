@@ -121,9 +121,25 @@ All notable changes to bestASR are documented here. The format follows
   mismatch is fatal, a missing `.sha256` is not, because letting a forgotten
   upload brick every clean install trades one outage for another.
 
-  `scripts/release-mcp.sh` now verifies each signed binary against the same
-  requirement before publishing, so a release the wrapper could not install
-  fails at release time instead of on users' machines.
+  `scripts/release-mcp.sh` now signs with an explicit `--identifier`, rebuilds
+  the wrapper's requirement string from the wrapper's own source, and fails the
+  release if the two disagree or if the signed binary does not satisfy them. An
+  earlier version of this check only re-verified the binary it had just signed
+  — which is trivially self-consistent — so a product rename would have shipped
+  clean and then bricked every existing install.
+
+  A locally built binary (`scripts/install.sh`) is ad-hoc signed and the gate
+  refuses it. That is the intended posture, but it broke a workflow this file
+  documents, so there is a deliberate opt-out: set `BESTASR_MCP_ALLOW_UNSIGNED=1`
+  and the wrapper runs it with a warning on every spawn. It is an environment
+  variable rather than anything auto-detected, because every "this is a dev
+  build" signal on disk is writable by whoever could plant a malicious binary.
+
+  **Known limit, stated rather than implied**: the requirement pins who signed
+  and which program, not which *version*. A party who can serve release
+  metadata can replay an older, genuinely signed release; the tag is not
+  cryptographically bound to the artifact and the checksum is advisory.
+  Rollback protection needs signed release metadata and is not attempted here.
 
 
 ### Added

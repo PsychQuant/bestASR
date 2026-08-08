@@ -48,7 +48,10 @@ BIN=".build/release/bestasr-mcp"
 echo "== [2/6] codesign (Developer ID, hardened runtime, timestamp) =="
 # Optional entitlements: pass ENTITLEMENTS=path to add hardened-runtime
 # exceptions if a future ML dependency needs them (none required today).
-SIGN_ARGS=(--force --options runtime --timestamp --sign "$DEVELOPER_ID")
+# `-i` is explicit on purpose (#163 round-4). Without it codesign derives the
+# identifier from the executable's FILENAME, so renaming the SwiftPM product
+# would silently change what the wrapper's `identifier` clause has to match.
+SIGN_ARGS=(--force --options runtime --timestamp --identifier "bestasr-mcp" --sign "$DEVELOPER_ID")
 [ -n "${ENTITLEMENTS:-}" ] && SIGN_ARGS+=(--entitlements "$ENTITLEMENTS")
 codesign "${SIGN_ARGS[@]}" "$BIN"
 codesign --verify --strict --verbose=2 "$BIN"
@@ -62,12 +65,37 @@ codesign --verify --strict --verbose=2 "$BIN"
 #
 # Kept as a literal rather than sourced from the wrapper: the point is to fail
 # when the two DISAGREE, so reading one from the other would defeat it. If you
-# change one, change both — this check is what tells you that you must.
+# change one, change both — and the comparison below is what tells you that you
+# must. Round 4 caught that this comment used to be a lie: the script only
+# re-verified the binary it had just signed, which is trivially self-consistent,
+# and never compared the two strings at all. A product rename would have updated
+# Package.swift and this literal together (they sit next to the codesign call),
+# missed the wrapper's copy in another file, passed this check, shipped, and
+# bricked every existing install with no self-heal path.
 RELEASE_REQUIREMENT='=identifier "bestasr-mcp"'
 RELEASE_REQUIREMENT="$RELEASE_REQUIREMENT"' and anchor apple generic'
 RELEASE_REQUIREMENT="$RELEASE_REQUIREMENT"' and certificate 1[field.1.2.840.113635.100.6.2.6]'
 RELEASE_REQUIREMENT="$RELEASE_REQUIREMENT"' and certificate leaf[field.1.2.840.113635.100.6.1.13]'
 RELEASE_REQUIREMENT="$RELEASE_REQUIREMENT"' and certificate leaf[subject.OU] = "6W377FS7BS"'
+# Drift check: rebuild the wrapper's string from the wrapper's own source and
+# require it to match ours byte for byte.
+WRAPPER_SH="$REPO_ROOT/plugins/bestasr/bin/bestasr-mcp-wrapper.sh"
+[ -f "$WRAPPER_SH" ] || { echo "x wrapper not found at $WRAPPER_SH" >&2; exit 1; }
+WRAPPER_REQUIREMENT=$(
+  set -u
+  # shellcheck disable=SC1090
+  eval "$(sed -n '/^EXPECTED_TEAM_ID=/,/^SIGNING_REQUIREMENT=.*subject\.OU/p' "$WRAPPER_SH")"
+  printf '%s' "$SIGNING_REQUIREMENT"
+) || { echo "x could not rebuild the wrapper's signing requirement" >&2; exit 1; }
+if [ "$WRAPPER_REQUIREMENT" != "$RELEASE_REQUIREMENT" ]; then
+  echo "x the release script and the wrapper disagree about the signing requirement:" >&2
+  echo "    release: $RELEASE_REQUIREMENT" >&2
+  echo "    wrapper: $WRAPPER_REQUIREMENT" >&2
+  echo "  A release built against one and verified by the other cannot be installed." >&2
+  exit 1
+fi
+echo "  ✓ wrapper and release agree on the signing requirement"
+
 codesign --verify --strict -R "$RELEASE_REQUIREMENT" "$BIN" || {
   echo "x the signed binary does not satisfy the requirement the wrapper enforces:" >&2
   echo "    $RELEASE_REQUIREMENT" >&2
