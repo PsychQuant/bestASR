@@ -15,6 +15,7 @@ import Testing
 ///
 /// These tests drive the real wrapper against a sandboxed install dir with no
 /// network, and assert on the *decision* it announces on stderr.
+@Suite(.serialized)
 struct WrapperSidecarTests {
     static let repoRoot = URL(fileURLWithPath: #filePath)
         .deletingLastPathComponent()
@@ -106,10 +107,17 @@ struct WrapperSidecarTests {
                 group.leave()
             }
         }
-        if group.wait(timeout: .now() + .seconds(60)) == .timedOut {
+        // Scaled to the machine. 60s is generous on an 18-core dev box and
+        // tight on a 3-core CI runner where a dozen suites spawn processes at
+        // once — CI failed here with "exceeded its 60s budget" while every
+        // other test in the run also reported ~64s, i.e. the whole process was
+        // contended, not the wrapper. The budget's job is that a hung wrapper
+        // fails instead of stalling forever, and it still does that.
+        let budgetSeconds = ProcessInfo.processInfo.activeProcessorCount >= 8 ? 60 : 180
+        if group.wait(timeout: .now() + .seconds(budgetSeconds)) == .timedOut {
             process.terminate()
             _ = group.wait(timeout: .now() + .seconds(2))
-            throw BestASRError.runtime("wrapper test exceeded its 60s budget")
+            throw BestASRError.runtime("wrapper test exceeded its \(budgetSeconds)s budget")
         }
         process.waitUntilExit()
         return String(decoding: errBox.get, as: UTF8.self)
@@ -262,6 +270,7 @@ struct WrapperSidecarTests {
 ///
 /// These drive the real wrapper with a stubbed registry that serves an unsigned
 /// payload, so `codesign` runs for real and genuinely rejects it.
+@Suite(.serialized)
 struct WrapperVerificationRejectionTests {
     private struct Sandbox {
         let bin: URL
