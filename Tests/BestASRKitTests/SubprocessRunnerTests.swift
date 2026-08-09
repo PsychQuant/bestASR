@@ -35,7 +35,15 @@ import Testing
     /// the drain awaits were outside the deadline entirely, so the call returned
     /// only when the sleeper finished (~6 s) — precisely #91 recurring.
     @Test func `Deadline bounds the whole operation, not just the direct child`() async throws {
-        let (dir, script) = try stub("sleep 6 &\nexit 0\n")
+        // The grandchild sleeps far longer than the budget on purpose. With a
+        // 6s sleeper and a "< 5s" assertion the two outcomes this test has to
+        // tell apart — "bounded, but the machine was slow" and "waited for the
+        // grandchild" — were only a second apart, and CI reported exactly 6.0s,
+        // which is indistinguishable. The deadline is enforced by a poll loop on
+        // the cooperative pool, so on a contended runner it fires late; that is
+        // a real property, not a defect, and the test has to survive it while
+        // still failing loudly if the drain is unbounded again.
+        let (dir, script) = try stub("sleep 30 &\nexit 0\n")
         defer { try? FileManager.default.removeItem(at: dir) }
 
         let start = ContinuousClock.now
@@ -50,8 +58,8 @@ import Testing
 
         #expect(threw, "a run bounded at 2s that cannot finish must throw, not succeed")
         #expect(
-            seconds < 5,
-            "deadline must bound the drain too — returned after \(seconds)s, which means it waited for the grandchild rather than the deadline")
+            seconds < 15,
+            "deadline must bound the drain too — returned after \(seconds)s against a 2s budget and a 30s grandchild, which means it waited for the grandchild rather than the deadline")
     }
 
     /// B7 — a non-finite or non-positive timeout must be rejected at the entry
