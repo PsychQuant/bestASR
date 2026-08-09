@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import Testing
 
@@ -35,12 +36,17 @@ import Testing
 ///
 /// - **Prose *content* is not under test.** Only fields a relation reads are
 ///   pinned at all, and it pins the figure it quotes, not the sentence. Every
-///   other string may be replaced by `"x"`: the file goes from 23,891 bytes to
-///   4,083 with nothing reported, losing the reproduction recipe, the commands
-///   that produced every number, the provenance paragraph saying the verifier
-///   runs were not blind and not independently designed, the four-cell `nm`
-///   table, sixteen of twenty probe methods and every `method_limits` entry.
-///   A passing run does **not** mean the file still says what it said.
+///   other string may be replaced by a **short filler**, and the file goes from
+///   23,891 bytes to 4,083 with nothing reported — losing the reproduction
+///   recipe, the commands that produced every number, the provenance paragraph
+///   saying the verifier runs were not blind and not independently designed,
+///   the four-cell `nm` table, sixteen of twenty probe methods and every
+///   `method_limits` entry. The fillers are not free-form: array elements must
+///   render differently from one another, and a probe method must carry a
+///   backticked token that is not its own field name, so `"x"` everywhere
+///   **fails** — `"a"`, `"b"`, … and `` `a` 0 ``, `` `a` 1 ``, … pass. That is
+///   the whole of the constraint. A passing run does **not** mean the file
+///   still says what it said.
 /// - **A declaration detects one-sided change.** A deletion, rename or typo
 ///   applied to both the artifact and the declaration agrees with itself. That
 ///   is the dual of a derived schema, which cannot detect absence at all.
@@ -51,8 +57,9 @@ import Testing
 ///   in the other direction: subtracting the non-base characters rejects a
 ///   lone spacing mark such as U+0903, which does render.
 /// - **The prose anchors protect against numeric drift, not against false
-///   prose.** A quoted figure must appear as a complete numeric token, so
-///   `7730`, `1773`, `773,000` and `773.5` no longer satisfy a seek for `773`.
+///   prose.** A quoted figure must appear as a complete numeric token, with
+///   nothing numeric continuing it on either side: `7730`, `1773`, `773,000`,
+///   `773.5`, `1,773` and `-773` all fail a seek for `773`.
 ///   Nothing reads affirmation, negation or subject: an entry saying "They do
 ///   not agree at 773" satisfies the anchor. (The bare sentence alone still
 ///   fails — a different rule catches it for citing nothing.)
@@ -81,6 +88,14 @@ import Testing
 ///   figures restated in `_limits[1]`, and `edit_list`'s operation words.
 ///   Everything else drifts silently — `_limits[0]`'s token ids, `_nm_note`'s
 ///   four cells, `method_limits`' counts, the toolchain version.
+/// - **Two external checks, and only two.** The arm under test must carry the
+///   revision `Package.resolved` pins, and the two corpus digests must match
+///   what `scripts/fetch-corpora.sh` pins and writes. Everything else is
+///   checked against another value in the same JSON, prose in the same JSON, or
+///   a literal here — so the suite is a **drift detector on a reviewed
+///   snapshot**, not a measurement verifier. It does not rerun the
+///   transcription, hash a transcript, recompute the WER, or inspect the
+///   executable `executable_sha256` names.
 /// - **The census is pinned by `observations`, not by any relation.** The sum
 ///   identities are homogeneous, so they hold under uniform scaling and under
 ///   reallocation between `matches` and `canonicals_differed`; the anchors pin
@@ -92,6 +107,29 @@ struct EvidenceFileTests {
         .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
 
     static let evidenceDirectory = repoRoot.appendingPathComponent("benchmarks/evidence")
+
+    /// The corpus this evidence was measured on, as `scripts/fetch-corpora.sh`
+    /// pins it: the WAV digest it verifies after conversion, and the digest of
+    /// the reference SRT it writes.
+    ///
+    /// Both were hard-coded in `observations` and compared against the artifact
+    /// they came from, which is agreement by construction. They are not
+    /// observations of the run at all — they are properties of a corpus this
+    /// repository already pins, so they are laws, and derivable ones. The
+    /// script's fetch helper writes `printf '%s\n' "$srt_body"`, so the
+    /// reference file is the heredoc body plus exactly one newline.
+    static let pinnedCorpus: (audio: String, reference: String)? = {
+        guard let script = try? String(
+            contentsOf: repoRoot.appendingPathComponent("scripts/fetch-corpora.sh"),
+            encoding: .utf8)
+        else { return nil }
+        guard let shaLine = script.firstMatch(of: #/(?m)^OSR1_SHA="([0-9a-f]{64})"/#),
+            let body = script.firstMatch(of: #/(?s)fetch_osr1\(\)[^\n]*<<'SRT';\s*\}\n(.*?)\nSRT\n/#)
+        else { return nil }
+        let reference = Data((String(body.output.1) + "\n").utf8)
+        let digest = SHA256.hash(data: reference).map { String(format: "%02x", $0) }.joined()
+        return (String(shaLine.output.1), digest)
+    }()
 
     /// The FluidAudio pin as `Package.resolved` records it, or `nil` if it is
     /// unreadable or absent.
@@ -438,6 +476,25 @@ struct EvidenceFileTests {
                     else { return false }
                     return abs(recorded - want) < 1e-12
                 },
+                // The corpus digests are derivable, so they are derived. Both
+                // were constrained only by `.hex(64)`, so the file could name
+                // another corpus's audio with `session.corpus: "osr-harvard-1"`
+                // two lines above and nothing would notice.
+                Relation(label: "session.audio_sha256 is the WAV digest `fetch-corpora.sh` pins") {
+                    guard let corpus = pinnedCorpus else { return false }
+                    return string($0, "session.audio_sha256") == corpus.audio
+                },
+                Relation(label: "session.reference_sha256 is the digest of the reference `fetch-corpora.sh` writes") {
+                    guard let corpus = pinnedCorpus else { return false }
+                    return string($0, "session.reference_sha256") == corpus.reference
+                },
+                // `metric.kind` names what every other figure in the block
+                // means. Unpinned, `"wer"` became `"cer"` while the 80-word
+                // denominator, the edit list and `_reproducing`'s whole recipe
+                // stayed put, retitling the headline number.
+                Relation(label: "the metric is a word error rate") {
+                    string($0, "metric.kind") == "wer"
+                },
                 // The conclusion follows from its two comparisons.
                 Relation(label: "changed_merge_output == !(tokens_equal && timestamps_equal)") {
                     guard let t = value($0, "path_coverage.counterfactual_tokens_equal") as? Bool,
@@ -585,7 +642,11 @@ struct EvidenceFileTests {
         // carry the revision it pins; the other must not. If the package is ever
         // bumped past both arms this fails, which is correct — the evidence then
         // describes a dependency the repo no longer builds against.
-        Relation(label: "each arm carries the revision `Package.resolved` records for it") { json in
+        //
+        // This binds **one** arm. `Package.resolved` records the current pin and
+        // nothing else, so the baseline arm is pinned separately below — the
+        // label used to say "each arm" and claim both.
+        Relation(label: "the arm under test carries the revision `Package.resolved` records") { json in
             guard let pin = pinnedFluidAudio,
                 let arms = json["arms"] as? [String: Any],
                 let underTest = arms[pin.version] as? [String: Any],
@@ -596,6 +657,18 @@ struct EvidenceFileTests {
                 return arm["fluidaudio_revision"] as? String
             }
             return !others.isEmpty && others.allSatisfy { $0 != pin.revision }
+        },
+        // The baseline arm, which `Package.resolved` cannot speak for. Left to
+        // "differs from the other arm", it accepted any forty hex characters —
+        // so the file could claim an A/B against 0.15.4 while naming a commit
+        // that does not exist. This is the upstream `v0.15.4` tag, confirmed in
+        // round 20 with `git ls-remote --tags` against FluidInference/FluidAudio.
+        Relation(label: "the baseline arm carries the upstream v0.15.4 tag revision") { json in
+            guard let arms = json["arms"] as? [String: Any],
+                let baseline = arms["0.15.4"] as? [String: Any]
+            else { return false }
+            return baseline["fluidaudio_revision"] as? String
+                == "b9d43724cbdb5a980e441fd54180964e94d470f7"
         },
         Relation(label: "the nm counts differ between arms — the A/B result itself") { json in
             guard let arms = json["arms"] as? [String: Any],
@@ -849,28 +922,38 @@ struct EvidenceFileTests {
     // MARK: - Text helpers
 
     /// Does `text` contain `needle` as a complete numeric token — nothing
-    /// numeric continuing it on either side?
+    /// numeric continuing it on **either** side?
     ///
-    /// Three constructions defeated weaker forms of this, in order: plain
+    /// Four constructions defeated weaker forms of this, in order: plain
     /// `contains`, so prose that had drifted to `773` inside `7730` still
     /// matched; an after-only digit check, which left the mirror image open the
-    /// moment any anchor began with its figure; and a digit-only check on both
+    /// moment any anchor began with its figure; a digit-only check on both
     /// sides, which read `773,000` and `773.5` as the recorded `773` because a
-    /// comma and a period are not digits.
+    /// comma and a period are not digits; and then — in the very helper written
+    /// to end that — a separator check on the trailing side only, so `1,773`
+    /// satisfied a seek for `773`. Each fix had closed the examples it was given
+    /// and left their mirror image standing.
     static func statesWholeNumber(_ text: String, _ needle: String) -> Bool {
+        /// A sign, in any of the spellings prose actually uses.
+        func isSign(_ c: Character) -> Bool { c == "-" || c == "+" || c == "\u{2212}" }
+        /// A group or decimal separator, which continues a number only when a
+        /// digit sits on its far side.
+        func isSeparator(_ c: Character) -> Bool { c == "," || c == "." || c == "\u{066C}" || c == "\u{2019}" }
         for range in text.ranges(of: needle) {
             if range.lowerBound > text.startIndex {
-                let before = text[text.index(before: range.lowerBound)]
-                // A sign belongs to the number: `-773` is not `773`.
-                if before.isNumber || before == "-" || before == "+" { continue }
+                let i = text.index(before: range.lowerBound)
+                let before = text[i]
+                if before.isNumber || isSign(before) { continue }
+                if isSeparator(before), i > text.startIndex,
+                    text[text.index(before: i)].isNumber { continue }
             }
-            var after = range.upperBound
-            if after < text.endIndex {
-                if text[after].isNumber { continue }
-                // A separator only continues the number if a digit follows it.
-                if text[after] == "," || text[after] == "." {
-                    after = text.index(after: after)
-                    if after < text.endIndex, text[after].isNumber { continue }
+            if range.upperBound < text.endIndex {
+                let j = range.upperBound
+                let after = text[j]
+                if after.isNumber { continue }
+                if isSeparator(after) {
+                    let k = text.index(after: j)
+                    if k < text.endIndex, text[k].isNumber { continue }
                 }
             }
             return true
