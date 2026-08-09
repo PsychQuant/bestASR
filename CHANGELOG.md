@@ -92,6 +92,94 @@ All notable changes to bestASR are documented here. The format follows
   entry — because a sweep that depends on someone remembering to sweep is the
   mechanism by which this recurred three times.
 
+- **`transcribe` crashed on every clean install (#163)**: `WeightVerifier` read
+  the pinned-weights manifest through `Bundle.module`, which needs a
+  `bestasr_BestASRKit.bundle` sitting beside the executable — and no install path
+  ever put one there (`scripts/install.sh` copies only the binaries; the release
+  uploads only the binary). The generated accessor hit `Swift.fatalError` and the
+  process died with SIGTRAP before it could say why; through MCP that surfaced
+  only as `Connection closed`.
+
+  The bug was invisible to the maintainer for a specific reason worth recording:
+  `resource_bundle_accessor.swift` is not in the repo. SwiftPM generates it per
+  build and bakes in the absolute path of the *build machine*, so the fallback
+  branch resolved on the machine that produced the binary and nowhere else. The
+  primary branch — the one meant to serve distribution — had never worked.
+
+  The manifest is now compiled into the binary (`scripts/embed-weights-manifest.sh`
+  generates a Swift constant; `Package.swift` excludes the JSON instead of
+  shipping it as a resource). After a clean rebuild neither the bundle nor the
+  accessor is generated at all, so the crash is not avoided — it is unreachable.
+  `scripts/pin-weights.sh` now regenerates the embedded copy in the same run, so
+  a re-pin cannot appear to succeed while the binary still enforces old digests.
+
+- **The wrapper could not heal an already-broken install (#163)**: the version
+  sidecar recorded the version *requested* rather than the one received, so a
+  machine with sidecar `0.16.0` / binary `0.15.0` compared equal, skipped
+  resolution entirely, and would have kept the crashing binary through any
+  future release. Fixing only the write path healed nobody already poisoned.
+  The sidecar is now schema-tagged `v2:<tag>`; an untagged value is treated as
+  untrusted, which forces the machine back through resolution instead of
+  short-circuiting. This also removes the release constraint the fix would
+  otherwise have carried — healing no longer depends on choosing a version
+  number above the stale pin.
+
+  Precisely: it guarantees the machine *re-resolves*, not that it heals in
+  exactly one attempt. Three non-fatal paths return without upgrading the
+  sidecar — the registry offering no matching asset, the download failing,
+  and verification failing — and all of them retry on the next spawn. An
+  earlier draft of this entry claimed "exactly one re-resolution", which is a
+  stronger promise than the code makes; a later one said "two paths", which
+  undercounted.
+
+- **The wrapper ran binaries it never checked (#163)**: it downloaded an
+  executable, stripped its quarantine attribute, and exec'd it with no integrity
+  check — while every release had been publishing a `.sha256` that nothing
+  consumed. Stripping quarantine does not make Gatekeeper "run cleanly"; it
+  skips the evaluation, which is why the wrapper has to do this itself.
+
+  What it now enforces, before installing *and* before every exec, is the
+  designated requirement Apple's own tooling generates for our release binary
+  (`codesign -d -r-`): the program's identifier, an Apple-anchored chain, a
+  Developer ID Application leaf certificate, and our Team ID. All four.
+
+  It took three rounds to get there, and the two failures in between are worth
+  recording because both looked correct:
+
+  - `codesign --verify --strict` alone pins *nothing*. It checks that a
+    signature is internally consistent, not who produced it — an unsigned
+    binary passes it, and so does `codesign --sign -`.
+  - Pinning only `subject.OU` (the Team ID) pins *who signed*, not *what was
+    signed*, and not *what kind of certificate*. Any other binary from the
+    same team passed — every MCP server we publish is a same-team release
+    asset — and so did an "Apple Development" certificate, which Xcode issues
+    automatically and which signs without a password prompt.
+
+  The checksum is a secondary, advisory check. It shares a channel with the
+  artifact it validates, so it attests transport integrity, not provenance; a
+  mismatch is fatal, a missing `.sha256` is not, because letting a forgotten
+  upload brick every clean install trades one outage for another.
+
+  `scripts/release-mcp.sh` now signs with an explicit `--identifier`, rebuilds
+  the wrapper's requirement string from the wrapper's own source, and fails the
+  release if the two disagree or if the signed binary does not satisfy them. An
+  earlier version of this check only re-verified the binary it had just signed
+  — which is trivially self-consistent — so a product rename would have shipped
+  clean and then bricked every existing install.
+
+  A locally built binary (`scripts/install.sh`) is ad-hoc signed and the gate
+  refuses it. That is the intended posture, but it broke a workflow this file
+  documents, so there is a deliberate opt-out: set `BESTASR_MCP_ALLOW_UNSIGNED=1`
+  and the wrapper runs it with a warning on every spawn. It is an environment
+  variable rather than anything auto-detected, because every "this is a dev
+  build" signal on disk is writable by whoever could plant a malicious binary.
+
+  **Known limit, stated rather than implied**: the requirement pins who signed
+  and which program, not which *version*. A party who can serve release
+  metadata can replay an older, genuinely signed release; the tag is not
+  cryptographically bound to the artifact and the checksum is advisory.
+  Rollback protection needs signed release metadata and is not attempted here.
+
 ### Added
 
 - **Apple Speech backend (#121)**: `apple-speech` — the OS-native backend

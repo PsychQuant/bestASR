@@ -36,12 +36,25 @@ A model absent from the weights manifest SHALL be allowed to load with a visible
 
 ### Requirement: The pinning script regenerates the manifest from the local cache
 
-`scripts/pin-weights.sh` SHALL produce a deterministically ordered JSON manifest (`{repo: {relativePath: sha256}}`) from the local FluidAudio model cache, writing it to the bundled resource path so a manifest diff in review is the audit trail for any weight change (e.g. a FluidAudio version upgrade re-pins by re-running the script).
+`scripts/pin-weights.sh` SHALL produce a deterministically ordered JSON manifest (`{repo: {relativePath: sha256}}`) from the local FluidAudio model cache so a manifest diff in review is the audit trail for any weight change (e.g. a FluidAudio version upgrade re-pins by re-running the script).
+
+The manifest SHALL be compiled into the binary rather than shipped as a side-car resource bundle (#163): a bare installed executable has no bundle beside it, and reading one through `Bundle.module` aborted the process before it could report why. The JSON remains the human-edited source of truth; the pinning script SHALL regenerate the embedded copy in the same run, so a re-pin cannot appear to succeed while the binary still enforces the previous digests.
 
 #### Scenario: Re-running the script on an unchanged cache is idempotent
 
 - **WHEN** the script runs twice with no cache changes
 - **THEN** the second run produces a byte-identical manifest
+
+#### Scenario: The manifest resolves without a side-car bundle
+
+- **WHEN** the verifier loads the pinned manifest in a binary installed on its own
+- **THEN** it resolves from the binary itself and no resource bundle is consulted
+
+#### Scenario: Re-pinning updates what the binary actually enforces
+
+- **WHEN** the pinning script is run after a weight change
+- **THEN** both the JSON source of truth and the embedded copy are regenerated
+- **AND** a drift between the two fails the test suite
 
 
 <!-- @trace

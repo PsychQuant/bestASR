@@ -27,7 +27,14 @@ let package = Package(
                 .product(name: "WhisperKit", package: "WhisperKit"),
                 .product(name: "FluidAudio", package: "FluidAudio"),
             ],
-            resources: [.copy("Supply/weights-manifest.json")],
+            // #163: the manifest is compiled in via
+            // Supply/WeightsManifestEmbedded.swift rather than shipped as a
+            // resource bundle — a bare installed binary has no side-car bundle
+            // for Bundle.module to find, and the fatalError there killed every
+            // clean install. The JSON stays as the human-edited source of truth
+            // (regenerate with scripts/embed-weights-manifest.sh), so it is
+            // excluded rather than removed.
+            exclude: ["Supply/weights-manifest.json"],
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
         .executableTarget(
