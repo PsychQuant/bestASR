@@ -48,38 +48,49 @@ struct SubprocessConcurrencyTests {
                 + "exit 0\n")
         defer { try? FileManager.default.removeItem(at: dir) }
 
-        // Above the core count on purpose — the defect only appears once the
-        // blocking drains outnumber the pool's threads — but SCALED to the
-        // machine. A fixed 24 is ~1.3x the cores on the dev box and ~8x on a
-        // CI runner, where it starved every sibling suite for minutes and took
-        // the whole run down with it. Twice the core count still exceeds the
-        // pool everywhere, which is all this test needs.
-        let cores = ProcessInfo.processInfo.activeProcessorCount
-        let concurrency = min(24, max(8, cores * 2))
         let budget: TimeInterval = 1
 
-        let elapsed = await withTaskGroup(of: Double.self) { group in
-            for _ in 1...concurrency {
-                group.addTask {
-                    let start = ContinuousClock.now
-                    _ = try? await SubprocessRunner.run(
-                        executable: script.path, arguments: [], timeout: budget, backend: "test")
-                    let d = start.duration(to: .now)
-                    return Double(d.components.seconds)
-                        + Double(d.components.attoseconds) / 1e18
+        func worstElapsed(concurrency: Int) async -> Double {
+            let all = await withTaskGroup(of: Double.self) { group in
+                for _ in 0..<concurrency {
+                    group.addTask {
+                        let start = ContinuousClock.now
+                        _ = try? await SubprocessRunner.run(
+                            executable: script.path, arguments: [], timeout: budget,
+                            backend: "test")
+                        let d = start.duration(to: .now)
+                        return Double(d.components.seconds)
+                            + Double(d.components.attoseconds) / 1e18
+                    }
                 }
+                var out: [Double] = []
+                for await v in group { out.append(v) }
+                return out
             }
-            var all: [Double] = []
-            for await v in group { all.append(v) }
-            return all
+            return all.max() ?? 0
         }
 
-        let worst = elapsed.max() ?? 0
-        // Generous: the assertion is about order of magnitude, not scheduling
-        // jitter. Pre-fix this ran 6-19x over on the same machine.
+        // The property under test is that the deadline does not DEGRADE as
+        // concurrency rises — not that it lands on a particular wall-clock
+        // number. Asserting an absolute bound made this fail on a loaded 3-core
+        // CI runner (4.2x) while passing on an idle 18-core dev box, which
+        // measures the machine rather than the code. A same-run single-call
+        // baseline cancels out machine speed and ambient load.
+        let solo = await worstElapsed(concurrency: 1)
+        // Above the core count on purpose — the defect only appears once the
+        // blocking drains outnumber the pool's threads — but scaled to the
+        // machine, because a fixed 24 is ~1.3x the cores here and ~8x on CI.
+        let cores = ProcessInfo.processInfo.activeProcessorCount
+        let concurrency = min(24, max(8, cores * 2))
+        let loaded = await worstElapsed(concurrency: concurrency)
+
+        // Pre-fix this ratio was 6.6x at concurrency 16 and 18.6x at 32 on an
+        // idle machine; after moving the drains off the cooperative pool it is
+        // ~1.0x. 3x leaves room for scheduling noise without admitting the bug.
+        let ratio = loaded / max(solo, 0.001)
         let detail = String(
-            format: "deadline slipped to %.2fs against a %.0fs budget at concurrency %d",
-            worst, budget, concurrency)
-        #expect(worst < budget * 3, "\(detail) — blocking drains starve the deadline check")
+            format: "solo=%.2fs loaded=%.2fs (concurrency %d) ratio=%.1fx",
+            solo, loaded, concurrency, ratio)
+        #expect(ratio < 3.0, "\(detail) — blocking drains are starving the deadline check")
     }
 }
