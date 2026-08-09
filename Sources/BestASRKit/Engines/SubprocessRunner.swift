@@ -80,6 +80,14 @@ public enum SubprocessRunner {
     /// Grace between SIGTERM and SIGKILL, and the bounded reap after SIGKILL.
     private static let graceInterval = Duration.milliseconds(500)
 
+    /// Reads a handle to EOF without ever raising. A closed or invalid
+    /// descriptor yields empty output instead of killing the process (#165
+    /// round 4) — the drains race `teardown()` by construction, so this must
+    /// fail soft.
+    static func drain(_ handle: FileHandle) -> Data {
+        ((try? handle.readToEnd()) ?? nil) ?? Data()
+    }
+
     /// Spawn `executable`, drain both pipes concurrently, and return once the
     /// process has exited and both drains have finished — or fail, on time, if
     /// that does not happen within `timeout`.
@@ -145,9 +153,26 @@ public enum SubprocessRunner {
         // could not extend it *directly*, but N of them could starve the
         // executor that enforces it. Dispatch's pool grows past a blocked
         // worker, so blocking here costs a thread instead of the whole runtime.
+        //
+        // `readToEnd()` and not `readDataToEndOfFile()` (#165 round 4). The
+        // legacy call is an Objective-C API that RAISES on a closed descriptor,
+        // and an ObjC exception is not catchable by Swift `do`/`catch` — it
+        // terminates the process. `teardown()` closes these handles precisely
+        // to unblock the drains, so a drain that has been submitted but has not
+        // yet started reads a handle that is already closed, and the moment GCD
+        // finally runs it the whole process dies.
+        //
+        // Moving to Dispatch is what made that reachable: under the old
+        // `Task.detached`, cooperative-pool starvation delayed teardown roughly
+        // in step with drain congestion, so the two stayed together. Decoupling
+        // them — the entire point of the round-3 fix — lets teardown run
+        // promptly while drains sit backlogged. Reviewers reproduced the crash
+        // in 2 of 4 runs at concurrency 1000; verified here directly: reading a
+        // closed handle with the legacy API aborts with "uncaught exception of
+        // type NSException", while `readToEnd()` returns nil.
         let drainQueue = DispatchQueue.global(qos: .userInitiated)
-        drainQueue.async { box.finishOut(outPipe.fileHandleForReading.readDataToEndOfFile()) }
-        drainQueue.async { box.finishErr(errPipe.fileHandleForReading.readDataToEndOfFile()) }
+        drainQueue.async { box.finishOut(Self.drain(outPipe.fileHandleForReading)) }
+        drainQueue.async { box.finishErr(Self.drain(errPipe.fileHandleForReading)) }
 
         // Idempotent teardown, shared by the timeout and cancellation paths.
         let teardown: @Sendable () -> Void = {

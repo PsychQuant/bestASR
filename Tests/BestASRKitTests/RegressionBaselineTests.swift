@@ -87,6 +87,13 @@ struct RegressionBaselineTests {
         p.standardInput = inPipe
         p.standardOutput = outPipe
         p.standardError = outPipe
+        // Installed BEFORE run() so an instant exit cannot miss it. This is what
+        // makes the reaps below bounded — `waitUntilExit()` has no timeout, and
+        // round-4 review found BOTH calls to it here were unbounded, including
+        // the happy-path one, which is the likelier of the two to bite: EOF on
+        // stdout means the child closed it, not that the child exited.
+        let exited = DispatchSemaphore(value: 0)
+        p.terminationHandler = { _ in exited.signal() }
         try p.run()
 
         final class DataBox: @unchecked Sendable {
@@ -123,11 +130,20 @@ struct RegressionBaselineTests {
                 try? outPipe.fileHandleForReading.close()
                 _ = group.wait(timeout: .now() + .seconds(2))
             }
-            p.waitUntilExit()
+            _ = exited.wait(timeout: .now() + .seconds(2))
             throw BestASRError.runtime(
                 "baseline-compare.py exceeded its 120s budget and was terminated")
         }
-        p.waitUntilExit()
+        // Bounded reap on the success path too. A child that closes stdout and
+        // then lingers would otherwise park here forever — the same "no
+        // deadline bounding the operation" shape as #91 → #158 → #165, in the
+        // one site the sweep exempts.
+        if exited.wait(timeout: .now() + .seconds(10)) == .timedOut {
+            kill(p.processIdentifier, SIGKILL)
+            _ = exited.wait(timeout: .now() + .seconds(2))
+            throw BestASRError.runtime(
+                "baseline-compare.py closed its output but did not exit within 10s")
+        }
         let out = String(data: outBox.get, encoding: .utf8) ?? ""
         return (p.terminationStatus, out)
     }

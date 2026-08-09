@@ -42,10 +42,13 @@ struct SpawnSiteSweepTests {
             + "(stdin support is tracked in #170's Expected list, item 4 — NOT "
             + "the descendant-kill gap #170 is named for). The #158-shaped "
             + "ordering deadlock IS fixed in place with a concurrent drain. "
-            + "RETAINED RISK: the site now carries its own bounded wait, so it "
-            + "fails rather than stalls, but it is still the one spawn in the "
-            + "tree not covered by the shared deadline. Remove this entry once "
-            + "#170 adds stdin support.",
+            + "RETAINED RISK: every wait here is now bounded — round 4 found "
+            + "this text claiming that while BOTH waitUntilExit() calls were "
+            + "still unbounded, including the happy-path one — so the site "
+            + "fails rather than stalls. It is nonetheless the one spawn in the "
+            + "tree not covered by the shared deadline, so its bounds are "
+            + "maintained by hand and can drift out of step with the runner's. "
+            + "Remove this entry once #170 adds stdin support.",
     ]
 
     /// Does this source text construct a subprocess directly?
@@ -57,11 +60,31 @@ struct SpawnSiteSweepTests {
     /// is the dangerous one: it is idiomatic Swift where the type is already
     /// known, so it needs no intent to evade.
     ///
-    /// This is still a *lint*, not a proof. It cannot see a spawn behind
-    /// `posix_spawn`, `fork/exec`, or a helper in another module. What it does
-    /// is raise the cost of reintroducing the pattern by accident, which is how
-    /// #91 → #158 → #165 actually happened — nobody was evading a check, there
-    /// simply wasn't one. `spawnDetectionIsNotVacuous` below keeps it honest.
+    /// This is a *lint*, not a proof, and round 4 established where its ceiling
+    /// actually is — which matters, because the previous wording implied the
+    /// blind spots were a short list of exotic APIs.
+    ///
+    /// It matches a type NAME sitting next to a construction. It has no notion
+    /// of type FLOW, so one hop of indirection is invisible to it. Reviewers
+    /// compiled and ran three working bypasses, and confirmed the first really
+    /// does reproduce the #91/#158/#165 deadlock (blocked past an 8 s outer
+    /// `timeout`, exit 124):
+    ///
+    ///     let cls = NSClassFromString("NSTask") as? NSObject.Type   // dynamic
+    ///     let Kind: Process.Type = Process.self; Kind.init()        // metatype
+    ///     func spawn<T: NSObject>(_ t: T.Type) -> T { T.init() }    // generic
+    ///
+    /// The patterns below were widened to catch these particular spellings, but
+    /// do not read that as the class being closed: **a token-adjacency regex
+    /// cannot close type indirection in general**, and a determined author can
+    /// always add another hop. Also outside its vocabulary: `fork`/`exec`, and
+    /// a spawn helper defined in another module.
+    ///
+    /// What it is FOR is raising the cost of reintroducing the pattern by
+    /// accident, which is how #91 → #158 → #165 actually happened — nobody was
+    /// evading a check, there simply wasn't one. Against an author who is
+    /// trying to get around it, it will lose. `spawnDetectionIsNotVacuous`
+    /// below keeps the patterns honest.
     static func spawnsDirectly(_ text: String) -> Bool {
         // Strip comments first. Prose about spawning is not spawning — the
         // widened patterns below match ordinary English like "…through Process
@@ -79,6 +102,13 @@ struct SpawnSiteSweepTests {
             #":\s*Process\s*=\s*\.\s*init\s*\("#,  // let p: Process = .init()
             #"\bNSTask\s*\("#,  // the ObjC spelling
             #"\bposix_spawn(p)?\s*\("#,  // below Foundation entirely
+            // Round-4 bypasses. Each is one hop of indirection away from the
+            // literal token; see the ceiling note above.
+            #"\bProcess\s*\.\s*self\b"#,  // Process.self handed to a factory
+            #":\s*Process\s*\.\s*Type\b"#,  // let Kind: Process.Type = …
+            #"NSClassFromString\s*\(\s*"(NSTask|Process)""#,  // dynamic lookup
+            #"\bfork\s*\(\s*\)"#,  // fork/exec, below Foundation
+            #"\bexec(v|vp|ve|l|lp|le)\s*\("#,
         ]
         for pattern in patterns
         where code.range(of: pattern, options: .regularExpression) != nil {
@@ -143,6 +173,13 @@ struct SpawnSiteSweepTests {
             "typealias Proc = Process\nlet p = Proc()",  // aliased
             "let t = NSTask()",  // ObjC spelling
             "posix_spawn(&pid, path, nil, nil, argv, envp)",  // below Foundation
+            // Round-4 bypasses, each compiled and run by reviewers against a
+            // real child process. The first was additionally confirmed to
+            // reproduce the pipe deadlock itself (exit 124 under `timeout 8`).
+            "let cls = NSClassFromString(\"NSTask\") as? NSObject.Type",
+            "let Kind: Process.Type = Process.self\nlet p = Kind.init()",
+            "func spawn<T: NSObject>(_ t: T.Type) -> T { T.init() }\nlet p = spawn(Process.self)",
+            "if fork() == 0 { execv(path, argv) }",
         ]
         for sample in mustDetect {
             #expect(
@@ -154,6 +191,8 @@ struct SpawnSiteSweepTests {
             "// we deliberately avoid Process here",
             "let info = ProcessInfo.processInfo",  // not a spawn
             "func processAll() {}",  // substring of an unrelated identifier
+            "let n = items.count  // fork in the road",  // prose, in a comment
+            "struct Forkable { let forked: Bool }",  // `fork` as a substring
         ]
         for sample in mustNotDetect {
             #expect(!Self.spawnsDirectly(sample), "false positive on: \(sample)")
