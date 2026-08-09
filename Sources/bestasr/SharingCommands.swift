@@ -6,34 +6,35 @@ import Foundation
 /// BestASRKit `Contribution/Sharing.swift`; this file is the thin shell:
 /// network fetches, `gh`/`hf` subprocess mechanics, and printing.
 
-/// Minimal subprocess runner for the sharing commands (`gh`, `hf`, `git`).
+/// Subprocess runner for the sharing commands (`gh`, `hf`, `git`).
+///
+/// #165 verify B5: the first attempt at the family-wide sweep fixed the drain
+/// here by hand-rolling a `DispatchGroup` variant — a *third* shape for the one
+/// concern, and one that still had no timeout at all, while the shared helper it
+/// declined to call carries a doc comment saying "every spawn has a deadline".
+/// A `gh` blocked on an interactive auth prompt would wait forever.
+///
+/// Now it delegates. These commands are network-bound (`gh repo clone`,
+/// `git push`), so the budget is generous, but it is bounded.
 enum ToolRunner {
+    /// Wall-clock ceiling for one `gh`/`git`/`hf` invocation.
+    private static let budget: TimeInterval = 300
+
     @discardableResult
-    static func output(_ tool: String, _ args: [String], cwd: URL? = nil) throws -> String {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        process.arguments = [tool] + args
-        if let cwd { process.currentDirectoryURL = cwd }
-        let stdout = Pipe()
-        let stderr = Pipe()
-        process.standardOutput = stdout
-        process.standardError = stderr
-        do {
-            try process.run()
-        } catch {
-            throw BestASRError.runtime("could not launch '\(tool)': \(error.localizedDescription)")
-        }
-        let outData = stdout.fileHandleForReading.readDataToEndOfFile()
-        let errData = stderr.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
-        guard process.terminationStatus == 0 else {
-            let detail = String(decoding: errData, as: UTF8.self)
-                .trimmingCharacters(in: .whitespacesAndNewlines)
+    static func output(_ tool: String, _ args: [String], cwd: URL? = nil) async throws -> String {
+        let (status, stdout, stderr) = try await SubprocessRunner.run(
+            executable: "/usr/bin/env",
+            arguments: [tool] + args,
+            timeout: budget,
+            backend: "sharing:\(tool)",
+            currentDirectory: cwd)
+        guard status == 0 else {
+            let detail = stderr.trimmingCharacters(in: .whitespacesAndNewlines)
             throw BestASRError.runtime(
                 "\(tool) \(args.prefix(2).joined(separator: " ")) failed"
                     + (detail.isEmpty ? "" : ": \(detail)"))
         }
-        return String(decoding: outData, as: UTF8.self)
+        return stdout
     }
 }
 
@@ -80,7 +81,7 @@ struct Bench: AsyncParsableCommand {
                     print("No local measurements. Run: bestasr benchmark <audio> --reference <truth.srt>")
                     return
                 }
-                let contributor = try ToolRunner.output("gh", ["api", "user", "--jq", ".login"])
+                let contributor = try await ToolRunner.output("gh", ["api", "user", "--jq", ".login"])
                     .trimmingCharacters(in: .whitespacesAndNewlines)
 
                 // Canonical corpus ids — only measurements against the shared
@@ -94,7 +95,7 @@ struct Bench: AsyncParsableCommand {
                 // Published rows → dedupe keys. A missing/empty measurements
                 // dir is a young repo, not an error.
                 var published = Set<String>()
-                if let listing = try? ToolRunner.output(
+                if let listing = try? await ToolRunner.output(
                     "gh",
                     ["api", "repos/\(repo)/contents/measurements",
                      "--jq", ".[] | select(.name|endswith(\".jsonl\")) | .download_url"]) {
@@ -129,20 +130,20 @@ struct Bench: AsyncParsableCommand {
                 let work = FileManager.default.temporaryDirectory
                     .appendingPathComponent("bestasr-submit-\(UUID().uuidString)")
                 defer { try? FileManager.default.removeItem(at: work) }
-                try ToolRunner.output(
+                try await ToolRunner.output(
                     "gh", ["repo", "clone", repo, work.path, "--", "--depth", "1"])
                 let branch = "submit/\(filename.replacingOccurrences(of: ".jsonl", with: ""))"
-                try ToolRunner.output("git", ["checkout", "-b", branch], cwd: work)
+                try await ToolRunner.output("git", ["checkout", "-b", branch], cwd: work)
                 try jsonl.write(
                     to: work.appendingPathComponent("measurements/\(filename)"),
                     atomically: true, encoding: .utf8)
-                try ToolRunner.output("git", ["add", "measurements/\(filename)"], cwd: work)
-                try ToolRunner.output(
+                try await ToolRunner.output("git", ["add", "measurements/\(filename)"], cwd: work)
+                try await ToolRunner.output(
                     "git",
                     ["commit", "-m", "data: \(rows.count) measurement(s) from \(contributor)"],
                     cwd: work)
-                try ToolRunner.output("git", ["push", "origin", branch], cwd: work)
-                let prURL = try ToolRunner.output(
+                try await ToolRunner.output("git", ["push", "origin", branch], cwd: work)
+                let prURL = try await ToolRunner.output(
                     "gh",
                     ["pr", "create", "-R", repo, "--head", branch,
                      "--title", "data: \(rows.count) measurement(s) from \(contributor)",
@@ -233,7 +234,7 @@ extension Corpus {
                 let row = try CorpusRegistry.add(
                     audioPath: audio, referencePath: reference, language: language,
                     name: name, store: BenchmarkStore())
-                let contributor = try ToolRunner.output("gh", ["api", "user", "--jq", ".login"])
+                let contributor = try await ToolRunner.output("gh", ["api", "user", "--jq", ".login"])
                     .trimmingCharacters(in: .whitespacesAndNewlines)
                 let audioExt = URL(fileURLWithPath: audio).pathExtension
                 let refExt = URL(fileURLWithPath: reference).pathExtension
@@ -242,7 +243,7 @@ extension Corpus {
 
                 // Upload to the HF dataset (requires `hf auth login`).
                 for (local, remote) in [(audio, hfAudioPath), (reference, hfReferencePath)] {
-                    try ToolRunner.output(
+                    try await ToolRunner.output(
                         "hf",
                         ["upload", hfRepo, local, remote, "--repo-type", "dataset",
                          "--commit-message", "data: contribute \(row.name) (\(row.language))"])
@@ -260,7 +261,7 @@ extension Corpus {
                 let work = FileManager.default.temporaryDirectory
                     .appendingPathComponent("bestasr-contribute-\(UUID().uuidString)")
                 defer { try? FileManager.default.removeItem(at: work) }
-                try ToolRunner.output(
+                try await ToolRunner.output(
                     "gh", ["repo", "clone", repo, work.path, "--", "--depth", "1"])
                 let manifestPath = work.appendingPathComponent("corpus/manifest.jsonl")
                 let existing = try CorpusManifestRow.parseJSONL(
@@ -281,14 +282,14 @@ extension Corpus {
                 try (lines.joined(separator: "\n") + "\n").write(
                     to: manifestPath, atomically: true, encoding: .utf8)
                 let branch = "corpus/\(row.corpusId)"
-                try ToolRunner.output("git", ["checkout", "-b", branch], cwd: work)
-                try ToolRunner.output("git", ["add", "corpus/manifest.jsonl"], cwd: work)
-                try ToolRunner.output(
+                try await ToolRunner.output("git", ["checkout", "-b", branch], cwd: work)
+                try await ToolRunner.output("git", ["add", "corpus/manifest.jsonl"], cwd: work)
+                try await ToolRunner.output(
                     "git",
                     ["commit", "-m", "data: contribute corpus \(row.name) (\(row.language))"],
                     cwd: work)
-                try ToolRunner.output("git", ["push", "origin", branch], cwd: work)
-                let prURL = try ToolRunner.output(
+                try await ToolRunner.output("git", ["push", "origin", branch], cwd: work)
+                let prURL = try await ToolRunner.output(
                     "gh",
                     ["pr", "create", "-R", repo, "--head", branch,
                      "--title", "data: contribute corpus \(row.name) (\(row.language))",
