@@ -68,59 +68,28 @@ struct WrapperSidecarTests {
         // conversion — which is the guard doing its job, not a surprise.
         // Meanwhile the drains run concurrently, because "the output is small"
         // is precisely the reasoning that left #158 open.
-        return try runScript(Self.wrapper.path, env: env)
+        return try await runScript(Self.wrapper.path, env: env)
     }
 
     /// Runs a shell script and returns its stderr.
     ///
-    /// Spawns directly because `SubprocessRunner` lives on the #165 branch,
-    /// which is independent of this one and merges first (#165 → #163 → #164).
-    /// Once #165 lands, its SpawnSiteSweepTests guard will flag this site and
-    /// force the conversion — that is the guard working. Both pipes are drained
-    /// concurrently and the wait is bounded, because "the output is small" is
-    /// exactly the reasoning that left #158 open.
-    @discardableResult
-    private func runScript(_ path: String, env: [String: String]) throws -> String {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/bin/bash")
-        process.arguments = [path]
-        process.environment = env
-        let outPipe = Pipe()
-        let errPipe = Pipe()
-        process.standardOutput = outPipe
-        process.standardError = errPipe
-        try process.run()
-
-        final class DataBox: @unchecked Sendable {
-            private let lock = NSLock()
-            private var value = Data()
-            func set(_ d: Data) { lock.withLock { value = d } }
-            var get: Data { lock.withLock { value } }
-        }
-        let outBox = DataBox()
-        let errBox = DataBox()
-        let group = DispatchGroup()
-        for (pipe, box) in [(outPipe, outBox), (errPipe, errBox)] {
-            group.enter()
-            DispatchQueue.global().async {
-                box.set(pipe.fileHandleForReading.readDataToEndOfFile())
-                group.leave()
-            }
-        }
-        // Scaled to the machine. 60s is generous on an 18-core dev box and
-        // tight on a 3-core CI runner where a dozen suites spawn processes at
-        // once — CI failed here with "exceeded its 60s budget" while every
-        // other test in the run also reported ~64s, i.e. the whole process was
-        // contended, not the wrapper. The budget's job is that a hung wrapper
-        // fails instead of stalling forever, and it still does that.
-        let budgetSeconds = ProcessInfo.processInfo.activeProcessorCount >= 8 ? 60 : 180
-        if group.wait(timeout: .now() + .seconds(budgetSeconds)) == .timedOut {
-            process.terminate()
-            _ = group.wait(timeout: .now() + .seconds(2))
-            throw BestASRError.runtime("wrapper test exceeded its \(budgetSeconds)s budget")
-        }
-        process.waitUntilExit()
-        return String(decoding: errBox.get, as: UTF8.self)
+    /// Routed through `SubprocessRunner` (#165). The earlier version spawned
+    /// directly with a hand-rolled drain, carrying a note that the sweep guard
+    /// would flag it once #165 landed and force this conversion. It landed, the
+    /// guard flagged it, and this is that conversion — the guard working as
+    /// designed rather than a surprise.
+    ///
+    /// The budget scales with the machine: 60s is generous on an 18-core dev box
+    /// and tight on a 3-core CI runner where a dozen suites spawn processes at
+    /// once. Its job is that a hung wrapper fails instead of stalling forever,
+    /// which is unchanged.
+    private func runScript(_ path: String, env: [String: String]) async throws -> String {
+        let budgetSeconds: TimeInterval =
+            ProcessInfo.processInfo.activeProcessorCount >= 8 ? 60 : 180
+        let (_, _, stderr) = try await SubprocessRunner.run(
+            executable: "/bin/bash", arguments: [path],
+            timeout: budgetSeconds, backend: "wrapper-test", environment: env)
+        return stderr
     }
 
     /// The exact poisoned state the issue tabulated. Plugin.json pins 0.16.0;
@@ -229,7 +198,7 @@ struct WrapperSidecarTests {
         var env = ProcessInfo.processInfo.environment
         env["BESTASR_WRAPPER_INSTALL_DIR"] = bin.path
         env["PATH"] = stubs.path + ":" + (env["PATH"] ?? "/usr/bin:/bin")
-        _ = try runScript(Self.wrapper.path, env: env)
+        _ = try await runScript(Self.wrapper.path, env: env)
 
         let sidecar = try String(
             contentsOf: bin.appendingPathComponent(".bestasr-mcp.version"), encoding: .utf8)
@@ -283,7 +252,7 @@ struct WrapperVerificationRejectionTests {
 
     /// Serves release metadata for `servedTag` and an unsigned file as the
     /// binary asset, so verification fails on genuine grounds.
-    private func makeSandbox(sidecar: String?, servedTag: String) throws -> Sandbox {
+    private func makeSandbox(sidecar: String?, servedTag: String) async throws -> Sandbox {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("wrapper-reject-\(UUID().uuidString)", isDirectory: true)
         let bin = root.appendingPathComponent("bin", isDirectory: true)
@@ -325,19 +294,17 @@ struct WrapperVerificationRejectionTests {
         env["BESTASR_WRAPPER_INSTALL_DIR"] = bin.path
         env["PATH"] = stubs.path + ":" + (env["PATH"] ?? "/usr/bin:/bin")
         let wrapper = WrapperSidecarTests.wrapper.path
-        let p = Process()
-        p.executableURL = URL(fileURLWithPath: "/bin/bash")
-        p.arguments = [wrapper]
-        p.environment = env
-        p.standardOutput = Pipe()
-        p.standardError = Pipe()
-        try p.run()
-        p.waitUntilExit()
+        // Through the shared runner like every other spawn (#165): a direct
+        // Process() here would be a fourth drain shape for one concern, which
+        // is what SpawnSiteSweepTests exists to prevent.
+        _ = try? await SubprocessRunner.run(
+            executable: "/bin/bash", arguments: [wrapper],
+            timeout: 60, backend: "wrapper-test", environment: env)
         return Sandbox(bin: bin, root: root)
     }
 
-    @Test func `A rejected download must not stamp the sidecar with its version`() throws {
-        let box = try makeSandbox(sidecar: "v2:0.15.0\n", servedTag: "0.16.0")
+    @Test func `A rejected download must not stamp the sidecar with its version`() async throws {
+        let box = try await makeSandbox(sidecar: "v2:0.15.0\n", servedTag: "0.16.0")
         defer { try? FileManager.default.removeItem(at: box.root) }
 
         let after = (box.sidecar ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
@@ -348,10 +315,10 @@ struct WrapperVerificationRejectionTests {
         #expect(box.binaryBody?.contains("EXISTING") == true)
     }
 
-    @Test func `A rejected download leaves the machine able to re-resolve`() throws {
+    @Test func `A rejected download leaves the machine able to re-resolve`() async throws {
         // No sidecar at all: the wrapper must not invent one for a binary it
         // refused to install.
-        let box = try makeSandbox(sidecar: nil, servedTag: "0.16.0")
+        let box = try await makeSandbox(sidecar: nil, servedTag: "0.16.0")
         defer { try? FileManager.default.removeItem(at: box.root) }
         #expect(
             box.sidecar == nil,

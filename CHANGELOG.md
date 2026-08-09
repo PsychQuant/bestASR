@@ -53,8 +53,6 @@ All notable changes to bestASR are documented here. The format follows
 
 ### Fixed
 
-### Fixed
-
 - **Subprocess deadlock, third occurrence (#165)**: `WhisperCppEngine` attached
   stdout to a `Pipe()` nobody read and then waited with no timeout, so any
   whisper.cpp run producing more than Darwin's 64 KB pipe buffer hung forever —
