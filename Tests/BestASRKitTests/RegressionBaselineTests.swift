@@ -7,6 +7,17 @@ import Testing
 /// baseline file's schema, and the gate's compare stage — exercised as the
 /// REAL implementation (`scripts/lib/baseline-compare.py`) via Process, not a
 /// Swift re-implementation that could drift from what the gate actually runs.
+/// Serialized (#165 round 4 / CI). Each test spawns `baseline-compare.py` and
+/// then blocks a thread in `group.wait()`. Swift Testing runs the nine of them
+/// in parallel, and that wait blocks a COOPERATIVE-POOL thread — so on a 3-core
+/// CI runner nine of them exhaust the pool, starve every other suite, and blow
+/// their own 120s budgets. The log signature was unmistakable: every test in
+/// the run, including passing ones, reported the same ~372s duration.
+///
+/// Same root cause as the concurrency defect this PR fixes in SubprocessRunner
+/// — blocking work on the pool that also has to run the code enforcing the
+/// deadline — here in the test harness rather than the product.
+@Suite(.serialized)
 struct RegressionBaselineTests {
     static let repoRoot = URL(fileURLWithPath: #filePath)
         .deletingLastPathComponent()  // BestASRKitTests
