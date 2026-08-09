@@ -234,6 +234,15 @@ public enum SubprocessRunner {
     ) async throws -> Bool {
         let deadline = ContinuousClock.now.advanced(by: .seconds(timeout))
         while true {
+            // Cancellation is checked FIRST, and explicitly (#165 round 4 / CI).
+            // `onCancel` runs `teardown()`, which terminates the child and
+            // closes the read ends — so by the time this task is resumed the
+            // completion condition below can already be TRUE. Checking
+            // completion first therefore let a cancelled call return normally
+            // and swallowed the CancellationError, violating guarantee 4. It
+            // only showed up under load, where resumption is delayed enough to
+            // land past the sleep: local runs never hit it, CI did.
+            try Task.checkCancellation()
             if exited.isSet && box.bothDrained { return false }
             if ContinuousClock.now >= deadline { return true }
             try await Task.sleep(for: pollInterval)

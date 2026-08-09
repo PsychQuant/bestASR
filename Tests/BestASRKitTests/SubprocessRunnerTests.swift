@@ -99,6 +99,10 @@ import Testing
                 return false
             }
         }
+        // Repeated below with varied timing: the swallow this guards against
+        // depends on WHERE the runner's poll loop is when the cancel lands, and
+        // a single fixed delay samples one point. CI hit it and 300 ms locally
+        // never did.
         try await Task.sleep(nanoseconds: 300_000_000)
         let start = ContinuousClock.now
         task.cancel()
@@ -109,6 +113,45 @@ import Testing
         #expect(
             seconds < 4,
             "cancellation must not wait out the child — took \(seconds)s")
+    }
+
+    /// #165 round 4 / CI. `onCancel` runs `teardown()`, which terminates the
+    /// child and closes the read ends — so the runner's completion condition
+    /// can be TRUE by the time the cancelled task is resumed. Checking
+    /// completion before cancellation therefore returned normally and swallowed
+    /// the CancellationError, violating guarantee 4. It reproduced only under
+    /// load, so this samples many cancel offsets instead of one.
+    ///
+    /// Honest limit: this test does NOT reproduce the bug on a fast, idle
+    /// machine — removing the guard leaves it green here. The race needs the
+    /// resumption delay that a loaded CI runner supplies. It is kept because it
+    /// samples far more of the window than the single 300 ms offset did, and
+    /// because it will run on that CI runner; but the thing that actually makes
+    /// cancellation correct is the explicit check in `raceCompletion`, not this.
+    @Test func `Cancellation is never swallowed, whatever the poll loop is doing`() async throws {
+        let (dir, script) = try stub("sleep 6\n")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let path = script.path
+
+        // Offsets straddling the 20 ms poll interval, so some cancels land in
+        // the sleep and some land just as the loop re-enters.
+        for micros in [1_000, 5_000, 15_000, 21_000, 25_000, 40_000, 60_000] {
+            let task = Task { () -> Bool in
+                do {
+                    _ = try await SubprocessRunner.run(
+                        executable: path, arguments: [], timeout: 30, backend: "test")
+                    return false
+                } catch is CancellationError {
+                    return true
+                } catch {
+                    return false
+                }
+            }
+            try await Task.sleep(nanoseconds: UInt64(micros) * 1_000)
+            task.cancel()
+            let saw = await task.value
+            #expect(saw, "cancel at \(micros)µs returned without a CancellationError")
+        }
     }
 
     /// The ordinary path must keep working: a child that exits cleanly inside
