@@ -151,7 +151,15 @@ struct MCPServerTests {
         _ = await jobs.start(recordedWork)  // async #1
         _ = await jobs.start(recordedWork)  // async #2
         _ = try? await recordedWork()  // sync path, same gate
-        try? await Task.sleep(for: .milliseconds(300))  // let the async jobs drain
+        // Poll to a deadline rather than sleeping a fixed 300ms. The fixed
+        // sleep was a race dressed as a wait: it holds on an idle 18-core box
+        // and fails on a contended CI runner, where the two async jobs have not
+        // finished yet and `completed` reads 2. Polling asserts the same thing
+        // without encoding an assumption about machine speed.
+        let deadline = ContinuousClock.now.advanced(by: .seconds(10))
+        while await tracker.completed < 3 && ContinuousClock.now < deadline {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
         #expect(await tracker.maxConcurrent == 1)
         #expect(await tracker.completed == 3)
     }

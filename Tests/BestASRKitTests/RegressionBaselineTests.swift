@@ -7,6 +7,17 @@ import Testing
 /// baseline file's schema, and the gate's compare stage — exercised as the
 /// REAL implementation (`scripts/lib/baseline-compare.py`) via Process, not a
 /// Swift re-implementation that could drift from what the gate actually runs.
+/// Serialized (#165 round 4 / CI). Each test spawns `baseline-compare.py` and
+/// then blocks a thread in `group.wait()`. Swift Testing runs the nine of them
+/// in parallel, and that wait blocks a COOPERATIVE-POOL thread — so on a 3-core
+/// CI runner nine of them exhaust the pool, starve every other suite, and blow
+/// their own 120s budgets. The log signature was unmistakable: every test in
+/// the run, including passing ones, reported the same ~372s duration.
+///
+/// Same root cause as the concurrency defect this PR fixes in SubprocessRunner
+/// — blocking work on the pool that also has to run the code enforcing the
+/// deadline — here in the test harness rather than the product.
+@Suite(.serialized)
 struct RegressionBaselineTests {
     static let repoRoot = URL(fileURLWithPath: #filePath)
         .deletingLastPathComponent()  // BestASRKitTests
@@ -65,6 +76,20 @@ struct RegressionBaselineTests {
         let script = Self.repoRoot.appendingPathComponent("scripts/lib/baseline-compare.py")
         let input = try JSONSerialization.data(
             withJSONObject: ["baseline": baseline, "measured": measured])
+        // #165 family-wide sweep — EXEMPT from SubprocessRunner, deliberately.
+        //
+        // This is the one spawn site the shared runner cannot serve: it feeds
+        // the child on stdin, and SubprocessRunner has no stdin support —
+        // tracked as item 4 of #170's Expected list, NOT the descendant-kill gap
+        // #170 is named for (#165 round-2 M5 flagged that miscitation). Rather
+        // than pretend, the shape is fixed in place, bounded below, and the
+        // exemption is registered in SpawnSiteSweepTests with its retained risk.
+        //
+        // The bug being fixed here is the stdin-side mirror of #158: writing the
+        // whole payload before draining deadlocks once the input exceeds the
+        // pipe buffer and the child starts emitting output — the child blocks
+        // writing stdout, so it never drains our stdin, so our write never
+        // returns. Drain concurrently with the write.
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
         p.arguments = [script.path]
@@ -73,12 +98,71 @@ struct RegressionBaselineTests {
         p.standardInput = inPipe
         p.standardOutput = outPipe
         p.standardError = outPipe
+        // Installed BEFORE run() so an instant exit cannot miss it. This is what
+        // makes the reaps below bounded — `waitUntilExit()` has no timeout, and
+        // round-4 review found BOTH calls to it here were unbounded, including
+        // the happy-path one, which is the likelier of the two to bite: EOF on
+        // stdout means the child closed it, not that the child exited.
+        let exited = DispatchSemaphore(value: 0)
+        p.terminationHandler = { _ in exited.signal() }
         try p.run()
+
+        final class DataBox: @unchecked Sendable {
+            private let lock = NSLock()
+            private var value = Data()
+            func set(_ d: Data) { lock.withLock { value = d } }
+            var get: Data { lock.withLock { value } }
+        }
+        let outBox = DataBox()
+        let group = DispatchGroup()
+        group.enter()
+        DispatchQueue.global().async {
+            // Must not be the raising legacy API: the timeout path below closes
+            // this handle to unblock the drain, and `readDataToEndOfFile()`
+            // raises an ObjC exception on a closed descriptor, which Swift
+            // cannot catch — it ABORTS the process. CI proved it: the run died
+            // with "Exited with unexpected signal code 6" after the 120s budget
+            // fired. Same defect as the #165 round-4 CRITICAL, in the site the
+            // sweep exempts (#165 round 4 / CI).
+            outBox.set(SubprocessRunner.drain(outPipe.fileHandleForReading))
+            group.leave()
+        }
         inPipe.fileHandleForWriting.write(input)
         inPipe.fileHandleForWriting.closeFile()
-        let out = String(
-            data: outPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-        p.waitUntilExit()
+
+        // #165 round-2 N2: fixing the ordering deadlock left this site with no
+        // deadline at all — `group.wait()` and `waitUntilExit()` were both
+        // unbounded, and none of the callers carry a `.timeLimit` (which could
+        // not preempt these anyway). "No deadline bounding the operation" is the
+        // exact failure mode #91 → #158 → #165 kept recurring as, so leaving it
+        // here would have re-created it in the one site the sweep exempted.
+        //
+        // Bounded wait with a kill escalation, mirroring SubprocessRunner. This
+        // is not the shared helper — it cannot be, until #170 adds stdin — but
+        // it does have to be bounded.
+        let budget = DispatchTime.now() + .seconds(120)
+        if group.wait(timeout: budget) == .timedOut {
+            p.terminate()
+            if group.wait(timeout: .now() + .seconds(2)) == .timedOut {
+                kill(p.processIdentifier, SIGKILL)
+                try? outPipe.fileHandleForReading.close()
+                _ = group.wait(timeout: .now() + .seconds(2))
+            }
+            _ = exited.wait(timeout: .now() + .seconds(2))
+            throw BestASRError.runtime(
+                "baseline-compare.py exceeded its 120s budget and was terminated")
+        }
+        // Bounded reap on the success path too. A child that closes stdout and
+        // then lingers would otherwise park here forever — the same "no
+        // deadline bounding the operation" shape as #91 → #158 → #165, in the
+        // one site the sweep exempts.
+        if exited.wait(timeout: .now() + .seconds(10)) == .timedOut {
+            kill(p.processIdentifier, SIGKILL)
+            _ = exited.wait(timeout: .now() + .seconds(2))
+            throw BestASRError.runtime(
+                "baseline-compare.py closed its output but did not exit within 10s")
+        }
+        let out = String(data: outBox.get, encoding: .utf8) ?? ""
         return (p.terminationStatus, out)
     }
 
