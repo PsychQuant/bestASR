@@ -48,9 +48,14 @@ struct SubprocessConcurrencyTests {
                 + "exit 0\n")
         defer { try? FileManager.default.removeItem(at: dir) }
 
-        // Above the core count on purpose: the defect only appears once the
-        // blocking drains outnumber the pool's threads.
-        let concurrency = max(24, ProcessInfo.processInfo.activeProcessorCount + 8)
+        // Above the core count on purpose — the defect only appears once the
+        // blocking drains outnumber the pool's threads — but SCALED to the
+        // machine. A fixed 24 is ~1.3x the cores on the dev box and ~8x on a
+        // CI runner, where it starved every sibling suite for minutes and took
+        // the whole run down with it. Twice the core count still exceeds the
+        // pool everywhere, which is all this test needs.
+        let cores = ProcessInfo.processInfo.activeProcessorCount
+        let concurrency = min(24, max(8, cores * 2))
         let budget: TimeInterval = 1
 
         let elapsed = await withTaskGroup(of: Double.self) { group in

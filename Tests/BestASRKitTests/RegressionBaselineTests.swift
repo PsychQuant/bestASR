@@ -106,7 +106,14 @@ struct RegressionBaselineTests {
         let group = DispatchGroup()
         group.enter()
         DispatchQueue.global().async {
-            outBox.set(outPipe.fileHandleForReading.readDataToEndOfFile())
+            // Must not be the raising legacy API: the timeout path below closes
+            // this handle to unblock the drain, and `readDataToEndOfFile()`
+            // raises an ObjC exception on a closed descriptor, which Swift
+            // cannot catch — it ABORTS the process. CI proved it: the run died
+            // with "Exited with unexpected signal code 6" after the 120s budget
+            // fired. Same defect as the #165 round-4 CRITICAL, in the site the
+            // sweep exempts (#165 round 4 / CI).
+            outBox.set(SubprocessRunner.drain(outPipe.fileHandleForReading))
             group.leave()
         }
         inPipe.fileHandleForWriting.write(input)
