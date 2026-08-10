@@ -1,3 +1,4 @@
+import BestASRKit
 import CryptoKit
 import Foundation
 import Testing
@@ -29,24 +30,38 @@ import Testing
 /// Changing one of those means changing the declaration, on purpose.
 ///
 /// **The blind spots this leaves.** Every item below was a mutation that
-/// passed. The list has been wrong in each of rounds 9 to 19 — by stating the
-/// vacuity case backwards, then by claiming a set of figures was unbound when
-/// three of them fail on change — so it is written from what got through, and
-/// where a claim would need testing to make, it is not made.
+/// passed. The list has been wrong in each of rounds 9 to 22 — the vacuity
+/// case stated backwards; a set of figures called unbound when three of them
+/// fail on change; a byte count that was a character count; and an enumeration
+/// closed with *"that is the whole of the constraint"* while five further rules
+/// constrained it. The last is the one worth naming: **a summarising sentence
+/// over a list asserts a completeness the list was never checked for.** So the
+/// items below say what was measured, and nothing is called whole that was not
+/// counted.
 ///
 /// - **Prose *content* is not under test.** Only fields a relation reads are
 ///   pinned at all, and it pins the figure it quotes, not the sentence. Every
-///   other string may be replaced by a **short filler**, and the file goes from
-///   23,891 bytes to 4,083 with nothing reported — losing the reproduction
-///   recipe, the commands that produced every number, the provenance paragraph
-///   saying the verifier runs were not blind and not independently designed,
-///   the four-cell `nm` table, sixteen of twenty probe methods and every
-///   `method_limits` entry. The fillers are not free-form: array elements must
-///   render differently from one another, and a probe method must carry a
-///   backticked token that is not its own field name, so `"x"` everywhere
-///   **fails** — `"a"`, `"b"`, … and `` `a` 0 ``, `` `a` 1 ``, … pass. That is
-///   the whole of the constraint. A passing run does **not** mean the file
-///   still says what it said.
+///   other string may be replaced by a **short filler**: such a file was built
+///   and run, and it passes all eight tests at **4,165 bytes against 23,987** —
+///   losing the reproduction recipe, the commands that produced every number,
+///   the provenance paragraph saying the verifier runs were not blind and not
+///   independently designed, the four-cell `nm` table, sixteen of twenty probe
+///   methods and every `method_limits` entry. A passing run does **not** mean
+///   the file still says what it said.
+///
+///   The fillers are not free-form. What that 4,165-byte file had to satisfy,
+///   in full: each array's elements render differently from one another, and so
+///   do the twenty probe methods; every probe method carries a backticked token
+///   that is neither its own field name nor a key from another block; no filler
+///   is blank-rendering, writes an underscored key without backticks, or
+///   backticks an underscored name that is no field; `edit_list` still names
+///   exactly `metric.edits` operation words; `metric.kind`, `session.corpus`,
+///   `session.language` and the two command strings still agree with the code
+///   and the script; and the bound phrases below are still present — the
+///   figures, not the sentences that carried them. So `"x"` everywhere
+///   **fails**, while `"a"`, `"b"`, … with `` `a` 0 ``, `` `a` 1 ``, … in the
+///   probes passes. That is what one measured file needed, not a proof that
+///   nothing else constrains a filler.
 /// - **A declaration detects one-sided change.** A deletion, rename or typo
 ///   applied to both the artifact and the declaration agrees with itself. That
 ///   is the dual of a derived schema, which cannot detect absence at all.
@@ -71,10 +86,14 @@ import Testing
 ///   needs exactly two parseable matches in textual order, and moving both into
 ///   a negated passage still passes. A third quadruple breaks it only if it
 ///   parses — one whose digits overflow `Int` is dropped and the law passes.
-/// - **A probe entry may cite any backticked token**, so filler, a denial or
-///   mutual citation pass — except where a prose law pins the entry. The twenty
-///   methods must render differently from each other, and each must name
-///   something other than its own field.
+/// - **A probe entry's citation is checked for existence, not for aptness**, so
+///   filler, a denial or mutual citation pass — except where a prose law pins
+///   the entry. What it may *not* cite is a backticked name that is a key
+///   somewhere else in the file: `` `edits` `` in a probe fails, because
+///   `metric.edits` belongs to another block. In scope are the census
+///   measurements, the declared `how` keys, `path_coverage` and `_limits`. The
+///   twenty methods must also render differently from each other, and none may
+///   name its own field.
 /// - **No rule checks a method is true of the code**, or that a citation is apt.
 /// - **The two name rules are not one rule.** The dangling-name rule sees
 ///   underscored, all-lowercase, non-`__` names; the bare-name rule has no
@@ -88,14 +107,26 @@ import Testing
 ///   figures restated in `_limits[1]`, and `edit_list`'s operation words.
 ///   Everything else drifts silently — `_limits[0]`'s token ids, `_nm_note`'s
 ///   four cells, `method_limits`' counts, the toolchain version.
-/// - **Two external checks, and only two.** The arm under test must carry the
-///   revision `Package.resolved` pins, and the two corpus digests must match
-///   what `scripts/fetch-corpora.sh` pins and writes. Everything else is
-///   checked against another value in the same JSON, prose in the same JSON, or
-///   a literal here — so the suite is a **drift detector on a reviewed
-///   snapshot**, not a measurement verifier. It does not rerun the
-///   transcription, hash a transcript, recompute the WER, or inspect the
-///   executable `executable_sha256` names.
+/// - **The numbers are pinned; the conclusions stated in words are not.** The
+///   `nm` counts are pinned to 0 and 4, and `_nm_note` three keys away may say
+///   the arms came out the other way round. `cross_pin_cmp` may report the
+///   transcripts differ while three observations assert they are identical.
+///   Nothing here reads affirmation or negation, and binding English polarity
+///   is not attempted — so the sentence a reader quotes is the part no test
+///   defends, sitting beside the figure that is defended.
+/// - **Four relations leave the evidence file, reading two other files.** One
+///   requires the arm under test to carry the revision `Package.resolved` pins;
+///   three require `session.corpus` and the two corpus digests to match what
+///   `scripts/fetch-corpora.sh` registers, pins and writes. A fifth check
+///   leaves the file but not the repository: `metric.kind` comes from
+///   `LanguageResolver`, which is shipped code rather than a data file.
+///   Everything else is checked against another value in the same JSON, prose
+///   in the same JSON, or a literal here — so the suite is a **drift detector
+///   on a reviewed snapshot**, not a measurement verifier. It does not rerun
+///   the transcription, hash the **arm** transcripts, recompute the WER **from
+///   the transcripts**, or inspect the executable `executable_sha256` names.
+///   Both emphases carry weight: the *reference* transcript is hashed here, and
+///   `metric.value` is re-derived from `edits / reference_words`.
 /// - **The census is pinned by `observations`, not by any relation.** The sum
 ///   identities are homogeneous, so they hold under uniform scaling and under
 ///   reallocation between `matches` and `canonicals_differed`; the anchors pin
@@ -109,26 +140,58 @@ struct EvidenceFileTests {
     static let evidenceDirectory = repoRoot.appendingPathComponent("benchmarks/evidence")
 
     /// The corpus this evidence was measured on, as `scripts/fetch-corpora.sh`
-    /// pins it: the WAV digest it verifies after conversion, and the digest of
-    /// the reference SRT it writes.
+    /// pins it: the name it registers, the WAV digest it verifies after
+    /// conversion, and the digest of the reference SRT it writes.
     ///
-    /// Both were hard-coded in `observations` and compared against the artifact
-    /// they came from, which is agreement by construction. They are not
+    /// Both digests were hard-coded in `observations` and compared against the
+    /// artifact they came from, which is agreement by construction. They are not
     /// observations of the run at all — they are properties of a corpus this
-    /// repository already pins, so they are laws, and derivable ones. The
-    /// script's fetch helper writes `printf '%s\n' "$srt_body"`, so the
-    /// reference file is the heredoc body plus exactly one newline.
-    static let pinnedCorpus: (audio: String, reference: String)? = {
+    /// repository already pins.
+    ///
+    /// **This models the shell's semantics, not the text's**, because round 22
+    /// found three places where those differ and every one of them made a green
+    /// run certify a false statement or a red run condemn a correct file:
+    ///
+    /// - the shell takes the **last** `OSR1_SHA=` assignment and `firstMatch`
+    ///   took the first, so a re-pin that left the old line above read a value
+    ///   the script would refuse. A duplicate is a defect in the script whichever
+    ///   value is right, so more than one match refuses to guess;
+    /// - `srt_body=$(cat)` strips **all** trailing newlines and `printf '%s\n'`
+    ///   restores exactly one, so trailing blank lines in the heredoc cannot
+    ///   change the file. Appending one newline to the raw capture said they can,
+    ///   and a whitespace edit reddened the suite;
+    /// - without `^` the body regex matched a dead definition inside
+    ///   `if false; then … fi`, or a commented-out one, while the shell ran the
+    ///   live one. The parse modelled text adjacency, not shell binding.
+    ///
+    /// It is still a regex over shell source, so edits it cannot follow remain.
+    /// Every one of them leaves this `nil`, both digest laws then fail closed,
+    /// and `the external anchors still parse` names the script — so a script
+    /// edit stops being reported as two defects in the evidence file.
+    static let pinnedCorpus: (name: String, audio: String, reference: String)? = {
         guard let script = try? String(
             contentsOf: repoRoot.appendingPathComponent("scripts/fetch-corpora.sh"),
             encoding: .utf8)
         else { return nil }
-        guard let shaLine = script.firstMatch(of: #/(?m)^OSR1_SHA="([0-9a-f]{64})"/#),
-            let body = script.firstMatch(of: #/(?s)fetch_osr1\(\)[^\n]*<<'SRT';\s*\}\n(.*?)\nSRT\n/#)
+        // Tolerant of the forms a maintainer actually writes — indentation,
+        // `readonly`/`export`, single or absent quotes, a trailing comment —
+        // because every false alarm here costs a benchmark re-run to disprove.
+        let assignment =
+            #/(?m)^[ \t]*(?:readonly[ \t]+|export[ \t]+)?OSR1_SHA=["']?([0-9a-f]{64})["']?[ \t]*(?:#.*)?$/#
+        let heredoc = #/(?sm)^fetch_osr1\(\)([^\n]*)<<'SRT';[ \t]*\}\n(.*?)\nSRT\n/#
+        let shas = script.matches(of: assignment)
+        let definitions = script.matches(of: heredoc)
+        guard shas.count == 1, definitions.count == 1,
+            let named = String(definitions[0].output.1).firstMatch(
+                of: #/fetch_osr_list[ \t]+\S+[ \t]+["']?([A-Za-z0-9._-]+)["']?/#)
         else { return nil }
-        let reference = Data((String(body.output.1) + "\n").utf8)
+        // `$(cat)` collapses any run of trailing newlines; `printf '%s\n'` then
+        // writes exactly one. Strip what the shell strips before adding it back.
+        var body = String(definitions[0].output.2)
+        while body.hasSuffix("\n") { body.removeLast() }
+        let reference = Data((body + "\n").utf8)
         let digest = SHA256.hash(data: reference).map { String(format: "%02x", $0) }.joined()
-        return (String(shaLine.output.1), digest)
+        return (String(named.output.1), String(shas[0].output.1), digest)
     }()
 
     /// The FluidAudio pin as `Package.resolved` records it, or `nil` if it is
@@ -476,11 +539,26 @@ struct EvidenceFileTests {
                     else { return false }
                     return abs(recorded - want) < 1e-12
                 },
-                // The corpus digests are derivable, so they are derived. Both
-                // were constrained only by `.hex(64)`, so the file could name
-                // another corpus's audio with `session.corpus: "osr-harvard-1"`
-                // two lines above and nothing would notice.
-                Relation(label: "session.audio_sha256 is the WAV digest `fetch-corpora.sh` pins") {
+                // The corpus. All three were constrained only by shape, so the
+                // file could name another corpus's audio with
+                // `session.corpus: "osr-harvard-1"` and nothing would notice.
+                //
+                // **These two digests are not equally earned, and the labels now
+                // say which is which.** `reference_sha256` is recomputed here
+                // from the heredoc bytes, so it can catch a wrong value.
+                // `audio_sha256` is a cross-file *agreement*: 64 hex characters
+                // in the evidence compared against 64 hex characters in a shell
+                // script, with no WAV hashed anywhere. It catches the evidence
+                // and the script disagreeing — worth having, and strictly less
+                // than a derivation. Contrast `pinnedFluidAudio`: the same
+                // shape, but earned, because `Package.resolved` is written by a
+                // *tool* from an external fact, while `fetch-corpora.sh` is
+                // written by the same hand as the evidence file.
+                Relation(label: "session.corpus is the corpus `fetch-corpora.sh` registers these digests under") {
+                    guard let corpus = pinnedCorpus else { return false }
+                    return string($0, "session.corpus") == corpus.name
+                },
+                Relation(label: "session.audio_sha256 agrees with the WAV digest `fetch-corpora.sh` pins") {
                     guard let corpus = pinnedCorpus else { return false }
                     return string($0, "session.audio_sha256") == corpus.audio
                 },
@@ -488,12 +566,62 @@ struct EvidenceFileTests {
                     guard let corpus = pinnedCorpus else { return false }
                     return string($0, "session.reference_sha256") == corpus.reference
                 },
+                // Four different byte streams cannot hash alike. This is
+                // arithmetic, not measurement: it needs no hashing, no
+                // transcription and no external file. Unstated, the six
+                // transcript digests could all be set to `reference_sha256` —
+                // which says the ASR output was byte-identical to the reference,
+                // so the WER is 0, while `metric.value` two keys away says
+                // 0.0375 and `edit_list` names three edits.
+                Relation(label: "the audio, the reference and the two transcript formats are four different byte streams") { json in
+                    guard let audio = string(json, "session.audio_sha256"),
+                        let reference = string(json, "session.reference_sha256"),
+                        let arms = json["arms"] as? [String: Any]
+                    else { return false }
+                    let armed = arms.values.compactMap { $0 as? [String: Any] }
+                    guard !armed.isEmpty else { return false }
+                    return armed.allSatisfy { arm in
+                        guard let srt = arm["transcript_sha256_srt_run1"] as? String,
+                            let txt = arm["transcript_sha256_txt"] as? String
+                        else { return false }
+                        return Set([audio, reference, srt, txt]).count == 4
+                    }
+                },
                 // `metric.kind` names what every other figure in the block
-                // means. Unpinned, `"wer"` became `"cer"` while the 80-word
-                // denominator, the edit list and `_reproducing`'s whole recipe
-                // stayed put, retitling the headline number.
-                Relation(label: "the metric is a word error rate") {
-                    string($0, "metric.kind") == "wer"
+                // means. Pinned to the literal `"wer"` it was still free of
+                // everything around it: `session.language: "zh"` passed, and a
+                // CER is what this package computes for Chinese. So ask the
+                // shipped resolver — the code under test, not a regex over
+                // prose, and the only anchor here that cannot be edited into
+                // agreement without changing behaviour.
+                Relation(label: "metric.kind is the kind `LanguageResolver` picks for `session.language`") {
+                    guard let language = string($0, "session.language") else { return false }
+                    return string($0, "metric.kind")
+                        == LanguageResolver.metricKind(forLanguage: language).rawValue
+                },
+                // The two command strings are prose, but each restates something
+                // the file pins elsewhere, and both restatements have stable
+                // syntax. Free, `--language zh` sat beside `session.language:
+                // "en"`, and `grep -c <any other symbol>` made the pinned 0/4 a
+                // count of something else with the field *name* the only thing
+                // left saying otherwise.
+                Relation(label: "session.transcribe_command transcribes the language session.language names") {
+                    guard let command = string($0, "session.transcribe_command"),
+                        let language = string($0, "session.language")
+                    else { return false }
+                    return command.contains("--language " + language)
+                },
+                Relation(label: "session.nm_command counts the symbol the `nm_` arm fields are named for") { json in
+                    guard let command = string(json, "session.nm_command"),
+                        let arms = json["arms"] as? [String: Any]
+                    else { return false }
+                    let symbols = Set(
+                        arms.values.compactMap { $0 as? [String: Any] }
+                            .flatMap(\.keys)
+                            .filter { $0.hasPrefix("nm_") }
+                            .map { String($0.dropFirst(3)) })
+                    guard !symbols.isEmpty else { return false }
+                    return symbols.allSatisfy { command.contains($0) }
                 },
                 // The conclusion follows from its two comparisons.
                 Relation(label: "changed_merge_output == !(tokens_equal && timestamps_equal)") {
@@ -939,11 +1067,26 @@ struct EvidenceFileTests {
         /// A group or decimal separator, which continues a number only when a
         /// digit sits on its far side.
         func isSeparator(_ c: Character) -> Bool { c == "," || c == "." || c == "\u{066C}" || c == "\u{2019}" }
+        /// Is the character before `i` one a word or a number runs into? `-` is
+        /// three characters at once — a sign, a hyphen and a subtraction
+        /// operator — and only the first makes a different number.
+        func runsOn(_ i: String.Index) -> Bool {
+            guard i > text.startIndex else { return false }
+            let p = text[text.index(before: i)]
+            return p.isLetter || p.isNumber || p == "_"
+        }
         for range in text.ranges(of: needle) {
             if range.lowerBound > text.startIndex {
                 let i = text.index(before: range.lowerBound)
                 let before = text[i]
-                if before.isNumber || isSign(before) { continue }
+                if before.isNumber { continue }
+                // Reading every `-` as a sign rejected `guard-773`, `re-773`,
+                // the range `770-780` and the unspaced arithmetic `773-640`,
+                // `133+640` — which is precisely what someone restating
+                // `_limits[1]` writes. A sign is a sign only where a word or a
+                // digit does not run into it; `-773`, ` -773` and `(−773)` are
+                // still a different number and still rejected.
+                if isSign(before), !runsOn(i) { continue }
                 if isSeparator(before), i > text.startIndex,
                     text[text.index(before: i)].isNumber { continue }
             }
@@ -1095,7 +1238,39 @@ struct EvidenceFileTests {
         }
     }
 
-    // MARK: - 5. The laws hold, and so do the declared observations
+    // MARK: - 5. The external anchors still parse
+
+    /// The three laws that read `scripts/fetch-corpora.sh` and the one relation
+    /// that reads `Package.resolved` are the only checks here that leave the
+    /// evidence file. When either source is edited past what the parse follows,
+    /// all of that source's checks fail at once — and each says the *evidence*
+    /// does not hold.
+    ///
+    /// That diagnostic sends a maintainer to re-run a benchmark, which is both
+    /// wrong and expensive. Twenty ordinary edits to `fetch-corpora.sh` were
+    /// tried in round 22; **twelve broke the parse and eleven of those twelve
+    /// left the corpus byte-for-byte unchanged** — reformatting the one-liner
+    /// into the idiomatic multi-line function is the likeliest of all. So say
+    /// which file stopped parsing, before saying anything about the evidence.
+    ///
+    /// It does not remove the noise, and the measured cost is worth stating: a
+    /// script edit past the parse fails **two tests, four expectations** — this
+    /// one, naming the file, and the three corpus laws behind it. What changed
+    /// is that the blame arrives *first*, not that the three stopped firing.
+    ///
+    /// A regex over source will always have edits it cannot follow. The honest
+    /// response is to name the file the maintainer just touched, not to widen
+    /// the regex until it seems safe.
+    @Test func `the external anchors still parse`() {
+        #expect(
+            Self.pinnedCorpus != nil,
+            "scripts/fetch-corpora.sh no longer parses — the corpus digest laws below cannot run, and the failures they report are about that file, not about the evidence")
+        #expect(
+            Self.pinnedFluidAudio != nil,
+            "Package.resolved no longer parses — the arm-revision relations below cannot run, and the failures they report are about that file, not about the evidence")
+    }
+
+    // MARK: - 6. The laws hold, and so do the declared observations
 
     @Test func `recorded values satisfy the laws and the declared observations`() throws {
         for e in try Self.evidenceFiles() {
