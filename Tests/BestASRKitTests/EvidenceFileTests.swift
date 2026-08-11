@@ -31,57 +31,62 @@ import Testing
 /// arrays hold `Relation`s; *law* and *observation* name the claim, not the
 /// type.
 ///
-/// **The blind spots this leaves.** Most items below are mutations that pass;
-/// two describe scope rather than a mutation, and the last names a mutation
-/// that is *caught*. The list has been wrong in each of rounds 9 to 23 — the
-/// vacuity case stated backwards; figures called unbound when three of them fail
-/// on change; a byte count that was a character count; an enumeration closed
-/// with *"that is the whole of the constraint"* while five further rules
-/// constrained it; a count of external checks given as "two, and only two" while
-/// naming three, and then as "four" in one paragraph and "the only" four in
-/// another that meant five; a rule written as a prohibition eight bullets after
-/// the same rule was written correctly; and — in the round that added the
-/// sentence *"a summarising sentence over a list asserts a completeness the list
-/// was never checked for"* — a summarising sentence over this very list, three
-/// sentences later, asserting that every item below was a passing mutation.
+/// **The blind spots this leaves.** Each item below describes one thing. There
+/// is no sentence classifying or counting the list, because for sixteen
+/// consecutive rounds every such sentence has been wrong — the vacuity case
+/// stated backwards; figures called unbound when three of them fail on change; a
+/// byte count that was a character count; *"that is the whole of the
+/// constraint"* while five further rules constrained it; external checks counted
+/// as "two, and only two" while naming three, then "four" in one paragraph and
+/// "the only" four in another that meant five; a rule written as a prohibition
+/// eight bullets after being written correctly; *"five rules"* introducing six;
+/// and — in the round that added *"a summarising sentence over a list asserts a
+/// completeness the list was never checked for"* — such a sentence three
+/// sentences later, wrong on both of its counts.
 ///
-/// That is the pattern, and it is not carelessness: **the comment is wrong
-/// wherever it summarises, counts, or claims completeness, and right wherever it
-/// describes one thing.** So the items below describe one thing each.
+/// The lesson is not to count more carefully. It is that a summary of a list
+/// **is a second copy of the list**, maintained by nobody, and it drifts. The
+/// same reasoning deleted a regex over shell source in round 23 and two command
+/// relations in round 24: where a claim cannot be kept true, do not make it.
 ///
-/// - **Prose *content* is not under test.** The fields a relation reads have
-///   their *content* pinned; every other string is still constrained in form,
-///   by five rules that read no relation at all — `.text`, array distinctness,
-///   the two name rules and the two probe rules. Within those, any string may be
-///   replaced by a **short filler**: such a file was built and run, and it
-///   passes all eight tests at about **4.2 kB against 23,987** — losing the
-///   reproduction recipe, the commands that produced every number, the
-///   provenance paragraph saying the verifier runs were not blind and not
-///   independently designed, the four-cell `nm` table, sixteen of twenty probe
-///   methods and every `method_limits` entry. A passing run does **not** mean
-///   the file still says what it said.
+/// - **Prose *content* is mostly not under test**, and where it is, the pinning
+///   is listed field by field further down rather than summarised here. Every
+///   string not named there is still constrained in *form*, by rules that read
+///   no relation at all: `.text`, array distinctness, the dangling-name rule,
+///   the bare-name rule, the probe-citation rule, and the two probe-method
+///   rules. Within those, any such string may be replaced by a **short
+///   filler** — a file so built passes all eight tests at about **4 kB against
+///   23,987**, losing the reproduction recipe, the commands that produced every
+///   number, the provenance paragraph saying the verifier runs were not blind
+///   and not independently designed, the four-cell `nm` table, sixteen of twenty
+///   probe methods and every `method_limits` entry. A passing run does **not**
+///   mean the file still says what it said.
 ///
-///   *About* 4.2 kB, because an exact figure here has been wrong twice. The
-///   smallest file measured is **4,165 bytes**; an independent reconstruction
-///   from this paragraph came out **4,180**, and the 15 bytes are real — the
-///   description does not fix how the retained figures are written, so it
-///   underdetermines the file. Quoting 4,165 as if the recipe produced it is how
-///   a character count once passed for a byte count.
+///   *About* 4 kB, and the vagueness is the honest part. Three independent
+///   reconstructions from this paragraph measured 4,155, 4,165 and 4,180 bytes,
+///   and the same content re-serialised without indentation is 3,315 — an
+///   840-byte swing the paragraph does not govern at all. A recipe in prose
+///   underdetermines a file; quoting one of its outcomes to the byte is how a
+///   character count once passed for a byte count.
 ///
-///   The fillers are not free-form. What the 4,165-byte file had to satisfy:
-///   each array's elements render differently from one another, and so do the
-///   twenty probe methods; every probe method carries a backticked token that is
-///   neither its own field name nor a key from another block; no filler is
-///   blank-rendering, writes an underscored key without backticks, or backticks
-///   an underscored name that is no field; `edit_list` still names exactly
-///   `metric.edits` operation words; `metric.kind` still agrees with
-///   `LanguageResolver`, `session.corpus` and `session.language` with the
-///   declaration, and the two commands with the language and the symbol they
-///   restate; and the bound phrases below are still present — the figures, not
-///   the sentences that carried them. That is what one measured file needed, not
-///   a proof that nothing else constrains a filler. So `"x"` everywhere
+///   The fillers are not free-form. What the smallest of those files had to
+///   satisfy: each array's elements render differently from one another, and so
+///   do the twenty probe methods; every probe method carries a backticked token
+///   that is neither its own field name nor a key from another block; no filler
+///   is blank-rendering, writes an underscored key without backticks, or
+///   backticks an underscored name that is no field; `edit_list` still names
+///   exactly `metric.edits` operation words; `metric.kind` still agrees with
+///   `LanguageResolver`, and `session.corpus` and `session.language` with the
+///   declaration; and the bound phrases below are still present — the figures,
+///   not the sentences that carried them. That is what one measured file needed,
+///   not a proof that nothing else constrains a filler. So `"x"` everywhere
 ///   **fails**, while `"a"`, `"b"`, … with `` `a` 0 ``, `` `a` 1 ``, … in the
 ///   probes passes.
+/// - **Three probe entries are read by a relation and still drift.** The clauses
+///   guarded `!quotes(…) || …` — `never nil`, `each 0`, `recorded true` — go
+///   vacuous when their phrase is removed, so "a field a relation reads has its
+///   content pinned" is not true of them. They are the exception to the bullet
+///   above, which is why that bullet no longer states the rule as a dichotomy.
 /// - **A declaration detects one-sided change.** A deletion, rename or typo
 ///   applied to both the artifact and the declaration agrees with itself. That
 ///   is the dual of a derived schema, which cannot detect absence at all.
@@ -130,7 +135,7 @@ import Testing
 /// - **No rule checks a method is true of the code**, or that a citation is apt.
 /// - **The two name rules are not one rule.** The dangling-name rule sees
 ///   underscored, all-lowercase, non-`__` names; the bare-name rule has no
-///   lowercase filter and excludes a *single* leading underscore, so `_limits`
+///   lowercase filter and excludes any leading underscore, so `_limits`
 ///   may be written bare. `chunks` and `merges` are invisible to both, in
 ///   backticks or out — single words cannot be required to carry backticks,
 ///   since the file legitimately writes `nil`, `left`, `grep`.
@@ -138,8 +143,10 @@ import Testing
 ///   Bound: the four `how.probes` phrases, both quadruples in
 ///   `isolating_the_counterfactual`, `_reproducing`'s recorded value, the five
 ///   figures restated in `_limits[1]`, and `edit_list`'s operation words.
-///   Everything else drifts silently — `_limits[0]`'s token ids, `_nm_note`'s
-///   four cells, `method_limits`' counts, the toolchain version.
+///   Everything else drifts silently. Among them: `_limits[0]`'s token ids,
+///   `_nm_note`'s four cells, `method_limits`' counts, the toolchain version,
+///   `session.measured_at`, and the four figures in `_reproducing` other than
+///   the recorded one. That list is examples, not an inventory.
 /// - **The numbers are pinned; the conclusions stated in words are not.** The
 ///   `nm` counts are pinned to 0 and 4, and `_nm_note` three keys away may say
 ///   the arms came out the other way round. `cross_pin_cmp` may report the
@@ -169,10 +176,13 @@ import Testing
 ///   `edits / reference_words`. (The reference transcript used to be hashed
 ///   here; deleting the script parse deleted that too, and the reference digest
 ///   is now a reviewed literal like the other two.)
-/// - **The census is pinned by `observations`, not by any law.** The sum
-///   identities are homogeneous, so they hold under uniform scaling and under
-///   reallocation between `matches` and `canonicals_differed`; the anchors pin
-///   the same ratios. Nothing internal to the file can tell those apart from an
+/// - **The `case_folded_*` counts are pinned by `observations`, not by any
+///   law.** Not "the census": `chunks` and `merges` are in `measuredCensus`
+///   too, and scaling them fires the law `merges == chunks - 1`, which is
+///   affine rather than homogeneous. The `case_folded_*` sum identities *are*
+///   homogeneous, so they hold under uniform scaling and under reallocation
+///   between `matches` and `canonicals_differed`; the anchors pin the same
+///   ratios. Nothing internal to the file can tell those apart from an
 ///   honest run, so re-measuring means editing this declaration, on purpose.
 ///   That is the cost, and it is the point.
 struct EvidenceFileTests {
@@ -198,76 +208,28 @@ struct EvidenceFileTests {
     /// worse than a literal, because a literal never claimed one.
     ///
     /// So the claim is now the true one, and it is smaller: a human compared
-    /// these three values against the script, and this file records what they
-    /// read. That catches the evidence drifting away from what was reviewed,
-    /// which is the only thing the derivation ever caught either.
+    /// these values against the script, and this file records what they found.
+    /// Two of them are read directly — the registered name and `OSR1_SHA`. The
+    /// reference digest is not written down anywhere in that script: it is the
+    /// SHA-256 of what `fetch_osr1`'s heredoc emits, so obtaining it is a
+    /// computation, not a reading. `language` comes from the `--language`
+    /// argument inside `fetch_osr_list`. That catches the evidence drifting away from what was reviewed —
+    /// one of the two directions the derivation covered, and the one worth
+    /// keeping. The other is genuinely gone: **no edit to
+    /// `scripts/fetch-corpora.sh` is visible to this suite any more.** Rename
+    /// the corpus, re-pin the WAV, change a word of the reference transcript,
+    /// or register nothing at all, and every test still passes. These literals
+    /// are a snapshot of a review performed once; nothing re-performs it.
     ///
     /// Re-pinning the corpus means editing these lines on purpose. Source:
-    /// `scripts/fetch-corpora.sh`, `fetch_osr1` and `OSR1_SHA`, read at
-    /// `58420bf`.
+    /// `scripts/fetch-corpora.sh` at `58420bf` — `fetch_osr1` for the name and
+    /// the heredoc, `OSR1_SHA` for the WAV digest, `fetch_osr_list` for the
+    /// language.
     static let reviewedCorpus = (
         name: "osr-harvard-1",
         audio: "0ed4ea79ee09b36f40235992b5bc03009f23167c0525930ddeafee0c04716a49",
         reference: "644c935af618dde484af146260166bb8c8d9be244ff467b1964b99d48d81c35e",
         language: "en")
-
-    /// The tokens a shell would pass as `argv`, for the two recorded commands.
-    ///
-    /// `contains` was the wrong tool three times over: `--language en` matched
-    /// `--language english`, `--language z` matched `--language zh`, and
-    /// `grep -c caseVariantCanonicalIds` matched
-    /// `grep -c caseVariantCanonicalIdsLegacyShim`. The evidence file documents
-    /// this exact trap four keys away, in `method_limits[1]`: *"`PROBE_1` is
-    /// answered by any `PROBE_10`."*
-    ///
-    /// A shell comment is dropped, because a symbol named only in one is not a
-    /// symbol the command counts — `grep -c tokenIdsMatch  # an earlier draft
-    /// counted caseVariantCanonicalIds` passed a containment test while counting
-    /// something else entirely.
-    ///
-    /// This is not a shell parser and does not try to be: it splits on
-    /// whitespace outside quotes, strips one layer of matching quotes, and cuts
-    /// at an unquoted `#`. Anything subtler than that in these two fields should
-    /// fail, and does.
-    static func commandTokens(_ command: String) -> [String] {
-        var tokens: [String] = []
-        var current = ""
-        var quote: Character?
-        var started = false
-        for c in command {
-            if let q = quote {
-                if c == q { quote = nil } else { current.append(c) }
-                continue
-            }
-            switch c {
-            case "'", "\"": quote = c; started = true
-            case "#": if started { tokens.append(current) }; return tokens
-            case " ", "\t", "\n":
-                if started { tokens.append(current) }
-                current = ""; started = false
-            default: current.append(c); started = true
-            }
-        }
-        if started { tokens.append(current) }
-        return tokens
-    }
-
-    /// Does `command` pass `value` to `flag`, as `--flag value` or `--flag=value`?
-    ///
-    /// Exact token equality on the value, so a longer tag cannot answer a seek
-    /// for a shorter one. Both spellings are accepted because
-    /// `swift-argument-parser` accepts both and `--language=en` is the same run:
-    /// round 23 measured the suite going red on that restatement, which accuses
-    /// the evidence of misreporting its language when nothing about the run
-    /// changed.
-    static func passes(_ flag: String, _ value: String, in command: String) -> Bool {
-        let tokens = commandTokens(command)
-        for (i, t) in tokens.enumerated() {
-            if t == flag, i + 1 < tokens.count, tokens[i + 1] == value { return true }
-            if t == flag + "=" + value { return true }
-        }
-        return false
-    }
 
     /// The FluidAudio pin as `Package.resolved` records it, or `nil` if it is
     /// unreadable or absent.
@@ -455,7 +417,7 @@ struct EvidenceFileTests {
                             ["case_folded_matches", "case_folded_canonicals_differed"]),
                 // One merge joins each chunk after the first — stated exactly in
                 // `merges`' own probe entry. It pins `chunks` and `merges` to
-                // each other and nothing else: the nine `case_folded_*` counts
+                // each other and nothing else: the ten `case_folded_*` counts
                 // are joined to them by no relation, which is why a uniform
                 // scaling of the census satisfies every law here and has to be
                 // stopped in `observations` instead.
@@ -622,37 +584,51 @@ struct EvidenceFileTests {
                 // `metric.value` two keys away says 0.0375 and `edit_list` names
                 // three edits.
                 //
-                // **Every recorded digest is in the comparison, including the
-                // executables.** Round 23 set one arm's `executable_sha256` to
-                // the WAV digest and the other's to the reference digest and the
-                // suite was silent: a compiled binary that hashes like a
-                // 33-second WAV, beside `_executable_hash_note` saying the hash
-                // "says which artifact was measured". Leaving them out was an
-                // arbitrary line drawn where the earlier finding happened to
-                // stop.
+                // **It compares across arms, not within one.** The previous
+                // version built its set per arm, and round 24 set arm 0.15.5's
+                // two SRT digests to arm 0.15.4's `executable_sha256`: a
+                // transcript that hashes like a compiled binary, with only an
+                // *observation* firing. Cross-arm collisions were held entirely
+                // by the editable class.
                 //
-                // The two SRT runs are the one pair *allowed* to collide — they
-                // are the same command run twice and an observation says they
-                // agree — so each is compared against the other streams and not
-                // against its sibling. Requiring all six distinct would have
-                // contradicted a law with an observation.
-                Relation(label: "every recorded digest names a different byte stream, except the two SRT runs") { json in
+                // What it compares is **kinds of artifact**, because that is what
+                // the arithmetic is about. Collisions *within* a kind are
+                // legitimate and are the A/B result itself: the two SRT runs are
+                // the same command run twice, and both arms producing identical
+                // transcripts is the finding this evidence records. Requiring
+                // every digest to differ would have made this law contradict
+                // three observations. An SRT and a TXT are different formats of
+                // one transcription, so those must differ within an arm.
+                //
+                // `fluidaudio_revision` is deliberately not here. It is a git
+                // revision — a name for a commit, not a digest of a byte stream
+                // this run produced — and at 40 hex characters it could not
+                // collide with a 64-character digest anyway. Naming the exclusion
+                // beats a sentence claiming the list is complete.
+                Relation(label: "no digest of one kind of artifact equals a digest of another kind") { json in
                     guard let audio = string(json, "session.audio_sha256"),
                         let reference = string(json, "session.reference_sha256"),
                         let arms = json["arms"] as? [String: Any]
                     else { return false }
                     let armed = arms.values.compactMap { $0 as? [String: Any] }
                     guard !armed.isEmpty else { return false }
-                    return armed.allSatisfy { arm in
+                    var transcripts: Set<String> = []
+                    var executables: Set<String> = []
+                    for arm in armed {
                         guard let run1 = arm["transcript_sha256_srt_run1"] as? String,
                             let run2 = arm["transcript_sha256_srt_run2"] as? String,
                             let txt = arm["transcript_sha256_txt"] as? String,
                             let exe = arm["executable_sha256"] as? String
                         else { return false }
-                        let shared = [audio, reference, txt, exe]
-                        return Set(shared + [run1]).count == 5
-                            && Set(shared + [run2]).count == 5
+                        guard run1 != txt, run2 != txt else { return false }
+                        transcripts.formUnion([run1, run2, txt])
+                        executables.insert(exe)
                     }
+                    let kinds: [Set<String>] = [[audio], [reference], transcripts, executables]
+                    for (i, a) in kinds.enumerated() {
+                        for b in kinds[(i + 1)...] where !a.isDisjoint(with: b) { return false }
+                    }
+                    return true
                 },
                 // `metric.kind` names what every other figure in the block
                 // means. Pinned to the literal `"wer"` it was still free of
@@ -666,40 +642,38 @@ struct EvidenceFileTests {
                     return string($0, "metric.kind")
                         == LanguageResolver.metricKind(forLanguage: language).rawValue
                 },
-                // The two command strings are prose, but each restates something
-                // the file pins elsewhere, and both restatements have stable
-                // syntax. Free, `--language zh` sat beside `session.language:
-                // "en"`, and `grep -c <any other symbol>` made the pinned 0/4 a
-                // count of something else with the field *name* the only thing
-                // left saying otherwise.
+                // **The two recorded commands are unchecked prose.** There is no
+                // relation here that reads them, and that is deliberate.
                 //
-                // Both are token comparisons, not `contains`. Round 22 wrote
-                // them as substring tests and round 23 walked through the gap
-                // four ways: `--language en` is a substring of
-                // `--language english`; `--language z` is a substring of
-                // `--language zh`, which let a truncated tag pick the metric
-                // kind; `caseVariantCanonicalIds` is a substring of
-                // `caseVariantCanonicalIdsLegacyShim`; and a symbol named in a
-                // trailing `#` comment answered for the symbol being counted.
-                Relation(label: "session.transcribe_command passes session.language to --language") {
-                    guard let command = string($0, "session.transcribe_command"),
-                        let language = string($0, "session.language")
-                    else { return false }
-                    return passes("--language", language, in: command)
-                },
-                Relation(label: "session.nm_command counts the symbol the `nm_` arm fields are named for") { json in
-                    guard let command = string(json, "session.nm_command"),
-                        let arms = json["arms"] as? [String: Any]
-                    else { return false }
-                    let symbols = Set(
-                        arms.values.compactMap { $0 as? [String: Any] }
-                            .flatMap(\.keys)
-                            .filter { $0.hasPrefix("nm_") }
-                            .map { String($0.dropFirst(3)) })
-                    guard !symbols.isEmpty else { return false }
-                    let counted = Set(commandTokens(command))
-                    return symbols.allSatisfy(counted.contains)
-                },
+                // Three rounds tried. Round 22 wrote `contains`, and round 23
+                // walked through it four ways: `--language en` is a substring of
+                // `--language english`, `--language z` of `--language zh`,
+                // `caseVariantCanonicalIds` of `…LegacyShim`, and a symbol named
+                // in a trailing `#` comment answered for the one being counted.
+                // Round 23 replaced that with a token comparison, and round 24
+                // walked through *that*: `grep -v caseVariantCanonicalIds |
+                // grep -c tokenIdsMatch` passed, because the symbol was present —
+                // in a **negating** position; `grep -cv` passed and inverted the
+                // whole A/B conclusion; `--language en --language zh` passed
+                // while argument parsing takes the last; and a `#` mid-word cut a
+                // token the shell would not have cut.
+                //
+                // Each fix moved one step closer to the claim and left a gap one
+                // step further out, because the claim — *this command produced
+                // these numbers* — is about **what a program does with a string**
+                // while every check was about **what is in the string**. A fourth
+                // hand-rolled shell-adjacent parser would not close that.
+                //
+                // And it does not need to. Both commands restate facts the file
+                // already carries as *data*: the language is `session.language`,
+                // and the symbol is literally a field name,
+                // `nm_caseVariantCanonicalIds`. The commands add no information a
+                // rule can use — they document how the fields were obtained. So
+                // they join the rest of the narrative fields, which this file has
+                // always declared unchecked. Binding them would need the run to
+                // record `language` and `counted_symbol` as fields and let the
+                // command be prose, which is a change to the evidence schema, not
+                // to this test.
                 // The conclusion follows from its two comparisons.
                 Relation(label: "changed_merge_output == !(tokens_equal && timestamps_equal)") {
                     guard let t = value($0, "path_coverage.counterfactual_tokens_equal") as? Bool,
@@ -720,10 +694,10 @@ struct EvidenceFileTests {
                 Relation(label: "this evidence was recorded on the reviewed corpus `\(reviewedCorpus.name)`") {
                     string($0, "session.corpus") == reviewedCorpus.name
                 },
-                Relation(label: "session.audio_sha256 is the WAV digest reviewed against `fetch-corpora.sh`") {
+                Relation(label: "session.audio_sha256 is the reviewed WAV digest") {
                     string($0, "session.audio_sha256") == reviewedCorpus.audio
                 },
-                Relation(label: "session.reference_sha256 is the reference digest reviewed against `fetch-corpora.sh`") {
+                Relation(label: "session.reference_sha256 is the reviewed reference digest") {
                     string($0, "session.reference_sha256") == reviewedCorpus.reference
                 },
                 // `session.language` became load-bearing the moment `metric.kind`
@@ -1180,24 +1154,42 @@ struct EvidenceFileTests {
     /// satisfied a seek for `773`. Each fix had closed the examples it was given
     /// and left their mirror image standing.
     static func statesWholeNumber(_ text: String, _ needle: String) -> Bool {
-        /// A **minus**, in any of the spellings prose actually uses.
+        /// A **minus**, by Unicode class rather than by enumeration.
         ///
-        /// Three additions and one removal, all measured in round 23. The four
-        /// added dashes were accepted as ordinary characters, so `(–773)` with an
-        /// en dash — which is what pasting a minus out of a rendered document
-        /// gives you, and what this file's own prose uses twice — satisfied a
-        /// seek for `773`. And `+` came out: `+773` **is** 773, so rejecting it
-        /// was the mirror of the bug this helper exists to fix. A leading `+`
-        /// that is arithmetic rather than a sign — `133+640` — is already
-        /// handled by `runsOn`, because a digit sits before it.
+        /// Round 23 added four dashes to a hand-written list and round 24 found
+        /// three more it did not have — U+2011 NON-BREAKING HYPHEN, U+2012 FIGURE
+        /// DASH, U+FF0D FULLWIDTH HYPHEN-MINUS — each of which made `(‑773)` read
+        /// as the recorded `773`. Enumerating this class is the mistake, not the
+        /// particular list: a comment reading *"in any of the spellings prose
+        /// actually uses"* is a completeness claim, and it was falsified in each
+        /// of the two rounds that made it. So ask Unicode what a dash is.
+        ///
+        /// `+` is deliberately not a sign: `+773` **is** 773, and rejecting it
+        /// was the mirror of the bug this helper exists to fix. `133+640` — a
+        /// `+` that is arithmetic — is already handled by `runsOn`, because a
+        /// digit sits before it.
         func isSign(_ c: Character) -> Bool {
-            c == "-" || c == "\u{2212}"  // HYPHEN-MINUS, MINUS SIGN
-                || c == "\u{2010}" || c == "\u{2013}" || c == "\u{2014}"  // HYPHEN, EN DASH, EM DASH
-                || c == "\u{00AD}"  // SOFT HYPHEN — invisible, so it must not silently pass
+            guard c.unicodeScalars.count == 1, let s = c.unicodeScalars.first else { return false }
+            switch s.properties.generalCategory {
+            case .dashPunctuation: return true  // -, U+2010…U+2015, U+2E3A/B, U+FF0D, …
+            case .mathSymbol: return s == "\u{2212}"  // MINUS SIGN, and not `+`
+            case .format: return s == "\u{00AD}"  // SOFT HYPHEN — invisible, so it must not pass
+            default: return false
+            }
         }
         /// A group or decimal separator, which continues a number only when a
         /// digit sits on its far side.
-        func isSeparator(_ c: Character) -> Bool { c == "," || c == "." || c == "\u{066C}" || c == "\u{2019}" }
+        ///
+        /// The space separators are here for the same reason as the dashes.
+        /// Closing `1,773` and leaving `1 773` open was a fix shaped by the
+        /// examples it was given: a narrow no-break space is the standard group
+        /// separator in several locales, so round 24 read `(1 640)` as the
+        /// recorded `640`. `Zs` covers U+0020, U+00A0, U+2009 and U+202F alike.
+        func isSeparator(_ c: Character) -> Bool {
+            if c == "," || c == "." || c == "\u{066C}" || c == "\u{2019}" { return true }
+            guard c.unicodeScalars.count == 1, let s = c.unicodeScalars.first else { return false }
+            return s.properties.generalCategory == .spaceSeparator
+        }
         /// Is the character before `i` one a word or a number runs into? `-` is
         /// three characters at once — a sign, a hyphen and a subtraction
         /// operator — and only the first makes a different number.
@@ -1373,10 +1365,20 @@ struct EvidenceFileTests {
     // MARK: - 5. The external anchor still parses
 
     /// `Package.resolved` is the one file outside the evidence that anything
-    /// here reads. When it is edited past what the parse follows, the two
-    /// arm-revision relations fail at once and each says the *evidence* does not
-    /// hold — a diagnostic that sends a maintainer to re-run a benchmark, which
-    /// is both wrong and expensive. So say which file stopped parsing, first.
+    /// here reads. Exactly one relation consults it — the arm under test must
+    /// carry the revision it pins; the baseline arm is checked against a literal
+    /// here. When the file is edited past what the parse follows, that relation
+    /// fails saying the *evidence* does not hold — a diagnostic that sends a
+    /// maintainer to re-run a benchmark, which is both wrong and expensive. So
+    /// say which file stopped parsing, first.
+    ///
+    /// Reaching this guard by editing `Package.resolved` is harder than it
+    /// looks, and the two ways it fails are worth knowing before measuring:
+    /// SwiftPM **re-resolves and rewrites the file** before the tests run, so
+    /// deleting a pin leaves a green suite because the mutation was undone, not
+    /// because nothing checked; and corrupting the file makes SwiftPM refuse to
+    /// plan the build, which reports zero failures **and zero tests**. Only the
+    /// exit code tells those apart from a pass.
     ///
     /// There used to be a second source. `scripts/fetch-corpora.sh` was parsed
     /// by regex for the corpus name and two digests, and round 23 measured what
@@ -1393,7 +1395,7 @@ struct EvidenceFileTests {
     @Test func `the external anchor still parses`() {
         #expect(
             Self.pinnedFluidAudio != nil,
-            "Package.resolved no longer parses — the arm-revision relations below cannot run, and the failures they report are about that file, not about the evidence")
+            "Package.resolved no longer parses — the arm-under-test revision relation below cannot run, and the failure it reports is about that file, not about the evidence")
     }
 
     // MARK: - 6. The laws hold, and so do the declared observations
