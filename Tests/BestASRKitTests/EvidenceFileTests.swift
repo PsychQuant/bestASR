@@ -1128,15 +1128,25 @@ struct EvidenceFileTests {
     /// What `statesWholeNumber` reads: the text with everything that renders as
     /// nothing removed, then folded to NFKC.
     ///
-    /// Unlike `rendered()` this keeps spaces and letters, because the anchors
-    /// match phrases (`agree at 773`) and not just figures. It removes the three
-    /// families that let a character hide between a sign and its digits:
-    /// `knownBlank`, the control-and-format scalars (U+200E, U+2060, U+00AD),
-    /// and the combining marks, which also collapses a decorated dash back to a
+    /// Unlike `rendered()` this keeps whitespace and letters, because the
+    /// anchors match phrases (`agree at 773`) and not just figures. It removes
+    /// the three families that let a character hide between a sign and its
+    /// digits: `knownBlank`, the format scalars (U+200E, U+2060, U+00AD), and
+    /// the combining marks, which also collapses a decorated dash back to a
     /// dash so `isSign` can see it.
+    ///
+    /// **Whitespace survives, and the exception is load-bearing.**
+    /// `CharacterSet.controlCharacters` is `Cc` *and* `Cf`, so filtering it
+    /// wholesale deletes newlines and tabs — and deleting a newline joins the
+    /// words on either side of it. Measured both ways: a `_limits` entry
+    /// reformatted to wrap between `773` and `133` reads as `773133`, and the
+    /// census law fails on an honest line break (`rc=1`); with this line it
+    /// passes. No field the anchors read carries a newline today, which is
+    /// exactly why it would have been found late.
     static func normalisedForAnchoring(_ s: String) -> String {
         let stripped = String(s.unicodeScalars.filter {
-            !knownBlank.contains($0)
+            if $0.properties.isWhitespace { return true }
+            return !knownBlank.contains($0)
                 && !CharacterSet.controlCharacters.contains($0)
                 && !CharacterSet.nonBaseCharacters.contains($0)
         })
