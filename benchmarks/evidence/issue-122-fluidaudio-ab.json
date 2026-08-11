@@ -1,0 +1,125 @@
+{
+  "_what_this_is": "Measurements taken for #122 (FluidAudio 0.15.4 -> 0.15.5), together with their scope, provenance and reproduction caveats. Higher-level conclusions are in the CHANGELOG entry, which cites this file.",
+  "_reproducing": "Recomputable from what is recorded here: the corpus hashes; both arms' transcript hashes; the nm counts; `corpus_duration_seconds` (the corpora registry); `fluidaudio_revision` (Package.resolved); and `metric`. For `metric`, both sides have to be the right artifact: the hypothesis is the **txt** transcript (raw), and the reference is an SRT, so it goes through `SRTParser.parse` then `SRTParser.referenceText(from:)` first. `TextNormalizer` is not a separate step — `ErrorRate.wer` calls it internally. Three ways to get this wrong, all measured: raw .srt text as the reference gives edits=6 / ref_words=83 / wer=0.07228915662650602; the raw srt transcript as the hypothesis against a parsed reference gives 0.075; both raw gives 0.060240963855421686. Only the combination above gives the recorded 0.0375. Pre-normalising both sides first was also measured and does **not** change the result (0.0375), because `TextNormalizer.normalize` is idempotent; it is listed here as a checked non-issue, not as a fourth way to get it wrong. Not recomputable: `executable_sha256` (see its note); `measured_at` / `machine` / `toolchain`, which are observations of one run; and all of `path_coverage`, which needs the instrumentation `path_coverage.how` describes. Provenance, one unit for the whole block: **every value field in `path_coverage` — those listed in `how.probes`, not `how` or `_limits` themselves — has been reproduced by at least two separately written verifier instrumentations**, none of them the author's, across rounds 3 to 8. That was audited field by field in round 9 against the PR and issue comments and holds under the strict reading: round 3 discounted (it is as likely the origin of twelve of these numbers as a reproduction of them), unitemised blanket reports discarded, derivations counted separately. Three limits. The runs were **not blind** — each verifier was given the recorded values to check against — so they establish reproducibility, not independent discovery, and they do not exclude a verifier stopping once the expected number appeared. They were **not independently designed**: from round 7 the task has been to follow `how`, so a fault in the recipe is shared by everyone following it — round 8 demonstrated exactly this, when a verifier followed `how`'s then-current separate-build advice faithfully and landed on the contaminated 1688 / 142 / 1546 / 1413. And they were all dispatched by the author on one machine; they are separate instrumentations, not separate laboratories. Verifiers wrote their own probe code rather than reusing another's, and round 8's two lenses were mutually unaware — but they were **not screened from each other's results**: round 7's verifier read every PR and issue comment, and was briefed on round 6's finding. `case_folded_guard_else_map_nil` and `case_folded_guard_else_id_absent` were added after round 8, so their values have two sources but no verification round has reviewed them as fields. The verification comments on PR #142 report the runs, not always in the round that made them — the round-4 lens's 640 and 131 appear only in round 6's report. That is a pointer, not a substitute for redoing it.",
+  "session": {
+    "measured_at": "2026-08-05",
+    "machine": "Apple M5 Max, macOS 27",
+    "toolchain": "Apple Swift 6.2.4 (swift-6.2.4-RELEASE), the PATH default on this machine",
+    "toolchain_caveat": "`swift build -c release` crashes under this toolchain — SIL memory lifetime failure in OwnershipModelEliminator compiling swift-transformers' Tokenizers, unrelated to FluidAudio. scripts/install.sh documents the same crash as \"SIL specialization\"; this description is the more precise of the two. These are debug builds, which is why the nm counts under `arms` are debug counts.",
+    "corpus": "osr-harvard-1",
+    "corpus_duration_seconds": 33.623125,
+    "language": "en",
+    "audio_sha256": "0ed4ea79ee09b36f40235992b5bc03009f23167c0525930ddeafee0c04716a49",
+    "reference_sha256": "644c935af618dde484af146260166bb8c8d9be244ff467b1964b99d48d81c35e",
+    "transcribe_command": "<realpath .build/arm64-apple-macosx/debug/bestasr> transcribe <audio> --backend fluid-parakeet --model 0.6b-v3 --language en --hallucination-filter off --format srt --output <out.srt>   # and again with `--format txt --output <out.txt>`; two invocations, one per format",
+    "nm_command": "nm <exe> | grep -c caseVariantCanonicalIds",
+    "notes": [
+      "`transcribe`, not `benchmark`: benchmark writes to ~/.bestasr/store and has no --store-dir (issue #160), so it cannot run without touching durable user data. transcribe reads the store for routing and writes nothing.",
+      "Invoked by realpath: `bestasr` is not resolvable on PATH on this machine, so a bare `bestasr …` command string would not run at all.",
+      "--hallucination-filter off removes post-processing. Both formats because a moved seam shows up in SRT timecodes before it shows up in words.",
+      "Two runs per pin. This bounds decoder variability rather than excluding it: no run-to-run difference was observed in four runs."
+    ]
+  },
+  "arms": {
+    "0.15.4": {
+      "fluidaudio_revision": "b9d43724cbdb5a980e441fd54180964e94d470f7",
+      "executable_sha256": "000cc31f7631b12861f06f12bf0d62124f1d631df8b72c9056460438c204dc04",
+      "nm_caseVariantCanonicalIds": 0,
+      "transcript_sha256_srt_run1": "02af260ccc3dc09cac0cdc5e10af9ea2a5f39373a6577310653f532b9b072d93",
+      "transcript_sha256_srt_run2": "02af260ccc3dc09cac0cdc5e10af9ea2a5f39373a6577310653f532b9b072d93",
+      "transcript_sha256_txt": "d69786c7bcb0dec02d751e55699a60597e9d4c84b932070f306795507d950589"
+    },
+    "0.15.5": {
+      "fluidaudio_revision": "19600a485baa4998812e4654b70d2bab8f2c9949",
+      "executable_sha256": "e4831451d9e85d7e818e8f00c1284e91ac26f9b81d8a08f708cc124e4bd16e71",
+      "nm_caseVariantCanonicalIds": 4,
+      "transcript_sha256_srt_run1": "02af260ccc3dc09cac0cdc5e10af9ea2a5f39373a6577310653f532b9b072d93",
+      "transcript_sha256_srt_run2": "02af260ccc3dc09cac0cdc5e10af9ea2a5f39373a6577310653f532b9b072d93",
+      "transcript_sha256_txt": "d69786c7bcb0dec02d751e55699a60597e9d4c84b932070f306795507d950589"
+    },
+    "cross_pin_cmp": "srt identical, txt identical (byte comparison, not equal-WER)",
+    "_executable_hash_note": "Recorded to identify the build these numbers came from, NOT as a reproducible value — the same pin built twice yields different hashes. Two purposes, two fields: the revision says which dependency source was expected, the hash says which artifact was measured.",
+    "_nm_note": "This count varies across the four cells below, which differ in build configuration AND toolchain together — the two cannot be separated from these measurements, so no claim is made that configuration alone is responsible. Cells: debug/plain 4, debug/-a 8 (toolchain in `session`); release/plain 2, release/-a 4 (Apple Swift 6.3.3, swiftlang-6.3.3.1.3, at /usr/bin/swift; Xcode 26.6 build 17F113; xcode-select -p = /Applications/Xcode.app/Contents/Developer; arm64). A different toolchain was needed for the release cells because the one in `session` did not build this target in release under the measured setup. Across those four cells 0.15.4 was 0 and 0.15.5 was non-zero. No claim is made for other toolchains, SDKs, linkers, build settings, stripping, architectures or nm options. An earlier version recorded 4 without saying which build or flag produced it; a third party running plain nm on a release build got 2."
+  },
+  "metric": {
+    "kind": "wer",
+    "edits": 3,
+    "reference_words": 80,
+    "value": 0.0375,
+    "edit_list": [
+      "it's -> it is (substitution + insertion)",
+      "parked -> park (substitution)"
+    ],
+    "_note": "Numerator and denominator recorded so the value can be re-derived. Identical on both arms, which follows from the transcripts being byte-identical."
+  },
+  "path_coverage": {
+    "how": {
+      "patch": "stderr probes compiled into `.build/checkouts/FluidAudio/…/TDT/ChunkProcessor.swift`. Patch the 0.15.5 checkout (`19600a48…`); `caseVariantIds` does not exist in 0.15.4, so the patch will not apply to that arm. The file is mode 444: `chmod u+w` before editing, `chmod 444` after. **Restoring the mode is not restoring the file.** Revert the edit as well — `git -C .build/checkouts/FluidAudio checkout -- <path>` — or every later build silently keeps the probes. `.build/checkouts/` is outside this repo's version control, so `git status` will never mention it. That is the mirror of the failure in `method_limits[0]`: there, a build that never took the patch looks clean; here, a build that was never un-patched looks clean.",
+      "build": "Debug. The toolchain is in `session`; `session.toolchain_caveat` says why release was not used. Nothing here establishes that these counts are independent of build configuration — they were not measured under any other.",
+      "probe_implementation": "One line per event to stderr, counted afterwards with `grep -o … | wc -l` rather than `grep -c`, which counts occurrences rather than lines in case two markers ever share one. **Every probe site below is on the sequential path**: `withThrowingTaskGroup` closes before `orderedChunkOutputs` is formed, and the merge loop, `collapseSeamWordDuplicates` and everything they call run in a plain `for` loop after it, so a global counter printed at exit works equally well and the two counting methods agree. Chunk decoding above that point *is* concurrent — pool size `max(1, manager.parallelChunkConcurrency)`, not a fixed number — so a counter placed there would need synchronising; none of the fields below are counted there. Probing the fold match and the differing-canonicals case separately requires expanding `return lhs == rhs` into an if/else, so the instrumentation is not purely additive at that site (see `_limits[4]`).",
+      "probes": {
+        "chunks": "merge loop: the count of `orderedChunkOutputs`, formed after the chunk task group closes.",
+        "merges": "merge loop: one emit per `mergeChunks` call over `orderedChunkOutputs.dropFirst()`.",
+        "case_folded_calls": "probe on the first statement of `tokenIdsMatch`.",
+        "case_folded_early_return_ids_equal": "probe inside its `left == right` branch.",
+        "case_folded_reached_guard": "obtainable either way, and both were done: probed directly at the guard, and derived as `case_folded_calls` - `case_folded_early_return_ids_equal`, which also equals `case_folded_guard_else` + `case_folded_matches` + `case_folded_canonicals_differed`. All three agree at 773. The subtraction is valid only because `tokenIdsMatch` has no exit between the early return and the guard — read the function before relying on it rather than on a probe.",
+        "case_folded_guard_else": "probe in the guard's `else`. Decomposed by the next two fields.",
+        "case_folded_guard_else_map_nil": "probe splitting the `else` on `caseVariantIds == nil`. The guard binds the map first, so a nil map sends every unequal-id call here; on the shipped path it is never nil.",
+        "case_folded_guard_else_id_absent": "the `else`'s other branch: the map is present and at least one of the two ids is absent from it.",
+        "case_folded_both_ids_in_map": "obtainable either way, and both were done: probed on the path past the guard, and derived as `case_folded_matches` + `case_folded_canonicals_differed`. Both agree at 133.",
+        "case_folded_canonicals_differed": "probe on `lhs != rhs`.",
+        "case_folded_matches": "probe on `lhs == rhs`.",
+        "case_folded_matched_token_ids": "both ids emitted at the fold match inside `tokenIdsMatch`. Reduction: there were 2 match events and both emitted the same pair, so the recorded array is that pair once, not a concatenation.",
+        "case_folded_canonical_id": "emitted at the fold match, after both ids resolve through `caseVariantIds`. Reduction: both lookups and both events gave 375, so one scalar is recorded; it is not a sum or a first-wins.",
+        "collapse_called": "probe at the entry of `collapseSeamWordDuplicates`.",
+        "collapse_tokens_in": "token count at the entry of `collapseSeamWordDuplicates`. There is one call site (`:596`), so the recorded scalar is that call's count, not a sum over calls.",
+        "collapse_tokens_out": "token count at whichever exit of `collapseSeamWordDuplicates` that call took. One call site, so again one value rather than a sum or a sequence.",
+        "word_boundary_fallbacks_entered": "the **sum** of three separately probed sites, each 0: `mergeUsingMatches`' tail re-splice (probed at the block entry, the widest reading), `popSeamWord`'s safe-id branch, and `mergeByMidpoint`'s right-scan. One field, three sites — it is their sum, not their max nor the number of sites entered. All three readings coincide at 0, so this distinction is currently unfalsifiable.",
+        "counterfactual_tokens_equal": "per-merge comparison of the counterfactual output's token ids against the shipped output's. Reduction: logical **and** over the merges — recorded true because both merges compared equal. See `isolating_the_counterfactual` for how the counterfactual is run.",
+        "counterfactual_timestamps_equal": "per-merge comparison of the counterfactual output's timestamps against the shipped output's. Reduction: logical **and** over the merges, same as `counterfactual_tokens_equal`.",
+        "case_folded_changed_merge_output": "not probed, and not probeable: it is exactly `!(counterfactual_tokens_equal && counterfactual_timestamps_equal)`. It is reproduced only in the sense that its two inputs are."
+      },
+      "isolating_the_counterfactual": "The counterfactual recomputes each merge with `caseVariantIds: nil`, starting from the **shipped path's** left input — not from a parallel nil chain fed by its own previous output. It runs alongside the shipped path in the same process, so **it shares the counters, and putting the same combined implementation in a different build does not separate them.** Tagging is what was used here: thread a tag through `mergeChunks → tokensMatch → tokenIdsMatch` and count `shipped` and `cf` separately. It is not the only method that works — because every probe site is on the sequential path (see `probe_implementation`), snapshotting the counters either side of each region, resetting between regions, gating increments on a mode flag, or running the nil case in a separate process would each isolate them too.\nUntagged, `case_folded_calls` / `case_folded_early_return_ids_equal` / `case_folded_reached_guard` / `case_folded_guard_else` come out at 1688 / 142 / 1546 / 1413 — the last is not a doubling because with a nil map every call reaching the guard takes the `else`, so the counterfactual contributes 773 there rather than 640.\nAll counts here are **per invocation** of `session.transcribe_command`; the srt and txt invocations give identical counts. Summing the two invocations instead gives 1688 / 142 / 1546 / **1280**. Three of those four coincide, so `case_folded_guard_else` is the only field that separates the two — but read the signatures as *consistent with* those mistakes, not as proof of them. 1413 also arises from concatenating a shipped log with a standalone nil-map log, and 1280 from duplicated probe sites, double log ingestion, or counting one run twice.",
+      "method_limits": [
+        "A build that did not pick up the patch produces a probe-free binary whose output is trivially identical to the clean one, which reads as success. Confirm your markers reached the artifact before believing any count. The notes below are what one round of trying to automate that confirmation established, and what a second round of checking those notes corrected. Each says which `strings` mode it is about, because the three modes differ and a claim true of one is false of another.",
+        "**Presence is not provenance, and neither is the differential.** Searching an artifact for a marker answers \"this byte sequence occurs somewhere in it\". Five ways that is not the same as \"my probe reached the run I measured\": the clean artifact already contains the literal; the patched *source* in `.build/checkouts` answers the search; the artifact predates the patch; a longer string contains the marker, so `PROBE_1` is answered by any `PROBE_10`; and **the artifact you searched is not the artifact you ran** — a marker in a dependency checkout lands in every product that links it, and this repo builds four. Comparing a clean build against an instrumented one cures **two** of these — the pre-existing literal and the stale artifact. It does not cure the patched checkout (if the search targets the executable, source cannot answer it; if it targets a build tree containing the checkout, the marker is absent from the clean tree and present in the instrumented one, which is exactly a passing differential), and it does not cure the substring case: differencing two substring tests is still a substring test. Verified by construction — with one probe named `ZQXPROBE_10_hit` and no `ZQXPROBE_1` anywhere, `ZQXPROBE_1` is absent from the clean build and present in the instrumented one. What is needed on top: a **delimited or whole-token match** — making the markers mutually non-prefix only rules out marker-to-marker collisions, not an unrelated longer string containing one; a search that targets the executable rather than the tree; and the product actually executed.",
+        "**What each `strings` mode covers.** Structural, from the man page and confirmed against this binary: the default skips the `(__TEXT,__text)` section (58 printable runs found only in that section: 0 of 58 in default output, 58 of 58 with `-a`); `__LINKEDIT`, which holds the symbol and string tables, has `nsects=0`, so no section-based mode reaches it — but `strings -`, which scans raw bytes, does: `caseVariantCanonicalIds` occurs 5 times in the file, all inside `__LINKEDIT`, and `strings -` finds all 5. On one debug build the default mode emitted about 1.1 % of the file's bytes; the absolute figures are not recorded because they are not reproducible — the binary embeds ~1,010 copies of its own build path, so its size moves ~1,004 bytes per character of that path, and the toolchain moves it by ~400 KB more.",
+        "**A symbol name may or may not be findable, and the mode decides.** Measured: `caseVariantCanonicalIds` is reported by `nm` and found 0 times by the default mode and 0 times by `-a`, in four separate builds. But 87 of this binary's 71,667 distinct `nm` symbols *are* emitted verbatim by the default mode — including `collapseSeamWordDuplicates`, a function in the very file these probes patch, whose mangled name sits in `__TEXT,__const`, which the default mode does scan. So a symbol-named probe is not reliably findable and not reliably invisible; use a string literal, or scan raw bytes.",
+        "**Marker shape: run length and scan coverage are separate dimensions.** The default mode emits printable runs of 4 or more — that is `-n`'s default, changeable, not a limit — and splits a run at any byte ≥ 0x80, as does `-a`. `strings -` changes *where* bytes are read, not the minimum run length: measured on an isolated 3-character run, the default finds it 0 times, `-a` 0, `strings -` **0**, `strings -n 3` 1, and `strings - -n 3` 1. So a short ASCII marker needs `-n`; a marker carrying a byte ≥ 0x80 needs a byte-oriented search, because no `-n` value makes a high byte printable. Two traps: a short marker *inside* a longer printable run **is** found, which is a false positive rather than a false negative; and `strings - <exe> | grep -c <marker>` prints nothing and exits 1 for a marker present 5 times — that stream carries 1,518,394 non-ASCII bytes, so `grep -a` is required.",
+        "**String literals survive the build being measured, and the boundary is where Swift's small-string form ends.** At `-Onone`, literals of 14, 15, 16, 17 and 34 bytes were all present. At `-O`, the 14- and 15-byte literals are not found by a fixed-string search of the raw file while 16, 17 and 34 are — the cut is between 15 and 16, Swift's small-string boundary. \"Not found\" here means the contiguous byte sequence is absent; a literal may still be folded, split or held in immediates. Only debug is in play for the recorded counts (see `toolchain_caveat`), so this bears on how to choose a marker, not on the figures.",
+        "Any such check is necessary, not sufficient: it shows the literals are in the artifact you searched, not that every probe site is present, nor that any probe ran, nor that the marker is in the architecture slice — or the product — that executes."
+      ]
+    },
+    "chunks": 3,
+    "merges": 2,
+    "case_folded_matches": 2,
+    "case_folded_calls": 844,
+    "case_folded_early_return_ids_equal": 71,
+    "case_folded_reached_guard": 773,
+    "case_folded_guard_else": 640,
+    "case_folded_guard_else_map_nil": 0,
+    "case_folded_guard_else_id_absent": 640,
+    "case_folded_both_ids_in_map": 133,
+    "case_folded_canonicals_differed": 131,
+    "case_folded_matched_token_ids": [
+      375,
+      518
+    ],
+    "case_folded_canonical_id": 375,
+    "case_folded_changed_merge_output": false,
+    "collapse_called": true,
+    "collapse_tokens_in": 154,
+    "collapse_tokens_out": 154,
+    "word_boundary_fallbacks_entered": 0,
+    "counterfactual_tokens_equal": true,
+    "counterfactual_timestamps_equal": true,
+    "_limits": [
+      "375 and 518 are ' r' and ' R' in the vocabulary; 0.15.4's matcher returns false for that pair because it compares ids for equality.",
+      "\"Entered\" has two natural cut points, because the guard binds three conditions at once: reaching it (773) and passing it with both ids in the map (133). Say which one a count refers to. `case_folded_matches` is neither — it is the 2 times the branch returned a match. The guard's `else` has three possible causes and is now split into two recorded fields: map nil (0) and an id absent from the map (640). An earlier version of this file said \"Only the match count has been reproduced identically by every independent run\" and used that to withhold these numbers. It was false: the runs were consistent, and had taken different cut points.",
+      "`collapse_tokens_in` == `collapse_tokens_out` in this run, which is what establishes that no token was removed *here*. That is an observation, not an invariant: a corpus containing a removable duplicate would legitimately make them differ. The two fields let a reader decide for a new run; they do not assert the outcome in advance. It does not by itself establish that ids, order or timestamps are unchanged.",
+      "The counterfactual isolates the incremental effect of supplying caseVariantIds inside a 0.15.5 binary. It is not a 0.15.4 execution, and it assumes the nil path is equivalent to 0.15.4's matcher.",
+      "The probe build's transcript hash equals the clean build's, so no final-output perturbation was observed. That does not establish that the instrumentation was control-flow-neutral."
+    ]
+  },
+  "store_note": "An earlier 0.15.4 run wrote a measurements.jsonl row stamped app_version 0.16.0 — the version shipping with 0.15.5 — because the schema has no FluidAudio field, so the row could not say what condition produced it. That row was removed rather than left to be ranked against honest ones; a backup was kept at ~/.bestasr/store/measurements.jsonl.bak-idd122-20260803161704, which is machine-local and therefore not auditable from this repo. The measurements recorded here wrote nothing to the store — verified by hashing all five store files before and after."
+}

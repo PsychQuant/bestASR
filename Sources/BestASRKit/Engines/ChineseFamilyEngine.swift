@@ -7,7 +7,7 @@ import Foundation
 /// requests only ever see Whisper". Zero new dependencies: both managers
 /// ship inside the exact-pinned FluidAudio release, same as Parakeet (#35).
 ///
-/// API mapping (FluidAudio 0.15.4 → BestASRKit):
+/// API mapping (FluidAudio 0.15.5 → BestASRKit):
 ///
 /// | FluidAudio                                    | here                       |
 /// |-----------------------------------------------|----------------------------|

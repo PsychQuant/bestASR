@@ -224,7 +224,8 @@ struct ParakeetEngineTests {
         #expect(await counter.value == 1)
     }
 
-    // MARK: - #69 duration=0 fallback (FluidAudio 0.15.4 returns duration 0)
+    // MARK: - #69 duration=0 fallback (observed at FluidAudio 0.15.4; the
+    // guard is version-agnostic, so the test pins behaviour rather than a version)
 
     @Test func `Zero upstream duration falls back to the timings' max end`() async throws {
         let engine = ParakeetEngine(pipelineFactory: { _ in
