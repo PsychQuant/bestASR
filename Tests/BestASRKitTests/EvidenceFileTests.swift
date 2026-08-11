@@ -24,15 +24,15 @@ import Testing
 /// `case_folded_canonical_id ∈ case_folded_matched_token_ids`. Those are laws
 /// of the recording, not of this run; a re-measurement satisfies them or the
 /// recording is wrong. `observations` is the separate, deliberate class for
-/// checks that are true of *this* run and are not laws — the corpus it was
-/// recorded on, the language it was transcribed in, the transcripts being
-/// identical across arms, run-to-run equality, the `nm` counts differing.
+/// checks that are true of *this* run and are not laws — among them the corpus
+/// it was recorded on, the language it was transcribed in, the transcripts
+/// being identical across arms, run-to-run equality, the `nm` counts differing.
 /// Changing one of those means changing the declaration, on purpose. Both
 /// arrays hold `Relation`s; *law* and *observation* name the claim, not the
 /// type.
 ///
-/// **The blind spots this leaves.** Each item below describes one thing. There
-/// is no sentence classifying or counting the list, because for sixteen
+/// **The blind spots this leaves.** There is no sentence classifying or
+/// counting the list below, because for seventeen
 /// consecutive rounds every such sentence has been wrong — the vacuity case
 /// stated backwards; figures called unbound when three of them fail on change; a
 /// byte count that was a character count; *"that is the whole of the
@@ -52,10 +52,11 @@ import Testing
 /// - **Prose *content* is mostly not under test**, and where it is, the pinning
 ///   is listed field by field further down rather than summarised here. Every
 ///   string not named there is still constrained in *form*, by rules that read
-///   no relation at all: `.text`, array distinctness, the dangling-name rule,
-///   the bare-name rule, the probe-citation rule, and the two probe-method
-///   rules. Within those, any such string may be replaced by a **short
-///   filler** — a file so built passes all eight tests at about **4 kB against
+///   no relation at all: `.text`, `.hex`, array distinctness, the dangling-name
+///   rule, the bare-name rule, the probe-citation rule, and the two
+///   probe-method rules. Within those — and excepting the six digest strings,
+///   which `.hex(64)` holds to 64 lowercase hex characters — any such string
+///   may be replaced by a **short filler** — a file so built passes all eight tests at about **4 kB against
 ///   23,987**, losing the reproduction recipe, the commands that produced every
 ///   number, the provenance paragraph saying the verifier runs were not blind
 ///   and not independently designed, the four-cell `nm` table, sixteen of twenty
@@ -190,6 +191,9 @@ struct EvidenceFileTests {
         .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
 
     static let evidenceDirectory = repoRoot.appendingPathComponent("benchmarks/evidence")
+
+    /// Every recorded transcript digest is a key beginning with this.
+    static let transcriptPrefix = "transcript_sha256_"
 
     /// The corpus this evidence was measured on, as a reviewer read it out of
     /// `scripts/fetch-corpora.sh`: the name it registers, the WAV digest it
@@ -613,18 +617,51 @@ struct EvidenceFileTests {
                     let armed = arms.values.compactMap { $0 as? [String: Any] }
                     guard !armed.isEmpty else { return false }
                     var transcripts: Set<String> = []
-                    var executables: Set<String> = []
+                    var byFormat: [String: Set<String>] = [:]
+                    var executables: [String] = []
                     for arm in armed {
-                        guard let run1 = arm["transcript_sha256_srt_run1"] as? String,
-                            let run2 = arm["transcript_sha256_srt_run2"] as? String,
-                            let txt = arm["transcript_sha256_txt"] as? String,
-                            let exe = arm["executable_sha256"] as? String
-                        else { return false }
-                        guard run1 != txt, run2 != txt else { return false }
-                        transcripts.formUnion([run1, run2, txt])
-                        executables.insert(exe)
+                        guard let exe = arm["executable_sha256"] as? String else { return false }
+                        executables.append(exe)
+                        // Collected by key prefix, not by a list of four names.
+                        // The list was maintained here and in `armNode()` with
+                        // nothing keeping the two in step, so a fifth digest
+                        // field joined the schema without joining the law.
+                        let recorded = arm.compactMap { key, value -> (String, String)? in
+                            guard key.hasPrefix(transcriptPrefix), let s = value as? String
+                            else { return nil }
+                            return (String(key.dropFirst(transcriptPrefix.count)), s)
+                        }
+                        guard !recorded.isEmpty else { return false }
+                        for (suffix, digest) in recorded {
+                            transcripts.insert(digest)
+                            let format = String(suffix.split(separator: "_").first ?? "")
+                            byFormat[format, default: []].insert(digest)
+                        }
                     }
-                    let kinds: [Set<String>] = [[audio], [reference], transcripts, executables]
+                    // Two builds of two different pins are two byte streams. This
+                    // was an observation, and it is not one an honest re-run
+                    // rewrites — differing executables is true of every correct
+                    // recording of an A/B, which is the tell that it is a law.
+                    // A dependency bump that changed no emitted byte would trip
+                    // it, and tripping is right: the comparison would be vacuous.
+                    guard Set(executables).count == executables.count else { return false }
+                    // One format is not another — **across arms**, not merely
+                    // within one. This guard used to sit inside the loop above,
+                    // which is the same per-arm mistake the kind partition was
+                    // hoisted out of, left standing one level in: arm B's `.txt`
+                    // could be byte-identical to arm A's `.srt`, timestamp blocks
+                    // and all, with only two observations objecting.
+                    let formats = Array(byFormat.values)
+                    for (i, a) in formats.enumerated() {
+                        for b in formats[(i + 1)...] where !a.isDisjoint(with: b) { return false }
+                    }
+                    // These are `Set<String>` comparisons, not digest
+                    // comparisons: the same digest written in uppercase or with a
+                    // fullwidth digit reads as a second byte stream here. What
+                    // makes that sound is `.hex(64)`, which rejects both before
+                    // this relation runs — a dependency worth naming, since the
+                    // label reads as if it compared digests.
+                    let kinds: [Set<String>] = [[audio], [reference], transcripts, Set(executables)]
                     for (i, a) in kinds.enumerated() {
                         for b in kinds[(i + 1)...] where !a.isDisjoint(with: b) { return false }
                     }
@@ -670,7 +707,20 @@ struct EvidenceFileTests {
                 // `nm_caseVariantCanonicalIds`. The commands add no information a
                 // rule can use — they document how the fields were obtained. So
                 // they join the rest of the narrative fields, which this file has
-                // always declared unchecked. Binding them would need the run to
+                // always declared unchecked.
+                //
+                // **The other half of that sentence, which the round-24 version
+                // left out.** "Restates a fact the file carries as data" also
+                // means the restatement can now *diverge* from the data:
+                // `--language en` sits beside `session.language: "en"`, which is
+                // pinned, and a one-sided edit leaves the file internally
+                // contradictory with nothing to notice. Measured in round 25 —
+                // the command may say `zh`, name a different backend, or count a
+                // different symbol, and every test passes. Two further sentences
+                // in the evidence file lean on these strings and are likewise
+                // unchecked: `isolating_the_counterfactual` says the census is
+                // "per invocation of `session.transcribe_command`", and
+                // `_nm_note` narrates the table the `nm` command produced. Binding them would need the run to
                 // record `language` and `counted_symbol` as fields and let the
                 // command be prose, which is a change to the evidence schema, not
                 // to this test.
@@ -691,7 +741,7 @@ struct EvidenceFileTests {
                 // only of a recording on this corpus. Declaring them here says
                 // the right thing about them and puts re-pinning where it
                 // belongs: an edit to the declaration, on purpose.
-                Relation(label: "this evidence was recorded on the reviewed corpus `\(reviewedCorpus.name)`") {
+                Relation(label: "session.corpus is the reviewed corpus name") {
                     string($0, "session.corpus") == reviewedCorpus.name
                 },
                 Relation(label: "session.audio_sha256 is the reviewed WAV digest") {
@@ -709,7 +759,7 @@ struct EvidenceFileTests {
                 // `reference_words: 80` and an `edit_list` of English word
                 // substitutions. The corpus is English; that is a fact about
                 // this recording, so it is declared like one.
-                Relation(label: "this run transcribed `\(reviewedCorpus.language)`, the language the reviewed corpus is in") {
+                Relation(label: "session.language is the reviewed corpus language") {
                     string($0, "session.language") == reviewedCorpus.language
                 },
                 Relation(label: "collapse was called in this run") {
@@ -1055,8 +1105,8 @@ struct EvidenceFileTests {
     /// is both. Round 16 replaced a denylist with an allowlist of general
     /// categories; the allowlist then re-admitted two scalars the denylist had
     /// caught — U+3164 HANGUL FILLER (`Lo`, so `alphanumerics`) and U+2800
-    /// BRAILLE PATTERN BLANK (`So`, so `symbols`) — along with two more Hangul
-    /// fillers. General category is not a renderability predicate, and no
+    /// BRAILLE PATTERN BLANK (`So`, so `symbols`) — along with three more
+    /// Hangul fillers: U+115F, U+1160 and U+FFA0, four in all with U+3164. General category is not a renderability predicate, and no
     /// predicate in Foundation is. **This is a floor, not a test for
     /// legibility**: it rejects the blank-rendering scalars that have actually
     /// been found, and a scalar nobody has thought of will pass.
@@ -1073,6 +1123,24 @@ struct EvidenceFileTests {
     /// differing only by a trailing space or a U+200B counted as two.
     static func rendered(_ s: String) -> String {
         String(String(s).unicodeScalars.filter { visible.contains($0) })
+    }
+
+    /// What `statesWholeNumber` reads: the text with everything that renders as
+    /// nothing removed, then folded to NFKC.
+    ///
+    /// Unlike `rendered()` this keeps spaces and letters, because the anchors
+    /// match phrases (`agree at 773`) and not just figures. It removes the three
+    /// families that let a character hide between a sign and its digits:
+    /// `knownBlank`, the control-and-format scalars (U+200E, U+2060, U+00AD),
+    /// and the combining marks, which also collapses a decorated dash back to a
+    /// dash so `isSign` can see it.
+    static func normalisedForAnchoring(_ s: String) -> String {
+        let stripped = String(s.unicodeScalars.filter {
+            !knownBlank.contains($0)
+                && !CharacterSet.controlCharacters.contains($0)
+                && !CharacterSet.nonBaseCharacters.contains($0)
+        })
+        return stripped.precomposedStringWithCompatibilityMapping
     }
 
     static func mismatches(_ value: Any?, against node: Node, at path: String) -> [String] {
@@ -1153,40 +1221,77 @@ struct EvidenceFileTests {
     /// to end that — a separator check on the trailing side only, so `1,773`
     /// satisfied a seek for `773`. Each fix had closed the examples it was given
     /// and left their mirror image standing.
-    static func statesWholeNumber(_ text: String, _ needle: String) -> Bool {
-        /// A **minus**, by Unicode class rather than by enumeration.
+    static func statesWholeNumber(_ rawText: String, _ rawNeedle: String) -> Bool {
+        // Normalise both sides before looking at anything. Two escape routes
+        // closed here are structural rather than another missing scalar:
+        //
+        // - **An invisible between the sign and the digit.** `(-<U+200E>773)`
+        //   passed every version of this helper, because the check reads exactly
+        //   *one* character and that character was a left-to-right mark. No list
+        //   of signs closes that. Stripping what renders as nothing does, and
+        //   this file already knew which scalars those are — `knownBlank` holds
+        //   U+200B, and `rendered()` has gone through it since round 16. This
+        //   helper was the one place that read raw text.
+        // - **Compatibility spellings.** NFKC folds U+207B and U+208B to U+2212
+        //   and U+FF0D to `-`, so three of round 25's escapes need no rule at
+        //   all after this line.
+        //
+        // `rendered()` itself is the wrong tool — it drops spaces, so
+        // `agree at 773` becomes `agreeat773` and word boundaries vanish. This
+        // removes only what is invisible.
+        let text = normalisedForAnchoring(rawText)
+        let needle = normalisedForAnchoring(rawNeedle)
+        /// A **minus**. `Pd` and U+2212 cover it after normalisation; the two
+        /// stragglers are named because they have no compatibility mapping.
         ///
-        /// Round 23 added four dashes to a hand-written list and round 24 found
-        /// three more it did not have — U+2011 NON-BREAKING HYPHEN, U+2012 FIGURE
-        /// DASH, U+FF0D FULLWIDTH HYPHEN-MINUS — each of which made `(‑773)` read
-        /// as the recorded `773`. Enumerating this class is the mistake, not the
-        /// particular list: a comment reading *"in any of the spellings prose
-        /// actually uses"* is a completeness claim, and it was falsified in each
-        /// of the two rounds that made it. So ask Unicode what a dash is.
+        /// **This list is not closed, and that is now stated rather than
+        /// claimed away.** Round 23 enumerated four dashes and round 24 found
+        /// three more; round 24 asked Unicode for `Pd` and round 25 found three
+        /// spellings in *other* categories. `Sm` cannot be taken wholesale —
+        /// `=773` and `<773` state 773 — so what is left is a list, and lists of
+        /// this kind have been falsified in three consecutive rounds. Read the
+        /// scope note above `statesWholeNumber` for what that means: this is a
+        /// detector for a figure that has gone **stale**, not for one somebody
+        /// is hiding.
         ///
         /// `+` is deliberately not a sign: `+773` **is** 773, and rejecting it
         /// was the mirror of the bug this helper exists to fix. `133+640` — a
-        /// `+` that is arithmetic — is already handled by `runsOn`, because a
-        /// digit sits before it.
+        /// `+` that is arithmetic — is handled by `runsOn`, because a digit
+        /// sits before it.
+        ///
+        /// One residual is named rather than left to be rediscovered: U+30FC
+        /// KATAKANA-HIRAGANA PROLONGED SOUND MARK renders as a dash and Unicode
+        /// calls it a **letter** (`Lm`), so `ー773` passes both this and
+        /// `runsOn`. Admitting it would mean treating a letter as a sign. It is
+        /// the shape of thing this helper cannot decide, and the scope note says
+        /// so.
         func isSign(_ c: Character) -> Bool {
             guard c.unicodeScalars.count == 1, let s = c.unicodeScalars.first else { return false }
-            switch s.properties.generalCategory {
-            case .dashPunctuation: return true  // -, U+2010…U+2015, U+2E3A/B, U+FF0D, …
-            case .mathSymbol: return s == "\u{2212}"  // MINUS SIGN, and not `+`
-            case .format: return s == "\u{00AD}"  // SOFT HYPHEN — invisible, so it must not pass
-            default: return false
-            }
+            if s.properties.generalCategory == .dashPunctuation { return true }
+            return s == "\u{2212}"  // MINUS SIGN
+                || s == "\u{2052}"  // COMMERCIAL MINUS SIGN — `Sm`, no NFKC mapping
+                || s == "\u{2796}"  // HEAVY MINUS SIGN — `So`, no NFKC mapping
         }
         /// A group or decimal separator, which continues a number only when a
         /// digit sits on its far side.
         ///
-        /// The space separators are here for the same reason as the dashes.
-        /// Closing `1,773` and leaving `1 773` open was a fix shaped by the
-        /// examples it was given: a narrow no-break space is the standard group
-        /// separator in several locales, so round 24 read `(1 640)` as the
-        /// recorded `640`. `Zs` covers U+0020, U+00A0, U+2009 and U+202F alike.
+        /// `Zs` is the class; the rest are the `Po` spellings found so far, and
+        /// that list is open for the same reason as the signs. U+066B was the
+        /// sharpest miss: U+066**C**, the Arabic *thousands* separator, was
+        /// listed and its immediate sibling the *decimal* separator was not.
+        ///
+        /// **A known cost, chosen deliberately.** `Zs` includes the ordinary
+        /// space, and `1 773` (one grouped number) is typographically identical
+        /// to `3 640` (two numbers) — so prose like *"across the 3 640-call
+        /// chunks"* now fails this anchor although both figures are honest. The
+        /// alternative is letting `1 773` satisfy a seek for `773`. Neither
+        /// error is refinable away; a loud false alarm with a diagnostic beats a
+        /// silent false pass, so the space stays in.
         func isSeparator(_ c: Character) -> Bool {
-            if c == "," || c == "." || c == "\u{066C}" || c == "\u{2019}" { return true }
+            if c == "," || c == "." || c == "'" || c == "\u{00B7}"  // MIDDLE DOT
+                || c == "\u{066B}" || c == "\u{066C}"  // ARABIC DECIMAL / THOUSANDS
+                || c == "\u{2019}" || c == "\u{2044}"  // apostrophe (Swiss), FRACTION SLASH
+            { return true }
             guard c.unicodeScalars.count == 1, let s = c.unicodeScalars.first else { return false }
             return s.properties.generalCategory == .spaceSeparator
         }
@@ -1296,7 +1401,10 @@ struct EvidenceFileTests {
 
     /// A probe entry may cite a declared `path_coverage` name, a declared `how`
     /// key, a source symbol or an ordinary word — but not a key belonging to
-    /// another block. Both halves of the scope come from the declaration.
+    /// another block. Two thirds of the scope come from the declaration — the
+    /// census measurements and the declared `how` keys — and the third part is
+    /// the literal `["path_coverage", "_limits"]` below, the two names the
+    /// block calls itself by.
     @Test func `probe entries cite only declared path_coverage names`() throws {
         for e in try Self.evidenceFiles() {
             guard let shape = Self.shape(for: e) else { continue }
@@ -1373,12 +1481,16 @@ struct EvidenceFileTests {
     /// say which file stopped parsing, first.
     ///
     /// Reaching this guard by editing `Package.resolved` is harder than it
-    /// looks, and the two ways it fails are worth knowing before measuring:
-    /// SwiftPM **re-resolves and rewrites the file** before the tests run, so
-    /// deleting a pin leaves a green suite because the mutation was undone, not
-    /// because nothing checked; and corrupting the file makes SwiftPM refuse to
-    /// plan the build, which reports zero failures **and zero tests**. Only the
-    /// exit code tells those apart from a pass.
+    /// looks, and two measured facts are worth knowing before trying:
+    /// **deleting the whole file** does not test anything — SwiftPM re-creates
+    /// it before the tests run, so the green suite means the mutation was
+    /// undone; and **corrupting** it makes SwiftPM refuse to plan the build,
+    /// which reports zero failures **and zero tests**, a shape only the exit
+    /// code tells apart from a pass. Deleting the *pin* from an otherwise valid
+    /// file does reach the guard: measured `rc=1`, 8 tests run, this test and
+    /// the arm-under-test observation both failing. (An earlier version of this
+    /// paragraph said that case was green. It was describing the deleted-file
+    /// measurement and calling it the deleted-pin one.)
     ///
     /// There used to be a second source. `scripts/fetch-corpora.sh` was parsed
     /// by regex for the corpus name and two digests, and round 23 measured what
