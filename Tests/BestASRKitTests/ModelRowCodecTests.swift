@@ -195,19 +195,31 @@ struct StoreProjectionIdentityTests {
 }
 
 extension StoreProjectionIdentityTests {
-    @Test func `A legacy record carrying the placeholder is not marked comparable`() throws {
-        // Found while the verify ensemble was down (#183 round 1): 35 of the
-        // 383 stored measurements carry `default` as their quantization, and
-        // the projection was marking every one of them identityComplete: true.
-        // `identityComplete` means "names its artifact well enough to compare",
-        // and `default` is exactly what does not.
-        let record = try #require(
-            snapshot(modelId: "whisperkit|whisper|small|\(ModelID.removedPlaceholder)")
-                .projectedRecords().first)
-        #expect(record.identity == ModelID(family: "whisper", size: "small"))
-        // The value is preserved verbatim — the migration finds these by it.
-        #expect(record.quantization == ModelID.removedPlaceholder)
-        // But it is not vouched for.
-        #expect(record.identityComplete == false)
+}
+
+/// The acceptance criterion for the split (#183 verify round 4, option 3):
+/// this change must not rotate a single stored key.
+struct CatalogKeyStabilityTests {
+    @Test func `Every catalog row produces the key already on disk`() throws {
+        // The committed audit CSV is a snapshot of ~/.bestasr/store/models.jsonl
+        // taken before this change. If the catalog and the snapshot disagree on
+        // even one key, the change rotates it — which is exactly what option 3
+        // defers. This is the test the first three rounds did not have, and its
+        // absence is why the re-key reached round 4 undetected.
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appending(path: "docs/model-identity-audit.csv")
+        let text = try String(contentsOf: url, encoding: .utf8)
+        var lines = text.split(whereSeparator: \.isNewline)
+        lines.removeFirst()
+        let onDisk = Set(lines.map { String($0.split(separator: ",")[0]) })
+        #expect(onDisk.count == 37)
+
+        let fromCatalog = Set(ModelGrid.rows.map(\.modelId))
+        let rotated = fromCatalog.subtracting(onDisk).sorted()
+        let orphaned = onDisk.subtracting(fromCatalog).sorted()
+        #expect(rotated.isEmpty, "catalog produces keys not on disk: \(rotated)")
+        #expect(orphaned.isEmpty, "disk holds keys the catalog no longer produces: \(orphaned)")
     }
 }

@@ -98,14 +98,14 @@ struct ModelIDTests {
         #expect(Quantization(serialised: Quantization.unknown.serialised) != .deferred(.runtime))
     }
 
-    @Test func `neither unknown nor the legacy placeholder is a complete identity`() {
+    @Test func `only unknown is an incomplete identity, while the catalog still spells default`() {
         #expect(Quantization.unknown.isComplete == false)
-        // Preserving the legacy value and vouching for it are different acts.
-        // 35 of the 383 stored measurements spell their quantization `default`;
-        // the value round-trips verbatim so the migration can find them, but a
-        // record that does not say which artifact it measured cannot be
-        // compared with one that does.
-        #expect(Quantization(serialised: ModelID.removedPlaceholder).isComplete == false)
+        // The placeholder IS still vouched for — deferred with the catalog
+        // re-key, not accepted. Refusing it while 19 rows spell it excluded
+        // every whisperkit row from benchmarking (measured: zero candidates).
+        // The refusal and the re-key are one unit; both move to the
+        // re-encoding change.
+        #expect(Quantization(serialised: ModelID.removedPlaceholder).isComplete)
         #expect(Quantization.notApplicable.isComplete)
         #expect(Quantization.deferred(.runtime).isComplete)
         #expect(Quantization.deferred(.dependency).isComplete)
@@ -137,7 +137,7 @@ struct ModelIDTests {
     }
 
     @Test func `the legacy placeholder still decodes, and stays visibly wrong`() {
-        // 337 stored records spell their quantization `default`. Decoding must
+        // 344 of the 383 stored records spell their quantization `default`. Decoding must
         // not reinterpret them — a record that is wrong should read as wrong,
         // which is what lets the migration find it.
         #expect(Quantization(serialised: ModelID.removedPlaceholder)

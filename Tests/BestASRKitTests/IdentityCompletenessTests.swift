@@ -46,7 +46,7 @@ struct IdentityCompletenessTests {
         }
         func row(_ corpus: CorpusRow, _ at: TimeInterval) -> MeasurementRow {
             MeasurementRow(
-                modelId: "mlx-audio|mms|1b|\(ModelID.removedPlaceholder)",
+                modelId: "mlx-audio|mms|1b|\(Quantization.unknown.serialised)",
                 corpusId: corpus.corpusId, machineId: "h",
                 measuredAt: Date(timeIntervalSince1970: at), metricKind: .wer,
                 errorRate: 0.1, rtf: 0.1, peakMemoryGB: 1, warmupSeconds: 1,
@@ -69,7 +69,7 @@ struct IdentityCompletenessTests {
         func record(_ at: TimeInterval) -> BenchmarkRecord {
             BenchmarkRecord(
                 backend: "mlx-audio", model: "mms/1b",
-                quantization: ModelID.removedPlaceholder,
+                quantization: Quantization.unknown.serialised,
                 identity: identity, language: "en", metricKind: .wer,
                 errorRate: 0.1, rtf: 0.1, peakMemoryGB: 1, audioDuration: 10,
                 measuredAt: Date(timeIntervalSince1970: at), chip: "Apple M5 Max",

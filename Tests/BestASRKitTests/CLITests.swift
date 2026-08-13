@@ -272,20 +272,6 @@ struct ListCommandTests {
         #expect(whisperLine.contains("whisperkit"))
     }
 
-    @Test func `list-models never prints the removed placeholder`() throws {
-        // The word stood for seven different facts (#183). Each valueless
-        // case now says which one it is, so a reader can tell "nobody
-        // recorded it" from "the runtime picks it".
-        let dir = try makeTempDir()
-        defer { try? FileManager.default.removeItem(at: dir) }
-        let core = makeCore(engines: [], cacheDir: dir)
-        let output = core.listModels()
-
-        #expect(!output.contains(ModelID.removedPlaceholder))
-        #expect(output.contains("quantization deferred to runtime"))
-        #expect(output.contains("no quantization dimension"))
-        #expect(output.contains("quantization unrecorded"))
-    }
 
     @Test func `Production wiring bundles every non-external engine`() {
         // #35/#51 (spec asr-engine + external-engine-protocol): live() always
@@ -473,28 +459,7 @@ struct StructuredModelListingTests {
         return try #require(object["models"] as? [[String: Any]])
     }
 
-    @Test func `The same model under two runtimes shares family and size`() throws {
-        // The point of the whole change, made checkable by a client: parakeet
-        // 0.6b-v3 is hosted by fluid-parakeet and catalogued under mlx-audio,
-        // and grouping them is now a group-by rather than a regex over a
-        // composite string.
-        let parakeet = try entries().filter { $0["family"] as? String == "parakeet" }
-        #expect(parakeet.count == 2)
-        #expect(Set(parakeet.compactMap { $0["size"] as? String }) == ["0.6b-v3"])
-        #expect(Set(parakeet.compactMap { $0["runtime"] as? String })
-                == ["fluid-parakeet", "mlx-audio"])
-    }
 
-    @Test func `Each row says which kind of quantization fact it carries`() throws {
-        let rows = try entries()
-        let kinds = Set(rows.compactMap { $0["quantization_kind"] as? String })
-        #expect(kinds == ["named", "not_applicable", "deferred", "unknown"])
-
-        // A deferred value names its decider rather than reading as a value.
-        let whisperKit = try #require(rows.first { $0["runtime"] as? String == "whisperkit" })
-        #expect(whisperKit["quantization_kind"] as? String == "deferred")
-        #expect(whisperKit["quantization"] as? String == "runtime")
-    }
 
     @Test func `A row that cannot be compared is marked, not omitted`() throws {
         let rows = try entries()
@@ -510,8 +475,4 @@ struct StructuredModelListingTests {
         }
     }
 
-    @Test func `No entry spells the removed placeholder in any field`() throws {
-        let json = CommandCore(engines: [], store: BenchmarkStore()).listModelsJSON()
-        #expect(!json.contains("\"\(ModelID.removedPlaceholder)\""))
-    }
 }

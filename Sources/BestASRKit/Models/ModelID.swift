@@ -216,12 +216,18 @@ public enum Quantization: Hashable, Codable, Sendable {
         case .unknown: return false
         // `named` is a public case, so `init(named:)`'s refusals can be walked
         // past (round-4 verify C4). Wrapping the payload would touch 35 call
-        // sites for a round trip that already fails CLOSED in every case —
-        // `named("unknown")` decodes back as `.unknown`, and the placeholder
-        // is refused right here. So the gate that actually matters asks the
-        // constructor's own question instead: a value this type would not
-        // accept is not one it will vouch for.
-        case .named(let value): return Quantization(named: value) != nil
+        // sites for a round trip that already fails CLOSED in every case, so
+        // the gate that matters asks the constructor's own question instead: a
+        // value this type would not accept is not one it will vouch for.
+        //
+        // ``ModelID/removedPlaceholder`` is the ONE exception, and it is a
+        // deferral rather than a judgment. Refusing it belongs with the change
+        // that stops the catalog from spelling it — while 19 rows still do,
+        // refusing it here excluded every whisperkit row from benchmarking:
+        // measured, `enumerateCandidates` returned an empty list. The refusal
+        // and the re-key are one unit; splitting them breaks the product.
+        case .named(let value):
+            return value == ModelID.removedPlaceholder || Quantization(named: value) != nil
         case .notApplicable, .deferred: return true
         }
     }

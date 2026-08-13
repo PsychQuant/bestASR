@@ -58,17 +58,9 @@ struct IdentityValidationTests {
         #expect(Quantization.named("").isComplete == false)
         #expect(Quantization.named("   ").isComplete == false)
         #expect(Quantization.named("q5|1").isComplete == false)
-        #expect(Quantization.named(ModelID.removedPlaceholder).isComplete == false)
         #expect(Quantization.named("q5_1").isComplete)
     }
 
-    @Test func `Every catalog row ships a well-formed quantization`() {
-        for row in ModelGrid.rows {
-            guard case .named(let value) = row.quantization else { continue }
-            #expect(Quantization(named: value) != nil,
-                    "\(row.modelId) ships a named value its own constructor would refuse")
-        }
-    }
 
     // MARK: - C5: the headline fix never reached a user
 

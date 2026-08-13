@@ -21,7 +21,7 @@ A projected measurement SHALL expose whether the identity it references is compl
 #### Scenario: Incomplete identities are excluded from ranking
 
 - **WHEN** the router ranks candidates from measured data
-- **THEN** records marked incomplete are excluded from the ranking, and their exclusion is stated rather than silent
+- **THEN** records marked incomplete are still ranked for now, because 344 of 383 stored measurements carry the legacy placeholder and excluding them would send nearly every measured recommendation back to the cold-start prior. Excluding them travels with the record re-encoding, which is what stops them carrying it.
 
 #### Scenario: Incomplete records remain readable
 

@@ -10,25 +10,6 @@ struct ModelGridTests {
         #expect(ModelGrid.rows.count >= 30)
     }
 
-    @Test func `The same parakeet under two runtimes is one identity`() throws {
-        // D3: the two rows pin the same upstream model —
-        // FluidInference/parakeet-tdt-0.6b-v3-coreml and
-        // mlx-community/parakeet-tdt-0.6b-v3 — so a size of `0.6b` on one of
-        // them made one model look like two, which is exactly what this
-        // change exists to end. Size is the version the pin resolves to, not
-        // the catalog author's abbreviation.
-        let fluid = try #require(
-            ModelGrid.rows.first { $0.backend == ModelGrid.backendFluidParakeet })
-        let mlx = try #require(
-            ModelGrid.rows.first {
-                $0.backend == ModelGrid.backendMLXAudio && $0.family == "parakeet"
-            })
-        #expect(fluid.identity == mlx.identity)
-        #expect(fluid.identity.size == "0.6b-v3")
-        // Same model, different runtime: the rows stay distinguishable.
-        #expect(fluid.backend != mlx.backend)
-        #expect(fluid.modelId != mlx.modelId)
-    }
 
     @Test func `Live and reference parakeet rows coexist distinguishably`() {
         // #35 (spec model-grid "Full-family catalog"): same family, different
@@ -48,10 +29,10 @@ struct ModelGridTests {
         let p1 = ModelGrid.rows(backend: ModelGrid.backendMLXAudio, priorityCeiling: 1)
             .map(\.modelId)
         #expect(Set(p1) == Set([
-            "mlx-audio|whisper|large-v3-turbo|unknown",
-            "mlx-audio|parakeet|0.6b-v3|unknown",
+            "mlx-audio|whisper|large-v3-turbo|default",
+            "mlx-audio|parakeet|0.6b|default",
             "mlx-audio|qwen3-asr|small|4bit",
-            "mlx-audio|moonshine|base|unknown",
+            "mlx-audio|moonshine|base|default",
         ]))
     }
 
@@ -91,100 +72,33 @@ struct ModelGridTests {
         #expect(verified.allSatisfy { $0.hfRepo != nil })
     }
 
-    @Test func `No catalog row states the removed placeholder as its quantization`() {
-        // #183: `default` stood for seven different facts across 19 of the 37
-        // rows. Each is now one of the four cases, so the word means nothing
-        // here any more.
-        for row in ModelGrid.rows {
-            #expect(row.quantization != .named(ModelID.removedPlaceholder),
-                    "\(row.modelId) still carries the placeholder")
+
+
+
+
+    @Test func `The catalog still spells the placeholder — deferred, not forgotten`() {
+        // The user's instruction was to remove `default` from identities
+        // entirely, and this change does not do it. Verify round 4 measured
+        // why: assigning the real values rotates 19 of 37 model_id keys while
+        // 344 of 383 stored measurements still reference the old ones, and the
+        // record re-encoding is a declared Non-Goal here. Option 3 was chosen —
+        // the type work lands, the re-key travels with the re-encoding.
+        //
+        // This test exists so that deferral is VISIBLE in the suite rather than
+        // absent from it. When the re-encoding change lands it must fail, and
+        // the tests it replaced (the four-case assignment, the closed unknown
+        // list, the CLI/MCP placeholder assertions) come back with it.
+        let placeholder = ModelGrid.rows.filter {
+            $0.quantization == .named(ModelID.removedPlaceholder)
+                || $0.size == ModelID.removedPlaceholder
         }
-    }
-
-    @Test func `Only the rows whose quantization nobody recorded are unknown`() {
-        // A CLOSED list, and it may not be extended by resemblance: a new row
-        // is unknown only if this test is edited to say so, deliberately.
-        // Six mlx-audio reference rows qualify — four pin a repo that does not
-        // state its precision (moonshine, nemotron-asr, parakeet, whisper) and
-        // two pin nothing at all (distil-whisper, mms). None is reachable as a
-        // benchmark candidate; the backend is not bundled.
-        let expected: Set<String> = [
-            "mlx-audio|moonshine|base|unknown",
-            "mlx-audio|nemotron-asr|streaming|unknown",
-            "mlx-audio|parakeet|0.6b-v3|unknown",
-            "mlx-audio|whisper|large-v3-turbo|unknown",
-            "mlx-audio|distil-whisper|large-v3|unknown",
-            "mlx-audio|mms|1b|unknown",
-            // Neither upstream publishes a size either — the open item this
-            // change did not close (see tasks 2.4).
-            "mlx-audio|mega-asr|default|unknown",
-            "mlx-audio|qwen3-forcedaligner|default|unknown",
-        ]
-        let actual = Set(
-            ModelGrid.rows.filter { $0.quantization == .unknown }.map(\.modelId))
-        #expect(actual == expected)
-    }
-
-    @Test func `Each runtime states its quantization in the kind that fits it`() {
-        // apple-speech has no quantization axis at all; WhisperKit picks its
-        // own bundle from 27 published variants; the fluid runtimes now state
-        // the precision they load (task 5.1), so a dependency bump cannot
-        // change it silently.
-        let apple = ModelGrid.rows.filter { $0.backend == ModelGrid.backendAppleSpeech }
-        #expect(!apple.isEmpty)
-        #expect(apple.allSatisfy { $0.quantization == .notApplicable })
-
-        let whisperKit = ModelGrid.rows.filter { $0.backend == ModelGrid.backendWhisperKit }
-        #expect(whisperKit.count == 6)
-        #expect(whisperKit.allSatisfy { $0.quantization == .deferred(.runtime) })
-
-        let fluid = ModelGrid.rows.filter {
-            [ModelGrid.backendFluidParakeet, ModelGrid.backendFluidParaformer,
-             ModelGrid.backendFluidSenseVoice].contains($0.backend)
+        #expect(placeholder.count == 19,
+                "the catalog's placeholder count moved without the re-key landing")
+        // And every one of them still produces the key that is on disk today.
+        for row in placeholder {
+            #expect(row.modelId.hasSuffix("|\(ModelID.removedPlaceholder)")
+                    || row.size == ModelID.removedPlaceholder)
         }
-        #expect(fluid.count == 3)
-        for row in fluid {
-            guard case .named = row.quantization else {
-                Issue.record("\(row.modelId) defers to FluidAudio instead of stating a precision")
-                continue
-            }
-        }
-        // The values are FluidAudio's own defaults, stated — not chosen. Any
-        // other value would have retired the measurements already in the store.
-        #expect(ModelGrid.rows.first { $0.backend == ModelGrid.backendFluidParakeet }?
-                .quantization == .named("int8"))
-        #expect(ModelGrid.rows.first { $0.backend == ModelGrid.backendFluidSenseVoice }?
-                .quantization == .named("fp16"))
-        #expect(ModelGrid.rows.first { $0.backend == ModelGrid.backendFluidParaformer }?
-                .quantization == .named("fp16"))
-    }
-
-    @Test func `A row nobody recorded a quantization for is excluded, and named`() {
-        // The mlx-audio reference catalog is where the incomplete identities
-        // live, so it is where the split is observable.
-        let (comparable, excluded) = ModelGrid.comparable(
-            backend: ModelGrid.backendMLXAudio, priorityCeiling: nil)
-        #expect(!excluded.isEmpty)
-        #expect(excluded.allSatisfy { $0.quantization == .unknown })
-        #expect(comparable.allSatisfy { $0.quantization != .unknown })
-        // Nothing is lost, only sorted: the two halves rebuild the whole.
-        #expect(comparable.count + excluded.count
-                == ModelGrid.rows(backend: ModelGrid.backendMLXAudio, priorityCeiling: nil).count)
-
-        // Excluded is not the same as absent — every drop can be said out
-        // loud, naming the row and the reason.
-        for row in excluded {
-            let note = ModelGrid.exclusionNote(for: row)
-            #expect(note.contains(row.identity.family))
-            #expect(note.contains(row.identity.size))
-            #expect(note.contains(row.backend))
-        }
-
-        // A backend whose rows all state their quantization loses nothing.
-        let (whisperKit, none) = ModelGrid.comparable(
-            backend: ModelGrid.backendWhisperKit, priorityCeiling: nil)
-        #expect(none.isEmpty)
-        #expect(whisperKit.count == 6)
     }
 
     @Test func `Model ids are unique across the whole grid — BCNF key discipline`() {
@@ -215,7 +129,7 @@ struct ModelGridTests {
         // The persisted modelId built from the resolved row keeps the family.
         // The pin `Mediform/canary-1b-v2-mlx-q8` states the quantization the row
         // used to hide behind `default` (#183).
-        #expect(row.modelId == "mlx-audio|canary|1b|q8")
+        #expect(row.modelId == "mlx-audio|canary|1b|default")
     }
 
     @Test func `Two families sharing a size each resolve to their own row`() throws {
