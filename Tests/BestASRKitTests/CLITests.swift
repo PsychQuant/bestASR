@@ -476,3 +476,21 @@ struct StructuredModelListingTests {
     }
 
 }
+
+/// Round-5 verify (#183): `padding(toLength:)` truncates as well as pads, so a
+/// name longer than its column loses its tail — including a closing bracket.
+struct ListModelsColumnTests {
+    @Test func `A name longer than its column is not cut off`() throws {
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let output = makeCore(engines: [], cacheDir: dir).listModels()
+
+        for line in output.split(separator: "\n") {
+            let opens = line.filter { $0 == "(" }.count
+            let closes = line.filter { $0 == ")" }.count
+            #expect(opens == closes, "unbalanced bracket, name truncated: \(line)")
+        }
+        // The two rows with no upstream version name are the long ones.
+        #expect(output.contains("(version unnamed upstream)"))
+    }
+}

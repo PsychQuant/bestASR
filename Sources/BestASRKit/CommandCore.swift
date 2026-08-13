@@ -768,7 +768,7 @@ public struct CommandCore: Sendable {
                 return "\(backend): \(variants.map { Self.describe($0.quantization) }.joined(separator: "/"))"
             }
             lines.append(
-                "\(Self.name(family: "whisper", size: size).padding(toLength: 26, withPad: " ", startingAt: 0)) "
+                "\(Self.column(Self.name(family: "whisper", size: size), 26)) "
                     + "(\(quants.joined(separator: " · ")))")
         }
         // Live non-Whisper families (#35/#50, spec model-grid "Full-family
@@ -783,7 +783,7 @@ public struct CommandCore: Sendable {
         for backend in liveFamilies {
             for row in ModelGrid.rows(backend: backend, priorityCeiling: nil) {
                 lines.append(
-                    "\(Self.name(row).padding(toLength: 26, withPad: " ", startingAt: 0)) "
+                    "\(Self.column(Self.name(row), 26)) "
                         + "(\(row.backend): \(Self.describe(row.quantization))"
                         + "\(row.verified ? "" : " · unverified"))")
             }
@@ -798,7 +798,7 @@ public struct CommandCore: Sendable {
             .sorted(by: { ($0.priority, $0.family) < ($1.priority, $1.family) })
         {
             lines.append(
-                "  P\(row.priority) \(Self.name(row).padding(toLength: 34, withPad: " ", startingAt: 0)) "
+                "  P\(row.priority) \(Self.column(Self.name(row), 34)) "
                     + "\(Self.describe(row.quantization))\(row.verified ? " *" : "")")
         }
         return lines.joined(separator: "\n")
@@ -881,6 +881,17 @@ public struct CommandCore: Sendable {
             let json = String(data: data, encoding: .utf8)
         else { return #"{"backends":[]}"# }
         return json
+    }
+
+    /// Pad to a column width without ever cutting the value short.
+    ///
+    /// `String.padding(toLength:)` truncates as well as pads, which silently
+    /// ate the closing bracket off `mega-asr (version unnamed upstream)` and
+    /// left the next column bleeding into the name (round-5 verify). A column
+    /// is a layout preference; the value is the content. When they conflict
+    /// the layout gives way.
+    static func column(_ value: String, _ width: Int) -> String {
+        value.count >= width ? value : value.padding(toLength: width, withPad: " ", startingAt: 0)
     }
 
     /// A model for a human: `family size`, the subordination the old output

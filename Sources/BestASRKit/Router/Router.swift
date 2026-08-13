@@ -190,7 +190,7 @@ public enum Router {
                 ?? ModelRegistry.liveIdentity(named: modelOverride)
             if let identity = resolved {
                 let (fitted, downgradeWarnings, downgradeReasons) = ColdStartPrior.ensureFits(
-                    identity, in: host.unifiedMemoryGB)
+                    identity, in: host.unifiedMemoryGB, hostedBy: backend.rawValue)
                 model = fitted.size
                 warnings += downgradeWarnings
                 reasons += downgradeReasons

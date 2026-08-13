@@ -89,3 +89,43 @@ struct IdentityValidationTests {
         #expect(identity.family == "whisper")
     }
 }
+
+/// Round-5 verify (#183, DA + codex, same root cause): the downgrade walk is
+/// runtime-blind, so it can hand back a model the chosen runtime does not host.
+struct DowngradeStaysInsideItsRuntimeTests {
+    @Test func `A downgrade never proposes a model the runtime does not host`() throws {
+        // fluid-parakeet hosts exactly one row (0.6b-v3, 2.0 GB). The parakeet
+        // ladder is built across ALL backends, so on a machine too small for
+        // 2.0 GB the walk previously stepped to `parakeet 0.6b` — which only
+        // mlx-audio has. `--backend fluid-parakeet` would then name a model
+        // fluid-parakeet cannot run.
+        //
+        // This is a regression THIS change introduced: before it, nextSmaller
+        // took a String and consulted the whisper-only downgradeChain, so a
+        // non-whisper name fell out immediately and no downgrade happened.
+        let identity = try #require(ModelID(family: "parakeet", size: "0.6b-v3"))
+        let host = SystemInfo(
+            chip: "Apple M1", unifiedMemoryGB: 1.7, hasANE: true, macosVersion: "27.0")
+
+        let rec = try Router.recommend(
+            host: host, profile: .medium, requestedLanguage: nil,
+            backendOverride: "fluid-parakeet", modelOverride: "0.6b-v3",
+            records: [], availability: [.fluidParakeet: true])
+
+        #expect(rec.backend == .fluidParakeet)
+        let hosted = Set(
+            ModelGrid.rows(backend: ModelGrid.backendFluidParakeet, priorityCeiling: nil)
+                .map(\.size))
+        #expect(hosted.contains(rec.model),
+                "recommended '\(rec.model)' which fluid-parakeet does not host (\(hosted))")
+        _ = identity
+    }
+
+    @Test func `Within one runtime the whisper chain still steps`() throws {
+        // The fix must not disable downgrading where it is correct.
+        let large = try #require(ModelID(family: "whisper", size: "large-v3"))
+        let next = try #require(
+            ModelRegistry.nextSmaller(than: large, hostedBy: ModelGrid.backendWhisperKit))
+        #expect(next == ModelID(family: "whisper", size: "medium"))
+    }
+}

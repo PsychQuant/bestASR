@@ -241,6 +241,27 @@ public enum ModelRegistry {
         "whisper": downgradeChain
     ]
 
+    /// The next model down its own family's chain **that this runtime hosts**.
+    ///
+    /// The ladder is built across every backend, so a family-only walk can step
+    /// onto a row another runtime owns: `fluid-parakeet 0.6b-v3` stepped to
+    /// `parakeet 0.6b`, which only mlx-audio has, and the recommendation then
+    /// named a model the chosen backend cannot run (round-5 verify).
+    ///
+    /// This is a regression this change introduced. Before it, `nextSmaller`
+    /// took a String and consulted the whisper-only `downgradeChain`, so a
+    /// non-whisper name fell out at the first step and never downgraded at all.
+    /// Widening the walk to every family was right; leaving it runtime-blind
+    /// was not.
+    public static func nextSmaller(than identity: ModelID, hostedBy backend: String) -> ModelID? {
+        var current = identity
+        while let candidate = nextSmaller(than: current) {
+            if !ModelGrid.rows(backend: backend, identity: candidate).isEmpty { return candidate }
+            current = candidate
+        }
+        return nil
+    }
+
     /// The next model down its own family's chain, or nil at the foot of it.
     ///
     /// Downgrading across families would change what the model can do — a

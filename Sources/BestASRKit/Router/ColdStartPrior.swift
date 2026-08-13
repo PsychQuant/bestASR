@@ -56,15 +56,22 @@ public enum ColdStartPrior {
     /// Downgrade along large-v3 → medium → small → base → tiny until the model
     /// fits, one warning and reason per step (spec asr-routing: Downgrade model
     /// when memory is insufficient — cold-start only).
+    /// - Parameter hostedBy: when the user locked a runtime, the walk stays
+    ///   inside what that runtime actually offers. `nil` keeps the family-wide
+    ///   walk, which is right for the cold-start path where no backend is
+    ///   locked yet.
     public static func ensureFits(
         _ model: ModelID,
-        in unifiedMemoryGB: Double
+        in unifiedMemoryGB: Double,
+        hostedBy backend: String? = nil
     ) -> (model: ModelID, warnings: [String], reasons: [String]) {
         var current = model
         var warnings: [String] = []
         var reasons: [String] = []
         while !fits(current, in: unifiedMemoryGB) {
-            guard let next = ModelRegistry.nextSmaller(than: current) else {
+            let step = backend.map { ModelRegistry.nextSmaller(than: current, hostedBy: $0) }
+                ?? ModelRegistry.nextSmaller(than: current)
+            guard let next = step else {
                 warnings.append(
                     "even '\(current.size)' may not fit ~\(short(unifiedMemoryGB)) GB unified memory; "
                         + "using it anyway"
