@@ -175,11 +175,19 @@ public enum Router {
         var model: String
         if let modelOverride {
             reasons.append("model '\(modelOverride)' explicitly requested")
-            let (fitted, downgradeWarnings, downgradeReasons) = ColdStartPrior.ensureFits(
-                modelOverride, in: host.unifiedMemoryGB)
-            model = fitted
-            warnings += downgradeWarnings
-            reasons += downgradeReasons
+            // An override is a name the user typed; resolve it to one model
+            // before walking the downgrade chain, and leave it alone when it
+            // names none — a name this catalog cannot place is not something
+            // to guess a family for (#183).
+            if let identity = ModelRegistry.liveIdentity(named: modelOverride) {
+                let (fitted, downgradeWarnings, downgradeReasons) = ColdStartPrior.ensureFits(
+                    identity, in: host.unifiedMemoryGB)
+                model = fitted.size
+                warnings += downgradeWarnings
+                reasons += downgradeReasons
+            } else {
+                model = modelOverride
+            }
         } else {
             let choice = ColdStartPrior.selectModel(
                 profile: profile, unifiedMemoryGB: host.unifiedMemoryGB)

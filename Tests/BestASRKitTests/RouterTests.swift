@@ -337,7 +337,7 @@ struct RouterColdStartTests {
             records: [], availability: bothAvailable
         )
         #expect(rec.backend == .whisperKit)
-        #expect(ModelRegistry.profileModels[.medium]!.contains(rec.model))
+        #expect(ModelRegistry.profileModels[.medium]!.contains { $0.size == rec.model })
         #expect(rec.dataSource == .coldStartPrior)
         #expect(rec.measured == nil)
         #expect(rec.reason.contains { $0.contains("bestasr benchmark") })
@@ -351,9 +351,10 @@ struct RouterColdStartTests {
     ])
     func `Downgrade steps by available unified memory`(
         memoryGB: Double, expected: String, warningCount: Int
-    ) {
-        let (model, warnings, _) = ColdStartPrior.ensureFits("large-v3", in: memoryGB)
-        #expect(model == expected)
+    ) throws {
+        let start = try #require(ModelID(family: "whisper", size: "large-v3"))
+        let (model, warnings, _) = ColdStartPrior.ensureFits(start, in: memoryGB)
+        #expect(model.size == expected)
         #expect(warnings.count == warningCount)
     }
 

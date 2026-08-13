@@ -98,19 +98,60 @@ struct ModelRegistryTests {
     }
 
     @Test func `Profile candidate lists match the cold-start prior spec`() {
-        #expect(ModelRegistry.profileModels[.low] == ["tiny", "base", "small"])
-        #expect(ModelRegistry.profileModels[.medium] == ["small", "medium"])
-        #expect(ModelRegistry.profileModels[.high] == ["medium", "large-v3-turbo", "large-v3"])
+        #expect(ModelRegistry.profileModels[.low]?.map(\.size) == ["tiny", "base", "small"])
+        #expect(ModelRegistry.profileModels[.medium]?.map(\.size) == ["small", "medium"])
+        #expect(ModelRegistry.profileModels[.high]?.map(\.size)
+                == ["medium", "large-v3-turbo", "large-v3"])
+        // Every entry names its family, so a size name cannot later mean some
+        // other family's model (#183).
+        #expect(ModelRegistry.profileModels.values.allSatisfy {
+            $0.allSatisfy { $0.family == "whisper" }
+        })
         // Top three tiers deliberately share one cold-start list (design D5, #29).
         #expect(ModelRegistry.profileModels[.xhigh] == ModelRegistry.profileModels[.high])
         #expect(ModelRegistry.profileModels[.max] == ModelRegistry.profileModels[.high])
     }
 
-    @Test func `Downgrade chain steps large models toward tiny`() {
-        #expect(ModelRegistry.nextSmaller(than: "large-v3") == "medium")
-        #expect(ModelRegistry.nextSmaller(than: "large-v3-turbo") == "medium")
-        #expect(ModelRegistry.nextSmaller(than: "base") == "tiny")
-        #expect(ModelRegistry.nextSmaller(than: "tiny") == nil)
+    @Test func `Downgrade chain steps large models toward tiny`() throws {
+        func whisper(_ size: String) throws -> ModelID {
+            try #require(ModelID(family: "whisper", size: size))
+        }
+        #expect(try ModelRegistry.nextSmaller(than: whisper("large-v3")) == whisper("medium"))
+        // large-v3-turbo is a PEER of large-v3, not a step between it and
+        // medium — preserved from #29 rather than re-derived from the memory
+        // figures, which would have inserted it (#183 task 3.2).
+        #expect(try ModelRegistry.nextSmaller(than: whisper("large-v3-turbo")) == whisper("medium"))
+        #expect(try ModelRegistry.nextSmaller(than: whisper("base")) == whisper("tiny"))
+        #expect(try ModelRegistry.nextSmaller(than: whisper("tiny")) == nil)
+    }
+
+    @Test func `A memory estimate belongs to one model, not to a size name`() throws {
+        // #50 / #183: `sensevoice small` used to inherit `whisper small`'s
+        // 2.5 GB because the map was keyed by the bare size and uniqued with
+        // max. Two different models sharing a size name are two entries now.
+        let senseVoice = try #require(ModelID(family: "sensevoice", size: "small"))
+        let whisperSmall = try #require(ModelID(family: "whisper", size: "small"))
+        #expect(try ModelRegistry.requirements(for: senseVoice).memoryGB == 1.5)
+        #expect(try ModelRegistry.requirements(for: whisperSmall).memoryGB == 2.5)
+        #expect(try ModelRegistry.requirements(for: senseVoice).memoryGB
+                != ModelRegistry.requirements(for: whisperSmall).memoryGB)
+    }
+
+    @Test func `Every live family is ranked, not just the whisper ladder`() throws {
+        // accuracyRank used to be `supportedModels.firstIndex(of:)`, so every
+        // non-whisper model returned -1 and sorted below everything (#183 D6).
+        for (family, size) in [("parakeet", "0.6b-v3"), ("paraformer", "large-zh"),
+                               ("sensevoice", "small"), ("whisper", "medium")] {
+            let identity = try #require(ModelID(family: family, size: size))
+            #expect(ModelRegistry.accuracyRank(of: identity) >= 0, "\(identity) ranks -1")
+            // A downgrade stays inside the family, or stops.
+            if let next = ModelRegistry.nextSmaller(than: identity) {
+                #expect(next.family == identity.family)
+            }
+        }
+        // The whisper ladder still orders as it always did.
+        let ladder = try #require(ModelRegistry.accuracyLadders["whisper"])
+        #expect(ladder.map(\.size) == ModelRegistry.supportedModels)
     }
 
     @Test(arguments: BackendID.allCases)
