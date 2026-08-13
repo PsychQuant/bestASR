@@ -1,0 +1,34 @@
+## 1. 型別
+
+- [x] 1.1 [P] 新增 `Sources/BestASRKit/Models/ModelID.swift`，定義 `ModelID{family, size}`（`Hashable` / `Codable` / `Sendable`）。**行為**：兩個 family 與 size 皆相同的值相等且雜湊相同；family 或 size 為空字串時建構失敗。**驗證**：新增測試檔 `Tests/BestASRKitTests/ModelIDTests.swift`（本任務建立；Swift Testing），內含相等性、雜湊、空值拒絕三則測試。（實作 design D1：`ModelID` 只含 `family` + `size`，不含 quantization 與 runtime。滿足 model-grid 的 "Model identity is a structured value, not a formatted string"）
+- [x] 1.2 [P] 於同檔新增 `Quantization` 封閉列舉，四個 case：`notApplicable` / `named(String)` / `deferred(Deferrer)`（`Deferrer` 為 `.runtime` 或 `.dependency`）/ `unknown`。**行為**：`named` 的 `Codable` 序列化直出其字串值；其餘三者各有保留字且互不混淆。**驗證**：於任務 1.1 建立的 `Tests/BestASRKitTests/ModelIDTests.swift` 新增四個 case 的 encode/decode round-trip 測試，並主張 `deferred` 與 `unknown` 解碼後不相等。（實作 design D4：quantization 成為封閉列舉，四個 case。滿足 model-grid 的 "Quantization is a closed enumeration with no placeholder"）
+
+## 2. 目錄與序列化
+
+- [x] 2.1 `ModelRow`（於 `Sources/BestASRKit/Store/StoreTables.swift`）改為持有 `ModelID` 與 `Quantization`，取代四個鬆散字串欄位；`ModelRow.id(...)` 保留為相容入口，內部由 `ModelID` 組出四段字串。**行為**：序列化形式維持 `runtime|family|size|quantization`；`ModelRow` 的 JSON 欄位維持平坦（`family` / `size` / `quantization` 三個頂層字串鍵），不因型別改變而變成巢狀。**驗證**：新增測試檔 `Tests/BestASRKitTests/ModelRowCodecTests.swift`（本任務建立；Swift Testing），讀入**已提交的** `docs/model-identity-audit.csv`（37 筆，內容為 `~/.bestasr/store/models.jsonl` 的快照）的 `model_id` 字串、重新序列化，主張與輸入**逐字相同**。以已提交檔為準而非家目錄檔，是因為後者在 CI 不存在時測試會靜默空過；測試須主張檔案存在、列數非零，且其中**至少各有一列** size 與 quantization 為 `default`，以確保最難的兩類確實被走到。`~/.bestasr/store/models.jsonl` 存在時另做一次相同主張作為交叉檢查，不存在則跳過該則而不影響前者。（實作 design D2：對機序列化沿用四段字串，由 `ModelID` 產出。滿足 benchmark-store 的 "The persisted model key is unchanged by the identity refactor"）
+- [ ] 2.2 移除 `ModelGrid.row(backend:modelAddress:)` 的雙文法與裸 size fallback，改為以 `ModelID` + runtime 查找。**行為**：任一查找至多命中一列；不再有「first row wins」的靜默歧義。**驗證**：`ModelGridTests` 新增一則測試，主張 `ModelID("canary","1b")` 與 `ModelID("mms","1b")` 各自命中自己的列，且互不返回對方。（滿足 model-grid 的 "Model identity is a structured value, not a formatted string"）
+- [ ] 2.3 正規化 grid 列的 `size`，使其等於 pinned upstream artifact 宣告的版本。已知待改：`mlx-audio` 的 parakeet 列 size 由 `0.6b` 改為 `0.6b-v3`（pin 為 `mlx-community/parakeet-tdt-0.6b-v3`）。**行為**：同一模型在不同 runtime 下取得相同 `ModelID`。**驗證**：`ModelGridTests` 新增一則測試，主張 fluid-parakeet 與 mlx-audio 兩列的 `ModelID` **相等**。（實作 design D3：`size` 正規化是前提，不是附帶清理。滿足 model-grid 的 "Size is normalised to the pinned upstream artifact"）
+- [ ] 2.4 將 grid 每一列的 quantization 由字串改為 `Quantization` 值，依 `docs/model-identity-audit.csv` 的分類逐列指派（`apple-speech` → `notApplicable`；`fluid-*` → `named`，值由任務 5.1 決定；whisperkit 六列 → `deferred(.runtime)`；canary → `named("q8")`，取自其 pin `Mediform/canary-1b-v2-mlx-q8`；`mega-asr` 與 `qwen3-forcedaligner` → `unknown`）。**行為**：`Sources/` 中不再有任何列以 `default` 作為 quantization 或 size 的值；唯一允許出現該字面值的位置是 `ModelID.removedPlaceholder` 常數本身（見 design 的 Acceptance criteria，該例外為封閉列舉）。**驗證**：新增一則測試以 grep 主張該字面值不存在於 grid 定義；`ModelGridTests` 主張除已知 `unknown` 兩列外，其餘列皆非 `unknown`。（滿足 model-grid 的 "Quantization is a closed enumeration with no placeholder"）
+
+## 3. 記憶體估計與 router 排序鍵
+
+- [ ] 3.1 `ModelRegistry.memoryEstimates` 改以 `ModelID` 為鍵，移除 `uniquingKeysWith: max`。**行為**：`requirements(for: ModelID("sensevoice","small"))` 回 1.5 GB，不再被 `whisper small` 的 2.5 GB 覆蓋。**驗證**：新增測試檔 `Tests/BestASRKitTests/ModelRegistryTests.swift`（目前不存在，本任務建立；框架為 Swift Testing，比照 `DataModelTests.swift`），內含一則測試主張該值為 1.5 且不等於 `ModelID("whisper","small")` 的估計。（滿足 asr-engine 的 "Memory estimates are keyed by the full model identity"）
+- [ ] 3.2 `accuracyRank` / `nextSmaller` / `profileModels` 改以 `ModelID` 為鍵，並為每個 family 定義各自的順序與降級鏈。**行為**：非 whisper family 不再回傳 -1。**驗證**：於任務 3.1 建立的 `Tests/BestASRKitTests/ModelRegistryTests.swift` 新增一則測試，對 `parakeet` / `paraformer` / `sensevoice` 三個 family 各主張其 rank 非負，且 `nextSmaller` 在同 family 內解析或於鏈尾回 nil。（實作 design D6：`accuracyRank` / `nextSmaller` / `profileModels` 改以 `ModelID` 為鍵。滿足 asr-routing 的 "Candidate ranking covers every family, not only the whisper ladder"）
+- [ ] 3.3 `Router` 與 `ColdStartPrior` 排除身分不完整（`Quantization.unknown`）的候選，並於 recommendation 的 notes 具名該列與原因。**行為**：被排除的列不出現在候選中，但其排除**可見**。**驗證**：新增一則測試，注入一列 `unknown` 的 grid row，主張它不在候選內且 notes 含該列名稱。（滿足 asr-routing 的 "Candidates with an incomplete identity are excluded and named"）
+
+## 4. store 投影
+
+- [ ] 4.1 [P] `StoreProjection` 移除針對 `mlx-audio` 的三元運算子與 `parts[1] == parts[2]` legacy 修補，改為直接以四段建構 `ModelID`，並於投影結果標示身分是否完整。**行為**：投影後 family 不再被丟棄；不完整的記錄被標記而非靜默。**驗證**：新增一則測試，主張一筆非 mlx 的 `model_id` 投影後其 `ModelID.family` 等於字串中的第二段（今日為丟棄後補回的 `whisper`），並主張一筆 `unknown` quantization 的記錄被標為不完整。（滿足 benchmark-store 的 "Records carry whether their identity is complete"）
+
+## 5. engine
+
+- [ ] 5.1 [P] `ChineseFamilyEngine` 呼叫 `ParaformerManager.load()` 與 `SenseVoiceManager.load()` 時顯式傳入 precision，取代委由 FluidAudio 預設。**行為**：`fluid-*` 三列的 quantization 成為 `named` 而非 `deferred(.dependency)`；FluidAudio 版本變動不再靜默改變量測對象。**驗證**：新增一則測試主張三列的 `Quantization` 皆為 `named`；並於 `design.md` 記錄所選 precision 值與依據。（實作 design D5：`deferred(.dependency)` 在本 change 內就地消除。滿足 asr-engine 的 "A runtime states the quantization it loads"）
+
+## 6. 對外字串
+
+- [ ] 6.1 [P] `CommandCore` 與 `Sources/bestasr/BestASRCommand.swift` 的 `list-models` 輸出改為 `family size (runtime)`；quantization 為 `deferred` 時輸出其 decider。**行為**：輸出不再出現 `default`。**驗證**：`Tests/BestASRKitTests/CLITests.swift` 新增一則測試主張輸出符合新格式且不含 `default`。（滿足 cli 的 "list-backends and list-models"）
+- [ ] 6.2 [P] `Sources/BestASRMCPCore/Server.swift` 的 `list_models` 與 `list_backends` 改為以 family / size / runtime 三個獨立欄位回傳，並標示身分不完整的項目。**行為**：client 不需解析複合字串即可分組同一模型的多個 runtime。**驗證**：新增一則測試主張回應中同一模型的兩個 runtime 項目其 family 與 size 相同。（滿足 mcp-surface 的 "Model-listing tools report structured identity"）
+
+## 7. 驗收
+
+- [ ] 7.1 全套測試綠燈（本分支基線實測 493 筆 / 98 suites，於 `idd/183-model-identity-audit` 起點量得；先前寫的 453 是 PR #142 分支的數字），並確認 `StoreProjection` 中不再存在任何依 backend 分支的邏輯。**驗證**：執行 `swift test`，並以 grep 主張該檔案中不含 `backendMLXAudio` 的比較。

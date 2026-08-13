@@ -122,7 +122,7 @@ struct ModelRegistryTests {
         #expect(!rows.isEmpty, "no grid rows for \(backend)")
         for row in rows {
             let variants = ModelRegistry.quantizations(for: backend, model: row.size)
-            #expect(variants.contains(row.quantization), "\(row.modelId) not in registry projection")
+            #expect(variants.contains(row.quantization.serialised), "\(row.modelId) not in registry projection")
             #expect(variants.first == ModelRegistry.defaultQuantization(for: backend, model: row.size))
         }
     }

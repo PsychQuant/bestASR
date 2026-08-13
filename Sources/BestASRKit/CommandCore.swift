@@ -129,7 +129,7 @@ public struct CommandCore: Sendable {
         in rows: [ModelRow], backend: String, size: String, quantization: String
     ) -> ModelRow? {
         rows.first {
-            $0.backend == backend && $0.size == size && $0.quantization == quantization
+            $0.backend == backend && $0.size == size && $0.quantization.serialised == quantization
         }
     }
 
@@ -706,7 +706,7 @@ public struct CommandCore: Sendable {
                     ModelGrid.rows.first {
                         $0.backend == row.backend && $0.family == row.family
                             && $0.size == row.size
-                            && $0.quantization == record.quantization
+                            && $0.quantization.serialised == record.quantization
                     }
                 }
             let modelId = seededRow?.modelId ?? ModelRow.id(
@@ -765,7 +765,7 @@ public struct CommandCore: Sendable {
             let quants = whisperBackends.compactMap { backend -> String? in
                 let variants = ModelGrid.rows.filter {
                     $0.backend == backend && $0.size == size
-                }.map(\.quantization)
+                }.map(\.quantization.serialised)
                 guard !variants.isEmpty else { return nil }
                 return "\(backend): \(variants.joined(separator: "/"))"
             }
@@ -785,7 +785,7 @@ public struct CommandCore: Sendable {
             for row in ModelGrid.rows(backend: backend, priorityCeiling: nil) {
                 lines.append(
                     "\(row.size.padding(toLength: 16, withPad: " ", startingAt: 0)) "
-                        + "(\(row.backend): \(row.quantization)\(row.verified ? "" : " · unverified"))")
+                        + "(\(row.backend): \(row.quantization.serialised)\(row.verified ? "" : " · unverified"))")
             }
         }
         lines.append("")
@@ -800,7 +800,7 @@ public struct CommandCore: Sendable {
             let name = "\(row.family)/\(row.size)"
             lines.append(
                 "  P\(row.priority) \(name.padding(toLength: 28, withPad: " ", startingAt: 0)) "
-                    + "\(row.quantization)\(row.verified ? " *" : "")")
+                    + "\(row.quantization.serialised)\(row.verified ? " *" : "")")
         }
         return lines.joined(separator: "\n")
     }

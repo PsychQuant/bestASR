@@ -153,7 +153,7 @@ public struct BenchmarkRunner {
                     ? "\(row.family)/\(row.size)" : row.size
                 candidates.append(
                     BenchmarkCandidate(
-                        backend: backend, model: address, quantization: row.quantization))
+                        backend: backend, model: address, quantization: row.quantization.serialised))
             }
         }
         return Enumeration(candidates: candidates, notes: notes)

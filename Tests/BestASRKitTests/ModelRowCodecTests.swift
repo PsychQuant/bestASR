@@ -1,0 +1,121 @@
+import Foundation
+import Testing
+
+@testable import BestASRKit
+
+/// Task 2.1 of change `model-identity-structured` (issue #183).
+///
+/// `ModelRow` now holds a `ModelID` and a `Quantization` instead of four loose
+/// strings. Nothing on disk may notice: the store's key stays
+/// `runtime|family|size|quantization`, and the row's JSON stays flat.
+///
+/// The fixture is the committed `docs/model-identity-audit.csv` rather than
+/// `~/.bestasr/store/models.jsonl`. A home-directory file is absent wherever
+/// this runs but this machine, and a round-trip assertion over zero rows passes
+/// — which is indistinguishable from a working codec. The live store is checked
+/// too, but only as a second opinion.
+struct ModelRowCodecTests {
+
+    /// The package root, located from this file rather than the process's
+    /// working directory, which `swift test` does not promise.
+    private static var repoRoot: URL {
+        URL(fileURLWithPath: #filePath)  // Tests/BestASRKitTests/<this>.swift
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+    }
+
+    /// The `model_id` column of the committed audit snapshot.
+    private static func fixtureModelIDs() throws -> [String] {
+        let url = repoRoot.appending(path: "docs/model-identity-audit.csv")
+        #expect(FileManager.default.fileExists(atPath: url.path), "no fixture at \(url.path)")
+        let text = try String(contentsOf: url, encoding: .utf8)
+        // Split on newline *semantics*, not on a byte: the file is written by
+        // `csv.writer`, whose default terminator is CRLF, and Swift reads
+        // "\r\n" as one Character that does not equal "\n". Splitting on "\n"
+        // returns the whole file as a single line, and every assertion below
+        // then passes over nothing.
+        var lines = text.split(whereSeparator: \.isNewline)
+        #expect(lines.count > 1, "fixture has \(lines.count) lines, \(text.count) chars")
+        let header = lines.removeFirst().split(separator: ",").map(String.init)
+        let column = try #require(header.firstIndex(of: "model_id"))
+        // `model_id` is the first column and contains no comma or quote, so a
+        // plain split is exact here. Asserting the index keeps that true if the
+        // column ever moves.
+        #expect(column == 0)
+        return lines.map { String($0.split(separator: ",")[column]) }
+    }
+
+    @Test func `every stored model_id re-serialises byte for byte`() throws {
+        let stored = try Self.fixtureModelIDs()
+
+        // Non-vacuity: a codec test over an empty list is green and worthless.
+        #expect(!stored.isEmpty)
+        let segments = stored.map { $0.split(separator: "|", omittingEmptySubsequences: false) }
+        #expect(segments.contains { $0[2] == ModelID.removedPlaceholder[...] },
+                "fixture no longer exercises a placeholder size")
+        #expect(segments.contains { $0[3] == ModelID.removedPlaceholder[...] },
+                "fixture no longer exercises a placeholder quantization")
+
+        for id in stored {
+            let parts = id.split(separator: "|", omittingEmptySubsequences: false).map(String.init)
+            #expect(parts.count == 4, "not a four-segment key: \(id)")
+            let rebuilt = ModelRow.id(
+                backend: parts[0], family: parts[1], size: parts[2], quantization: parts[3])
+            #expect(rebuilt == id)
+        }
+    }
+
+    @Test func `the live store agrees with the committed snapshot`() throws {
+        let store = URL(fileURLWithPath: NSHomeDirectory())
+            .appending(path: ".bestasr/store/models.jsonl")
+        guard FileManager.default.fileExists(atPath: store.path) else { return }
+
+        let live = try String(contentsOf: store, encoding: .utf8)
+            .split(separator: "\n", omittingEmptySubsequences: true)
+            .compactMap { line -> String? in
+                let object = try? JSONSerialization.jsonObject(with: Data(line.utf8))
+                return (object as? [String: Any])?["model_id"] as? String
+            }
+        #expect(!live.isEmpty)
+        for id in live {
+            let parts = id.split(separator: "|", omittingEmptySubsequences: false).map(String.init)
+            #expect(parts.count == 4, "not a four-segment key: \(id)")
+            #expect(ModelRow.id(backend: parts[0], family: parts[1],
+                                size: parts[2], quantization: parts[3]) == id)
+        }
+    }
+
+    @Test func `a row's JSON keeps its flat columns`() throws {
+        let identity = try #require(ModelID(family: "whisper", size: "large-v3-turbo"))
+        let row = ModelRow(
+            backend: "whisperkit", identity: identity, quantization: .deferred(.runtime),
+            estMemoryGB: 1.6, priority: 1)
+
+        let json = try #require(
+            try JSONSerialization.jsonObject(with: JSONEncoder().encode(row))
+                as? [String: Any])
+        // The store reads these three as top-level strings. Holding a `ModelID`
+        // must not push them into a nested object.
+        #expect(json["family"] as? String == "whisper")
+        #expect(json["size"] as? String == "large-v3-turbo")
+        #expect(json["quantization"] as? String == Quantization.deferred(.runtime).serialised)
+        #expect(json["model_id"] as? String == row.modelId)
+
+        let decoded = try JSONDecoder().decode(ModelRow.self, from: JSONEncoder().encode(row))
+        #expect(decoded == row)
+        #expect(decoded.identity == identity)
+        #expect(decoded.quantization == .deferred(.runtime))
+    }
+
+    @Test func `a row rejects a stored record whose family is missing`() {
+        let corrupt = #"{"model_id":"whisperkit||small|q8","backend":"whisperkit","family":"","#
+            + #""size":"small","quantization":"q8","languages":["multi"],"#
+            + #""est_memory_gb":1.0,"priority":1,"verified":false}"#
+        // An empty family is not an incomplete identity, it is a corrupt one.
+        // Decoding must say so rather than yield a row that identifies nothing.
+        #expect(throws: DecodingError.self) {
+            try JSONDecoder().decode(ModelRow.self, from: Data(corrupt.utf8))
+        }
+    }
+}

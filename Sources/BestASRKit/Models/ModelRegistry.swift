@@ -72,7 +72,7 @@ public enum ModelRegistry {
             // quantization per row.
             return ModelGrid.rows
                 .filter { $0.backend == row.backend && $0.family == row.family && $0.size == row.size }
-                .map(\.quantization)
+                .map(\.quantization.serialised)
         }
         return []
     }

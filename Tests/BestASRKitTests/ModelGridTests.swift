@@ -80,11 +80,11 @@ struct ModelGridTests {
         let cppTiny = ModelGrid.rows.filter {
             $0.backend == ModelGrid.backendWhisperCpp && $0.size == "tiny"
         }
-        #expect(Set(cppTiny.map(\.quantization)) == Set(["q5_1", "q8_0"]))
+        #expect(Set(cppTiny.map(\.quantization.serialised)) == Set(["q5_1", "q8_0"]))
         let cppLarge = ModelGrid.rows.filter {
             $0.backend == ModelGrid.backendWhisperCpp && $0.size == "large-v3"
         }
-        #expect(cppLarge.map(\.quantization) == ["q5_0"])
+        #expect(cppLarge.map(\.quantization.serialised) == ["q5_0"])
     }
 
     @Test func `An mlx family-size address resolves to the pinned row round-trip`() {

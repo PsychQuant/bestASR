@@ -327,7 +327,7 @@ struct AppleSpeechGridTests {
         let rows = ModelGrid.rows(backend: ModelGrid.backendAppleSpeech, priorityCeiling: nil)
         let row = try #require(rows.first)
         #expect(rows.count == 1)
-        #expect(row.quantization == "default")
+        #expect(row.quantization.serialised == "default")
         // Ships with macOS — there is no HuggingFace artifact to pin, and the
         // grid invariant forbids a repo id on an unverified row.
         #expect(row.hfRepo == nil)
