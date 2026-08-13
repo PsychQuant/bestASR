@@ -24,13 +24,22 @@ public enum ModelRegistry {
     /// "small" vs whisper "small", #50), and the map used to resolve that by
     /// keeping the larger figure, which gave sensevoice whisper's estimate.
     private static var memoryEstimates: [ModelID: Double] {
-        // No uniquing: the collision it existed to absorb was two *different*
-        // models sharing a size name (sensevoice small vs whisper small, #50),
-        // and keying by identity ends it. Every live-engine backend offers each
-        // identity once, so a duplicate key here would now mean a real catalog
-        // defect — and a trap is the right answer to that, not a silent max.
+        // Keying by identity ends ONE of the two collisions #35 verify M2's
+        // uniquing absorbed — two different models sharing a size name
+        // (sensevoice small vs whisper small, #50). #183 first read that as
+        // licence to drop the uniquing entirely; round-4 verify showed the
+        // other half is still live and this file's own catalog disproves the
+        // justification: the SAME identity at two precisions is normal — as
+        // `ModelGrid.rows(backend:identity:)` is documented to return — and
+        // whisper.cpp already ships two such rows. It is outside this filter
+        // only by accident of which five backends are listed, so a second
+        // fluid-parakeet precision row would fatalError inside
+        // `ColdStartPrior.fits()`'s loop.
+        //
+        // max, because an estimate is a feasibility gate: the conservative
+        // reading of "this model, at some precision" is the larger figure.
         Dictionary(
-            uniqueKeysWithValues: ModelGrid.rows
+            ModelGrid.rows
                 .filter {
                     $0.backend == ModelGrid.backendWhisperKit
                         || $0.backend == ModelGrid.backendFluidParakeet
@@ -41,7 +50,8 @@ public enum ModelRegistry {
                         // UNMEASURED placeholder (see the grid row's comment).
                         || $0.backend == ModelGrid.backendAppleSpeech
                 }
-                .map { ($0.identity, $0.estMemoryGB) })
+                .map { ($0.identity, $0.estMemoryGB) },
+            uniquingKeysWith: max)
     }
 
     /// Candidate models per profile (design brief §7.4, carried into the

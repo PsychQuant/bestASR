@@ -297,7 +297,8 @@ public enum Router {
                 group.map(\.timesRealtime).reduce(0, +) / Double(group.count)
             let record = BenchmarkRecord(
                 backend: latest.backend, model: latest.model,
-                quantization: latest.quantization, language: latest.language,
+                quantization: latest.quantization,
+                identity: latest.identity, language: latest.language,
                 metricKind: latest.metricKind, errorRate: meanError,
                 rtf: meanTimesRealtime > 0 ? 1.0 / meanTimesRealtime : 0,
                 peakMemoryGB: latest.peakMemoryGB, audioDuration: latest.audioDuration,

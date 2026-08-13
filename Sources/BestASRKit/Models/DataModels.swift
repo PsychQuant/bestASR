@@ -307,25 +307,38 @@ public struct BenchmarkRecord: Codable, Sendable, Equatable {
     public let macosVersion: String
     public let appVersion: String
 
-    /// Which model this measured, as a value — `nil` only when the stored key
-    /// carried no usable family or size (#183). `model` above is how the
-    /// record is ADDRESSED; this is what it IS.
+    /// Which model this measured, as a value — `nil` when the record predates
+    /// #183 or its stored key carried no usable family or size. `model` above
+    /// is how the record is ADDRESSED; this is what it IS.
+    ///
+    /// Optional on purpose: `Decodable` gives Optionals `decodeIfPresent`, so
+    /// a `benchmarks.json` written before this change still reads.
     public var identity: ModelID?
+
     /// Whether the record names its artifact well enough to be compared with
-    /// another. A record with an unrecorded quantization stays readable and
-    /// stays listed; it is not silently dropped, and it is not silently
-    /// ranked either.
-    public var identityComplete: Bool = true
+    /// another.
+    ///
+    /// **Derived, not stored** (round-4 verify, findings C2/C3). It was a
+    /// stored `Bool` defaulting to `true`, which failed in two directions at
+    /// once: Swift's synthesized `Decodable` does not consult property
+    /// defaults, so every pre-#183 record threw `keyNotFound` and was
+    /// reported as a corrupt cache; and both paths that rebuild a record —
+    /// the per-candidate collapse here and `Router.aggregate` — omitted it,
+    /// so any candidate measured on more than one corpus was silently vouched
+    /// for again. Computing it from the record's own components removes both:
+    /// there is no key to be missing and no argument to forget.
+    public var identityComplete: Bool {
+        identity != nil && Quantization(serialised: quantization).isComplete
+    }
 
     public init(
         backend: String, model: String, quantization: String,
-        identity: ModelID? = nil, identityComplete: Bool = true, language: String,
+        identity: ModelID? = nil, language: String,
         metricKind: MetricKind, errorRate: Double, rtf: Double, peakMemoryGB: Double,
         audioDuration: Double, measuredAt: Date, chip: String, macosVersion: String,
         appVersion: String
     ) {
         self.identity = identity
-        self.identityComplete = identityComplete
         self.backend = backend
         self.model = model
         self.quantization = quantization

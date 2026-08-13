@@ -29,7 +29,7 @@ extension BenchmarkStore.Snapshot {
                 ?? "\(parts[1])/\(parts[2])"
             return BenchmarkRecord(
                 backend: backend, model: model, quantization: parts[3],
-                identity: identity, identityComplete: identity != nil && quantization.isComplete,
+                identity: identity,
                 language: corpus.language, metricKind: row.metricKind,
                 errorRate: row.errorRate, rtf: row.rtf,
                 peakMemoryGB: row.peakMemoryGB, audioDuration: corpus.duration,
@@ -58,7 +58,11 @@ extension BenchmarkStore.Snapshot {
                 group.map(\.timesRealtime).reduce(0, +) / Double(group.count)
             return BenchmarkRecord(
                 backend: latest.backend, model: latest.model,
-                quantization: latest.quantization, language: latest.language,
+                quantization: latest.quantization,
+                // Carried, not defaulted: dropping it here is what let a
+                // candidate measured on several corpora be vouched for again
+                // (round-4 verify C3).
+                identity: latest.identity, language: latest.language,
                 metricKind: latest.metricKind, errorRate: meanError,
                 rtf: meanTimesRealtime > 0 ? 1.0 / meanTimesRealtime : 0,
                 peakMemoryGB: latest.peakMemoryGB, audioDuration: latest.audioDuration,
