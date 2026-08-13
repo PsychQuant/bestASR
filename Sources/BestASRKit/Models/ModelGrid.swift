@@ -26,21 +26,44 @@ public enum ModelGrid {
         existingBackendRows + fluidParakeetRows + chineseFamilyRows + appleSpeechRows
         + mlxAudioRows
 
-    /// Resolve a model ADDRESS to its row (#65): mlx-audio rows are
-    /// addressed `family/size` (sizes collide across families — canary 1b vs
-    /// mms 1b); every other backend addresses by bare size.
-    public static func row(backend: String, modelAddress: String) -> ModelRow? {
-        if let slash = modelAddress.firstIndex(of: "/") {
-            let family = String(modelAddress[..<slash])
-            let size = String(modelAddress[modelAddress.index(after: slash)...])
-            return rows.first {
-                $0.backend == backend && $0.family == family && $0.size == size
-            }
+    /// Every catalog row for one model under one runtime.
+    ///
+    /// More than one row is normal and correct — they are quantization
+    /// variants of the *same* model, in preference order. What can no longer
+    /// happen is a row belonging to a different model (#183): the lookup key
+    /// is the identity, so `canary 1b` cannot answer for `mms 1b`.
+    public static func rows(backend: String, identity: ModelID) -> [ModelRow] {
+        rows.filter { $0.backend == backend && $0.identity == identity }
+    }
+
+    /// The preferred variant of one model under one runtime.
+    public static func row(backend: String, identity: ModelID) -> ModelRow? {
+        rows(backend: backend, identity: identity).first
+    }
+
+    /// Rows whose identity a user-supplied model string could name.
+    ///
+    /// `family/size` names exactly one identity. A bare size names every
+    /// family publishing that size — which under mlx-audio is genuinely more
+    /// than one. Returning them all is what lets a caller *say* the input was
+    /// ambiguous, instead of taking the first and saying nothing (#65's
+    /// "first row wins", now retired).
+    public static func rows(backend: String, matching input: String) -> [ModelRow] {
+        if let slash = input.firstIndex(of: "/") {
+            guard let identity = ModelID(
+                family: String(input[..<slash]),
+                size: String(input[input.index(after: slash)...]))
+            else { return [] }
+            return rows(backend: backend, identity: identity)
         }
-        // Bare-size fallback: ambiguous for mlx (canary 1b shadows mms 1b —
-        // first row wins); every primary path uses family/size for mlx, so
-        // this branch effectively serves the whisper-style backends (F3).
-        return rows.first { $0.backend == backend && $0.size == modelAddress }
+        return rows.filter { $0.backend == backend && $0.size == input }
+    }
+
+    /// The one model a user's string names under this runtime, or `nil` when
+    /// it names none — or more than one. Refusing to choose is the point.
+    public static func identity(backend: String, matching input: String) -> ModelID? {
+        let named = Set(rows(backend: backend, matching: input).map(\.identity))
+        return named.count == 1 ? named.first : nil
     }
 
     /// Live rows for the fluid-parakeet backend (#35, spec model-grid

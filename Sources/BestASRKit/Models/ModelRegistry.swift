@@ -67,23 +67,35 @@ public enum ModelRegistry {
     public static func quantizations(for backend: BackendID, model: String) -> [String] {
         // Projected from the model grid (the single catalog, #14): unknown
         // models yield no rows — same drift guard as before, one source now.
-        if let row = ModelGrid.row(backend: backend.rawValue, modelAddress: model) {
-            // Address-resolved (mlx family/size or bare size): the grid keys
-            // quantization per row.
-            return ModelGrid.rows
-                .filter { $0.backend == row.backend && $0.family == row.family && $0.size == row.size }
-                .map(\.quantization.serialised)
-        }
-        return []
+        // A string that names two models names none: returning canary's
+        // variants for a bare "1b" would put mms's quantizations out of reach
+        // and never say why (#183).
+        guard let identity = ModelGrid.identity(backend: backend.rawValue, matching: model)
+        else { return [] }
+        return quantizations(for: backend, identity: identity)
+    }
+
+    /// Quantization variants of one model — no name resolution, so no way for
+    /// the answer to belong to a different model.
+    public static func quantizations(for backend: BackendID, identity: ModelID) -> [String] {
+        ModelGrid.rows(backend: backend.rawValue, identity: identity)
+            .map(\.quantization.serialised)
     }
 
     /// The quantization the cold-start prior assumes — the first (preferred)
     /// variant, so a recommendation can never name a file HF does not host.
     public static func defaultQuantization(for backend: BackendID, model: String) -> String {
         guard let first = quantizations(for: backend, model: model).first else {
-            preconditionFailure("no quantization row for \(backend.rawValue) \(model) — add one to ModelRegistry.quantizations(for:model:)")
+            preconditionFailure(
+                "\(backend.rawValue) \(model) yields no quantization row — either no row exists, "
+                    + "or the name matches more than one model and cannot be resolved (#183)")
         }
         return first
+    }
+
+    /// The preferred variant of one model, asked for by identity.
+    public static func defaultQuantization(for backend: BackendID, identity: ModelID) -> String? {
+        quantizations(for: backend, identity: identity).first
     }
 
     public static func isSupportedModel(_ name: String) -> Bool {
@@ -110,9 +122,8 @@ public enum ModelRegistry {
         // mlx-audio models are addressed family/size (#65) — resolve the
         // address instead of matching bare sizes (canary 1b vs mms 1b).
         if includeExternal,
-            let row = ModelGrid.row(
-                backend: ModelGrid.backendMLXAudio, modelAddress: name),
-            row.hfRepo != nil {
+            ModelGrid.rows(backend: ModelGrid.backendMLXAudio, matching: name)
+                .contains(where: { $0.hfRepo != nil }) {
             return true
         }
         return ModelGrid.rows.contains {

@@ -61,7 +61,12 @@ public struct ExternalProcessEngine: Engine {
         if let language = options.language {
             arguments += ["--language", language]
         }
-        let row = ModelGrid.row(backend: id.rawValue, modelAddress: options.model)
+        // No pin for a name that resolves to more than one model: passing
+        // one model's repo for another's name is exactly the guessed repo id
+        // the supply-chain rule forbids. Ambiguity yields no pin, not a coin
+        // flip (#183).
+        let row = ModelGrid.identity(backend: id.rawValue, matching: options.model)
+            .flatMap { ModelGrid.row(backend: id.rawValue, identity: $0) }
         if let repo = row?.hfRepo {
             arguments += ["--hf-repo", repo]
         }

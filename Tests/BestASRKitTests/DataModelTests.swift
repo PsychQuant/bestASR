@@ -121,9 +121,13 @@ struct ModelRegistryTests {
         let rows = ModelGrid.rows(backend: backend.rawValue, priorityCeiling: nil)
         #expect(!rows.isEmpty, "no grid rows for \(backend)")
         for row in rows {
-            let variants = ModelRegistry.quantizations(for: backend, model: row.size)
+            // Ask by identity, not by bare size: two mlx families publish size
+            // `1b`, so a bare-size question has no single right answer and the
+            // catalog now says so instead of picking one (#183).
+            let variants = ModelRegistry.quantizations(for: backend, identity: row.identity)
             #expect(variants.contains(row.quantization.serialised), "\(row.modelId) not in registry projection")
-            #expect(variants.first == ModelRegistry.defaultQuantization(for: backend, model: row.size))
+            #expect(variants.first
+                    == ModelRegistry.defaultQuantization(for: backend, identity: row.identity))
         }
     }
 

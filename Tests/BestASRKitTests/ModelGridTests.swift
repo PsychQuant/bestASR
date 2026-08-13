@@ -87,20 +87,46 @@ struct ModelGridTests {
         #expect(cppLarge.map(\.quantization.serialised) == ["q5_0"])
     }
 
-    @Test func `An mlx family-size address resolves to the pinned row round-trip`() {
+    @Test func `An mlx identity resolves to the pinned row round-trip`() throws {
         // #65 verify F5: the address the runner emits (and projection
         // produces) must resolve back to the SAME pinned row — the persist
         // path depends on it (F1 regression lock).
-        let row = ModelGrid.row(backend: ModelGrid.backendMLXAudio, modelAddress: "canary/1b")
-        #expect(row?.family == "canary")
-        #expect(row?.hfRepo != nil)
-        #expect(row?.hfRevision != nil)
-        // Bare colliding size resolves to SOME row (documented first-wins) —
-        // never nil, never a crash.
-        #expect(ModelGrid.row(backend: ModelGrid.backendMLXAudio, modelAddress: "1b") != nil)
+        let canary = try #require(ModelID(family: "canary", size: "1b"))
+        let row = try #require(ModelGrid.row(backend: ModelGrid.backendMLXAudio, identity: canary))
+        #expect(row.identity == canary)
+        #expect(row.hfRepo != nil)
+        #expect(row.hfRevision != nil)
         // The persisted modelId built from the resolved row keeps the family.
-        if let row {
-            #expect(row.modelId == "mlx-audio|canary|1b|default")
-        }
+        #expect(row.modelId == "mlx-audio|canary|1b|default")
+    }
+
+    @Test func `Two families sharing a size each resolve to their own row`() throws {
+        // The collision the bare-size fallback used to settle by "first row
+        // wins": canary 1b shadowed mms 1b, and nothing said so.
+        let canary = try #require(ModelID(family: "canary", size: "1b"))
+        let mms = try #require(ModelID(family: "mms", size: "1b"))
+        let canaryRow = try #require(
+            ModelGrid.row(backend: ModelGrid.backendMLXAudio, identity: canary))
+        let mmsRow = try #require(
+            ModelGrid.row(backend: ModelGrid.backendMLXAudio, identity: mms))
+
+        #expect(canaryRow.identity == canary)
+        #expect(mmsRow.identity == mms)
+        #expect(canaryRow.identity != mmsRow.identity)
+        #expect(canaryRow.modelId != mmsRow.modelId)
+    }
+
+    @Test func `A bare size naming two families resolves to neither`() {
+        // The ambiguity is now reported rather than settled. `matching` still
+        // returns both rows — a caller that wants to list them can — but the
+        // single-identity resolution refuses to choose.
+        let ambiguous = ModelGrid.rows(backend: ModelGrid.backendMLXAudio, matching: "1b")
+        #expect(Set(ambiguous.map(\.identity)).count == 2)
+        #expect(ModelGrid.identity(backend: ModelGrid.backendMLXAudio, matching: "1b") == nil)
+
+        // An unambiguous bare size still resolves, so whisper-style backends
+        // keep addressing rows the way their users type them.
+        #expect(ModelGrid.identity(backend: ModelGrid.backendWhisperCpp, matching: "tiny")
+                == ModelID(family: "whisper", size: "tiny"))
     }
 }
