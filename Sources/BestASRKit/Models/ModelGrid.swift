@@ -120,6 +120,18 @@ public enum ModelGrid {
         "\(identity.family)/\(identity.size)"
     }
 
+    /// The name a runtime's own API uses for this model.
+    ///
+    /// The address (`family/size`) is OURS — runtime-independent, identity
+    /// level, what a store key and a `--model` argument carry. A vendor SDK
+    /// wants its own vocabulary: WhisperKit's catalog says `large-v3-turbo`,
+    /// not `whisper/large-v3-turbo`, and handing it the address fails to load.
+    ///
+    /// This is a translation at a real boundary, not an alias layer: the two
+    /// strings belong to two different vocabularies, and the seam is where one
+    /// ends. Round 7 broke the measured path by letting the address cross it.
+    public static func engineName(for identity: ModelID) -> String { identity.size }
+
     /// Rows split into those a measurement may be compared against and those
     /// whose identity is too incomplete to be one (#183).
     ///

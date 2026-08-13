@@ -94,7 +94,9 @@ public enum Router {
                 && (requestedLanguage == nil || lockedBackend != nil
                     || Self.declaredSupport(
                         backend: record.backend, model: record.model, language: requestedLanguage!))
-                && (modelOverride == nil || record.model == modelOverride)
+                && (modelOverride.map {
+                    Self.namesSameModel(record.model, $0, backend: record.backend)
+                } ?? true)
         }
 
         // #64 (spec asr-routing): aggregate per candidate before ranking —
@@ -269,6 +271,20 @@ public enum Router {
         )
     }
 
+    /// Whether two model strings name the same model under one runtime.
+    ///
+    /// A user types `tiny`; a projected record carries `whisper/tiny`. Both
+    /// name one model, and comparing them as strings said otherwise — which
+    /// made 41 stored measurements invisible to `--model tiny` and dropped the
+    /// router silently to the cold-start prior (round-7 verify).
+    static func namesSameModel(_ a: String, _ b: String, backend: String) -> Bool {
+        if a == b { return true }
+        guard let left = ModelGrid.identity(backend: backend, matching: a),
+              let right = ModelGrid.identity(backend: backend, matching: b)
+        else { return false }
+        return left == right
+    }
+
     /// #105 declared-language gate: with a known target language, a model
     /// whose catalog row advertises neither that language nor "multi" is not
     /// an autonomous candidate (parakeet's European-only row must never rank
@@ -276,9 +292,14 @@ public enum Router {
     /// non-whisper backends, and whisper sizes are multilingual by
     /// construction.
     static func declaredSupport(backend: String, model: String, language: String) -> Bool {
+        // Resolve the string rather than matching a bare size against it. The
+        // projection emits `family/size`, so the old comparison matched
+        // nothing and this gate — a SAFETY gate, #105 — returned true for
+        // every measured record (round-7 verify).
         guard
+            let identity = ModelGrid.identity(backend: backend, matching: model),
             let row = ModelGrid.rows(backend: backend, priorityCeiling: nil)
-                .first(where: { $0.size == model })
+                .first(where: { $0.identity == identity })
         else { return true }
         let base = LanguageResolver.baseSubtag(language)
         return row.languages.contains {

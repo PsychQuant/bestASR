@@ -465,7 +465,8 @@ public struct CommandCore: Sendable {
         let transcript = try await engine.transcribe(
             audioPath: audio.path,
             options: TranscribeOptions(
-                model: rec.model, quantization: rec.quantization,
+                model: Self.engineModelName(rec.model, backend: rec.backend.rawValue),
+                quantization: rec.quantization,
                 language: lang.language, prompt: context?.rendered?.prompt,
                 noSpeechThreshold: noSpeechThreshold,
                 compressionRatioThreshold: compressionRatioThreshold,
@@ -892,6 +893,22 @@ public struct CommandCore: Sendable {
     /// the layout gives way.
     static func column(_ value: String, _ width: Int) -> String {
         value.count >= width ? value : value.padding(toLength: width, withPad: " ", startingAt: 0)
+    }
+
+    /// The name to hand a runtime for a model our own address names.
+    ///
+    /// A recommendation carries the canonical address (`whisper/large-v3-turbo`);
+    /// WhisperKit's catalog calls it `large-v3-turbo` and cannot load the
+    /// address. Letting the address cross this seam is what broke `transcribe`
+    /// on the measured path (round-7 verify), and it broke silently — every
+    /// test fixture still used the pre-change spelling.
+    ///
+    /// A string the catalog cannot place passes through untouched: it may be an
+    /// external adapter's own vocabulary, and inventing a translation for it
+    /// would be guessing.
+    static func engineModelName(_ address: String, backend: String) -> String {
+        ModelGrid.identity(backend: backend, matching: address)
+            .map(ModelGrid.engineName(for:)) ?? address
     }
 
     /// A model for a human: `family size`, the subordination the old output
