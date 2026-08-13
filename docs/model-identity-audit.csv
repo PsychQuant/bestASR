@@ -1,0 +1,38 @@
+model_id,runtime,family,size,quantization,identity_complete,placeholder_field,placeholder_kind,placeholder_meaning,hf_repo,hf_revision,verified,est_memory_gb,priority,languages
+apple-speech|speechanalyzer|system|default,apple-speech,speechanalyzer,system,default,no,quantization,not-applicable,"OS-bundled; no quantization dimension, version tracks macOS",,,False,2,1,bn/de/en/es/fr/gu/hi/it/ja/kn/ko/ks/mai/ml/mr/mul/ne/or/pa/pt/ta/te/ur/yue/zh
+fluid-paraformer|paraformer|large-zh|default,fluid-paraformer,paraformer,large-zh,default,no,quantization,dependency-decides,FluidAudio picks precision; load() called without it,,,False,2.5,2,zh
+fluid-parakeet|parakeet|0.6b-v3|default,fluid-parakeet,parakeet,0.6b-v3,default,no,quantization,dependency-decides,FluidAudio picks precision; load() called without it,FluidInference/parakeet-tdt-0.6b-v3-coreml,,True,2,1,bg/hr/cs/da/nl/en/et/fi/fr/de/el/hu/it/lv/lt/mt/pl/pt/ro/sk/sl/es/sv/ru/uk
+fluid-sensevoice|sensevoice|small|default,fluid-sensevoice,sensevoice,small,default,no,quantization,dependency-decides,FluidAudio picks precision; load() called without it,FluidInference/sensevoice-small-coreml,,True,1.5,1,multi
+mlx-audio|canary|1b|default,mlx-audio,canary,1b,default,no,quantization,recoverable-from-repo-id,pinned repo id states the quantization: q8,Mediform/canary-1b-v2-mlx-q8,0b6b32ee10f30c89e3ead7249bb636445e3019ee,True,1.4,2,multi
+mlx-audio|distil-whisper|large-v3|default,mlx-audio,distil-whisper,large-v3,default,no,quantization,unknown,no verified repo; quantization genuinely unknown,,,False,1.6,2,en
+mlx-audio|granite-speech|2b|4bit,mlx-audio,granite-speech,2b,4bit,yes,,,,mlx-community/granite-speech-4.1-2b-nar-mlx,6acb7892068dd30227f20aba6eb7c4b0ae5c7e7c,True,1.6,2,multi
+mlx-audio|mega-asr|default|default,mlx-audio,mega-asr,default,default,no,size+quantization,upstream-unpublished,upstream publishes no size; identity is family-only,,,False,2,2,multi
+mlx-audio|mms|1b|default,mlx-audio,mms,1b,default,no,quantization,unknown,no verified repo; quantization genuinely unknown,,,False,1.6,2,multi
+mlx-audio|moonshine|base|default,mlx-audio,moonshine,base,default,no,quantization,pinned-but-unstated,"repo+revision pinned, quantization not written down",UsefulSensors/moonshine-base,7a73d8d55ac0ba2ef3ae761593f6784b51f96dcf,True,0.4,1,en
+mlx-audio|nemotron-asr|streaming|default,mlx-audio,nemotron-asr,streaming,default,no,quantization,pinned-but-unstated,"repo+revision pinned, quantization not written down",mlx-community/nemotron-3.5-asr-streaming-0.6b,e550040c0478027ed679b2b6b0d055502c103663,True,2,2,multi
+mlx-audio|parakeet|0.6b|default,mlx-audio,parakeet,0.6b,default,no,quantization,pinned-but-unstated,"repo+revision pinned, quantization not written down",mlx-community/parakeet-tdt-0.6b-v3,ed2b7e8c15f9aaa0b5772e2efb986255eaef7e15,True,1.5,1,bg/hr/cs/da/nl/en/et/fi/fr/de/el/hu/it/lv/lt/mt/pl/pt/ro/sk/sl/es/sv/ru/uk
+mlx-audio|qwen2-audio|7b|4bit,mlx-audio,qwen2-audio,7b,4bit,yes,,,,mlx-community/Qwen2-Audio-7B-Instruct-4bit,c65570002626f41b4dc08b7b54f42f99f3e82e7f,True,4.5,2,multi
+mlx-audio|qwen3-asr|small|4bit,mlx-audio,qwen3-asr,small,4bit,yes,,,,,,False,2,1,multi
+mlx-audio|qwen3-forcedaligner|default|default,mlx-audio,qwen3-forcedaligner,default,default,no,size+quantization,upstream-unpublished,upstream publishes no size; identity is family-only,,,False,1,2,multi
+mlx-audio|vibevoice-asr|9b|4bit,mlx-audio,vibevoice-asr,9b,4bit,yes,,,,mlx-community/VibeVoice-ASR-4bit,a1a15cb6c7b70f76b588af7e12f6fab34d5ab654,True,5.5,3,multi
+mlx-audio|voxtral|mini-3b|4bit,mlx-audio,voxtral,mini-3b,4bit,yes,,,,,,False,2.2,2,multi
+mlx-audio|voxtral|small-24b|4bit,mlx-audio,voxtral,small-24b,4bit,yes,,,,,,False,13,3,multi
+mlx-audio|voxtral-realtime|4b|4bit,mlx-audio,voxtral-realtime,4b,4bit,yes,,,,mlx-community/Voxtral-Mini-4B-Realtime-2602-4bit,fdebf7b2af834a1db4b8a3c99ab7480b333adf9e,True,2.6,3,multi
+mlx-audio|whisper|large-v3-turbo|default,mlx-audio,whisper,large-v3-turbo,default,no,quantization,pinned-but-unstated,"repo+revision pinned, quantization not written down",openai/whisper-large-v3-turbo,41f01f3fe87f28c78e2fbf8b568835947dd65ed9,True,3.2,1,multi
+whisper.cpp|whisper|base|q5_1,whisper.cpp,whisper,base,q5_1,yes,,,,,,True,0.75,1,multi
+whisper.cpp|whisper|base|q8_0,whisper.cpp,whisper,base,q8_0,yes,,,,,,True,0.75,1,multi
+whisper.cpp|whisper|large-v3|q5_0,whisper.cpp,whisper,large-v3,q5_0,yes,,,,,,True,5,1,multi
+whisper.cpp|whisper|large-v3-turbo|q5_0,whisper.cpp,whisper,large-v3-turbo,q5_0,yes,,,,,,True,3,1,multi
+whisper.cpp|whisper|large-v3-turbo|q8_0,whisper.cpp,whisper,large-v3-turbo,q8_0,yes,,,,,,True,3,1,multi
+whisper.cpp|whisper|medium|q5_0,whisper.cpp,whisper,medium,q5_0,yes,,,,,,True,2.5,1,multi
+whisper.cpp|whisper|medium|q8_0,whisper.cpp,whisper,medium,q8_0,yes,,,,,,True,2.5,1,multi
+whisper.cpp|whisper|small|q5_1,whisper.cpp,whisper,small,q5_1,yes,,,,,,True,1.25,1,multi
+whisper.cpp|whisper|small|q8_0,whisper.cpp,whisper,small,q8_0,yes,,,,,,True,1.25,1,multi
+whisper.cpp|whisper|tiny|q5_1,whisper.cpp,whisper,tiny,q5_1,yes,,,,,,True,0.5,1,multi
+whisper.cpp|whisper|tiny|q8_0,whisper.cpp,whisper,tiny,q8_0,yes,,,,,,True,0.5,1,multi
+whisperkit|whisper|base|default,whisperkit,whisper,base,default,no,quantization,runtime-decides,WhisperKit fetches its own bundle; 'default' = standard build,,,True,1.5,1,multi
+whisperkit|whisper|large-v3|default,whisperkit,whisper,large-v3,default,no,quantization,runtime-decides,WhisperKit fetches its own bundle; 'default' = standard build,,,True,10,1,multi
+whisperkit|whisper|large-v3-turbo|default,whisperkit,whisper,large-v3-turbo,default,no,quantization,runtime-decides,WhisperKit fetches its own bundle; 'default' = standard build,,,True,6,1,multi
+whisperkit|whisper|medium|default,whisperkit,whisper,medium,default,no,quantization,runtime-decides,WhisperKit fetches its own bundle; 'default' = standard build,,,True,5,1,multi
+whisperkit|whisper|small|default,whisperkit,whisper,small,default,no,quantization,runtime-decides,WhisperKit fetches its own bundle; 'default' = standard build,,,True,2.5,1,multi
+whisperkit|whisper|tiny|default,whisperkit,whisper,tiny,default,no,quantization,runtime-decides,WhisperKit fetches its own bundle; 'default' = standard build,,,True,1,1,multi
