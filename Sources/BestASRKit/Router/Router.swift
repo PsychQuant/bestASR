@@ -179,7 +179,16 @@ public enum Router {
             // before walking the downgrade chain, and leave it alone when it
             // names none — a name this catalog cannot place is not something
             // to guess a family for (#183).
-            if let identity = ModelRegistry.liveIdentity(named: modelOverride) {
+            //
+            // Ask the RESOLVED BACKEND first. `liveIdentity` prefers the
+            // whisper family for a bare size, which is right when nobody said
+            // which runtime — but wrong the moment one did: it charged
+            // `--backend fluid-sensevoice --model small` whisper small's
+            // 2.5 GB and downgraded it off the machine, the very defect
+            // proposal.md leads with (round-4 verify C5).
+            let resolved = ModelGrid.identity(backend: backend.rawValue, matching: modelOverride)
+                ?? ModelRegistry.liveIdentity(named: modelOverride)
+            if let identity = resolved {
                 let (fitted, downgradeWarnings, downgradeReasons) = ColdStartPrior.ensureFits(
                     identity, in: host.unifiedMemoryGB)
                 model = fitted.size

@@ -57,12 +57,24 @@ struct ModelRowCodecTests {
         #expect(segments.contains { $0[3] == ModelID.removedPlaceholder[...] },
                 "fixture no longer exercises a placeholder quantization")
 
+        // Round-4 verify C7: this loop used to split a string on "|" and join
+        // it back with "|", which is an identity function — it never
+        // constructed or decoded a `ModelRow`, the thing whose codec the test
+        // claims to check. It now goes through the real one.
+        let decoder = JSONDecoder()
+        let encoder = JSONEncoder()
         for id in stored {
             let parts = id.split(separator: "|", omittingEmptySubsequences: false).map(String.init)
             #expect(parts.count == 4, "not a four-segment key: \(id)")
-            let rebuilt = ModelRow.id(
-                backend: parts[0], family: parts[1], size: parts[2], quantization: parts[3])
-            #expect(rebuilt == id)
+            let json = """
+                {"model_id":"\(id)","backend":"\(parts[0])","family":"\(parts[1])",                "size":"\(parts[2])","quantization":"\(parts[3])","languages":["multi"],                "est_memory_gb":1.0,"priority":1,"verified":false}
+                """
+            let row = try decoder.decode(ModelRow.self, from: Data(json.utf8))
+            #expect(row.modelId == id, "decoded row rebuilt a different key")
+            // And re-encoding it reproduces the same key on the wire.
+            let round = try #require(
+                try JSONSerialization.jsonObject(with: encoder.encode(row)) as? [String: Any])
+            #expect(round["model_id"] as? String == id)
         }
     }
 

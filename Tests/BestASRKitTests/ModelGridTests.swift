@@ -253,16 +253,35 @@ struct ModelGridTests {
 /// and the projection READER were addressing models by two different rules
 /// that happen to agree on today's catalog.
 struct ModelAddressingTests {
-    @Test func `Writer and reader address every catalog row identically`() {
-        // The divergence that survived the first pass: the writer asked "is
-        // this mlx-audio?", the reader asked "is this size ambiguous?". They
-        // agree today, which is precisely why nobody noticed — a rule that is
-        // not wrong yet reads exactly like a rule that is right.
+    @Test func `A measurement of any catalog row projects back to that row's identity`() throws {
+        // Round-4 verify C7 renamed and rebuilt this. The previous version
+        // claimed to lock "writer and reader address every row identically"
+        // and could not fail: `address(for:backend:)` is DEFINED as
+        // `identity(matching: size) == identity ? size : "family/size"`, so
+        // re-asking that question is true in both branches — and it called
+        // neither the writer nor the reader whose agreement its name claimed.
+        //
+        // What it checks now is a real round trip through the reader: a stored
+        // key for each catalog row, projected, must come back as that row's
+        // identity. That can fail — the legacy `parts[1] == parts[2]` rewrite
+        // would swallow any row whose family equals its own size.
+        let corpus = CorpusRow(
+            name: "c", language: "en", audioSHA256: String(repeating: "c", count: 64),
+            referenceSHA256: "", duration: 30, audioPath: "", referencePath: "")
         for row in ModelGrid.rows {
-            let address = ModelGrid.address(for: row.identity, backend: row.backend)
-            // Whatever the address is, it must resolve back to the same model.
-            #expect(ModelGrid.identity(backend: row.backend, matching: address) == row.identity,
-                    "\(row.modelId) addressed as '\(address)' does not resolve back")
+            let snapshot = BenchmarkStore.Snapshot(
+                machines: [], models: [], corpora: [corpus],
+                measurements: [MeasurementRow(
+                    modelId: row.modelId, corpusId: corpus.corpusId, machineId: "h",
+                    measuredAt: Date(timeIntervalSince1970: 1), metricKind: .wer,
+                    errorRate: 0.1, rtf: 0.1, peakMemoryGB: 1, warmupSeconds: 1,
+                    appVersion: "0.3.0", macosVersion: "27.0")],
+                warnings: [])
+            let projected = try #require(
+                snapshot.projectedRecords().first, "\(row.modelId) projected to nothing")
+            #expect(projected.identity == row.identity,
+                    "\(row.modelId) projected to \(String(describing: projected.identity))")
+            #expect(projected.backend == row.backend)
         }
     }
 

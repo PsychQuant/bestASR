@@ -63,13 +63,44 @@ public struct ModelID: Hashable, Codable, Sendable {
     public static let removedPlaceholder = "default"
 }
 
-/// Whether a string can serve as part of an identity: present, and not carrying
-/// whitespace that would make two spellings of one thing look like two things.
+/// Whether a string can serve as part of an identity.
 ///
 /// Shared by ``ModelID`` and ``Quantization`` so the two halves of a `model_id`
-/// cannot drift into different notions of a well-formed component.
+/// cannot drift into different notions of a well-formed component. Three ways
+/// to fail:
+///
+/// - **Absent** — empty says nothing.
+/// - **Whitespace-padded** — `"whisper "` and `"whisper"` would be two
+///   identities for one model, the defect class this change ends (#65, #50).
+/// - **Carrying `|` or `/`** — the separators this project's own two
+///   serialisations parse on: `model_id` is joined with `|`, an address with
+///   `/`. A component containing one produces a string that splits back into
+///   different segments than it was built from, which corrupts the single
+///   string this whole change makes load-bearing (round-4 verify C4).
 private func identifying(_ value: String) -> Bool {
-    !value.isEmpty && value == value.trimmingCharacters(in: .whitespacesAndNewlines)
+    !value.isEmpty
+        && value == value.trimmingCharacters(in: .whitespacesAndNewlines)
+        && !value.contains("|") && !value.contains("/")
+}
+
+extension ModelID {
+    // The failable init is documented as the only way to build one. It was
+    // not: the synthesized `Decodable` wrote the stored properties directly,
+    // so a JSON payload walked straight past every refusal (round-4 verify
+    // C4). `BenchmarkRecord.identity` is a public Codable field, so that path
+    // was reachable from outside the module, not merely theoretical.
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let family = try container.decode(String.self, forKey: .family)
+        let size = try container.decode(String.self, forKey: .size)
+        guard let identity = ModelID(family: family, size: size) else {
+            throw DecodingError.dataCorrupted(
+                .init(codingPath: container.codingPath,
+                      debugDescription:
+                        "not a model identity: family \"\(family)\", size \"\(size)\""))
+        }
+        self = identity
+    }
 }
 
 extension ModelID: CustomStringConvertible {
@@ -183,7 +214,14 @@ public enum Quantization: Hashable, Codable, Sendable {
     public var isComplete: Bool {
         switch self {
         case .unknown: return false
-        case .named(let value): return value != ModelID.removedPlaceholder
+        // `named` is a public case, so `init(named:)`'s refusals can be walked
+        // past (round-4 verify C4). Wrapping the payload would touch 35 call
+        // sites for a round trip that already fails CLOSED in every case —
+        // `named("unknown")` decodes back as `.unknown`, and the placeholder
+        // is refused right here. So the gate that actually matters asks the
+        // constructor's own question instead: a value this type would not
+        // accept is not one it will vouch for.
+        case .named(let value): return Quantization(named: value) != nil
         case .notApplicable, .deferred: return true
         }
     }

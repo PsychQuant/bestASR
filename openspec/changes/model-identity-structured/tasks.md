@@ -15,7 +15,7 @@
 
 - [x] 3.1 `ModelRegistry.memoryEstimates` 改以 `ModelID` 為鍵，移除 `uniquingKeysWith: max`。**行為**：`requirements(for: ModelID("sensevoice","small"))` 回 1.5 GB，不再被 `whisper small` 的 2.5 GB 覆蓋。**驗證**：測試加入 `Tests/BestASRKitTests/DataModelTests.swift` 內**既有的** `struct ModelRegistryTests`——原任務寫「新增測試檔 `ModelRegistryTests.swift`（目前不存在）」，該**檔名**確實不存在，但同名 struct 已存在於 `DataModelTests.swift`，另開新檔會重複宣告。內含一則測試主張該值為 1.5 且不等於 `ModelID("whisper","small")` 的 2.5。（滿足 asr-engine 的 "Memory estimates are keyed by the full model identity"）
 - [x] 3.2 `accuracyRank` / `nextSmaller` / `profileModels` 改以 `ModelID` 為鍵，並為每個 family 定義各自的順序與降級鏈。**行為**：非 whisper family 不再回傳 -1。accuracy ladder 由 grid 列的 `estMemoryGB` 依 family 分組排序導出（whisper 導出的順序與既有 `supportedModels` 相同，已由測試主張）；**降級鏈另行宣告、不與 ladder 共用**——whisper 的鏈刻意不含 `large-v3-turbo`（它是 `large-v3` 的同儕而非其下一階，兩者都降到 `medium`，#29），由記憶體導出會錯誤地把它插進中間。**驗證**：於任務 3.1 使用的 `DataModelTests.swift` 之 `ModelRegistryTests` 新增一則測試，對 `parakeet` / `paraformer` / `sensevoice` 三個 family 各主張其 rank 非負，且 `nextSmaller` 在同 family 內解析或於鏈尾回 nil。（實作 design D6：`accuracyRank` / `nextSmaller` / `profileModels` 改以 `ModelID` 為鍵。滿足 asr-routing 的 "Candidate ranking covers every family, not only the whisper ladder"）
-- [x] 3.3 `Router` 與 `ColdStartPrior` 排除身分不完整（`Quantization.unknown`）的候選，並於 recommendation 的 notes 具名該列與原因。**行為**：被排除的列不出現在候選中，但其排除**可見**。**驗證**：新增一則測試，注入一列 `unknown` 的 grid row，主張它不在候選內且 notes 含該列名稱。（滿足 asr-routing 的 "Candidates with an incomplete identity are excluded and named"）
+- [ ] 3.3 **（round-4 verify 退回 —— 只做了目錄那一半）** `Router` 與 `ColdStartPrior` 排除身分不完整（`Quantization.unknown`）的候選，並於 recommendation 的 notes 具名該列與原因。**行為**：被排除的列不出現在候選中，但其排除**可見**。**驗證**：新增一則測試，注入一列 `unknown` 的 grid row，主張它不在候選內且 notes 含該列名稱。（滿足 asr-routing 的 "Candidates with an incomplete identity are excluded and named"）
 
 ## 4. store 投影
 
@@ -27,15 +27,20 @@
 
 ## 6. 對外字串
 
-- [x] 6.1 [P] `CommandCore` 與 `Sources/bestasr/BestASRCommand.swift` 的 `list-models` 輸出改為 `family size (runtime)`；quantization 為 `deferred` 時輸出其 decider。**行為**：`list-models` 的輸出不再出現 `default`。**此條僅涵蓋目錄輸出，不涵蓋 `recommend`**——`recommend` 的 measured path 直接帶出量測記錄自身的 `quantization` 字串，而 store 內 383 筆量測有 **35 筆**（`mlx-audio|parakeet|0.6b|default` 15 筆、`fluid-parakeet|parakeet|0.6b-v3|default` 20 筆）的值就是 `default`；實跑 `bestasr recommend` 確認其 JSON 的 `quantization` 與 reason 行仍含該字。那是**記錄的事實**、不是目錄的佔位字，在歷史量測重新編碼那個 change 落地前無法消除。**驗證**：`CLITests` 主張 `list-models` 輸出符合新格式且不含 `default`；`StoreProjectionIdentityTests` 主張一筆 legacy `default` 記錄的值**逐字保留**（migration 靠它定位）但 `identityComplete` 為 **false**（不背書其可比較性）。（滿足 cli 的 "list-backends and list-models"）
+- [x] 6.1 [P] `CommandCore` 與 `Sources/bestasr/BestASRCommand.swift` 的 `list-models` 輸出改為 `family size (runtime)`；quantization 為 `deferred` 時輸出其 decider。**行為**：`list-models` 的輸出不再出現 `default`。**此條僅涵蓋目錄輸出，不涵蓋 `recommend`**——`recommend` 的 measured path 直接帶出量測記錄自身的 `quantization` 字串，而 store 內 383 筆量測有 **344 筆（89%）**的值就是 `default`（先前此處寫「35 筆」是錯的——那只數了兩個 parakeet key，漏掉 whisperkit 的 `large-v3-turbo` 140 筆、`tiny` 41 筆等；round-4 verify 更正）；實跑 `bestasr recommend` 確認其 JSON 的 `quantization` 與 reason 行仍含該字。那是**記錄的事實**、不是目錄的佔位字，在歷史量測重新編碼那個 change 落地前無法消除。**驗證**：`CLITests` 主張 `list-models` 輸出符合新格式且不含 `default`；`StoreProjectionIdentityTests` 主張一筆 legacy `default` 記錄的值**逐字保留**（migration 靠它定位）但 `identityComplete` 為 **false**（不背書其可比較性）。（滿足 cli 的 "list-backends and list-models"）
 - [x] 6.2 [P] `Sources/BestASRMCPCore/Server.swift` 的 `list_models` 與 `list_backends` 改為以 family / size / runtime 三個獨立欄位回傳，並標示身分不完整的項目。**行為**：client 不需解析複合字串即可分組同一模型的多個 runtime。**驗證**：新增一則測試主張回應中同一模型的兩個 runtime 項目其 family 與 size 相同。（滿足 mcp-surface 的 "Model-listing tools report structured identity"）
 
 ## 8. 本 change 未關閉的項目（明列，不得當作已覆蓋）
 
 - [ ] 8.1 **`CommandCore` 的 seeding fallback 會捏造 family**。`Sources/BestASRKit/CommandCore.swift` 在 `ModelGrid.identity(backend:matching:)` 回 nil 時，以 `family: "whisper"` 組出 `modelId` 並**寫進 store**——不論該記錄來自哪個 runtime。任務 2.2 讓 nil 多了「歧義」這個新來源，因此**擴大了這條捏造路徑的可達範圍**。正解不明顯（位址若是裸 size 且解析不出來，我們是真的不知道 family；三個選項——以位址字串內的 family 為準、拒絕寫入並具名警告、寫入 sentinel——各有代價），故**不在本 change 內擅自決定**。註：`Sources/BestASRKit/Store/BenchmarkStore.swift` 同樣寫 `family: "whisper"`，但那是 legacy flat-cache 遷移路徑且註解明載「legacy era was whisper-only」，屬已知事實而非捏造，**不在此項內**。
-- [ ] 8.2 **legacy `default` 量測是否該退出 measured ranking**。任務 3.3 排除身分不完整的 *catalog 列*；`Quantization.isComplete` 修正後，store 內 35 筆 legacy 量測同樣被標為不完整，但 `Router` 仍把它們納入排序。排除會讓 383 筆中的 35 筆退出，本機的 parakeet 推薦從 `measured` 掉回 cold-start prior。屬行為變更，需明確裁決。
+- [ ] 8.2 **legacy `default` 量測是否該退出 measured ranking —— 與 C1 是同一個矛盾**。
+  - **規模更正**：先前寫「35 筆」是錯的，實測為 **344 / 383（89%）**。那個錯誤數字正是本項被判為「可延後」的全部依據；DA 與 regression lens 各自獨立指出這點。
+  - **現況**：`Quantization.isComplete` 修正後這 344 筆被標為不完整，但 `Router` **完全不讀** `identityComplete`（全 repo 只有 `CommandCore.listModelsJSON()` 與測試讀它）。
+  - **兩份 spec 都寫了 SHALL**：`benchmark-store` 的「records marked incomplete are excluded from the ranking, and their exclusion is stated rather than silent」與 `asr-routing` 的「The router SHALL exclude any candidate whose identity is incomplete」。
+  - **為什麼不逕行實作**：照做會讓 89% 的量測退出排序，本機幾乎每一個 measured recommendation 都退回 cold-start prior。這不是規則錯，是**規則與未遷移的 store 不相容**——與 C1 是同一件事的兩個面。三條出路（見 master report）沒有選定之前，實作它等於單方面選了其中一條。
+  - 任務 3.3 與 7.1 已退回 `[ ]`，不再宣稱完成。
 - [ ] 8.3 **`mega-asr` 與 `qwen3-forcedaligner` 的 `size` 仍是 `default`**（詳見任務 2.4 的說明）。
 
 ## 7. 驗收
 
-- [x] 7.1 全套測試綠燈（本分支基線實測 493 筆 / 98 suites，於 `idd/183-model-identity-audit` 起點量得；先前寫的 453 是 PR #142 分支的數字），並確認 `StoreProjection` 中不再存在任何依 backend 分支的邏輯。**驗證**：執行 `swift test`，並以 grep 主張該檔案中不含 `backendMLXAudio` 的比較。
+- [ ] 7.1 **（round-4 verify 退回 —— 3.3 未完成）** 全套測試綠燈（本分支基線實測 493 筆 / 98 suites，於 `idd/183-model-identity-audit` 起點量得；先前寫的 453 是 PR #142 分支的數字），並確認 `StoreProjection` 中不再存在任何依 backend 分支的邏輯。**驗證**：執行 `swift test`，並以 grep 主張該檔案中不含 `backendMLXAudio` 的比較。
