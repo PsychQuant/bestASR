@@ -13,16 +13,28 @@ extension BenchmarkStore.Snapshot {
             guard parts.count == 4, let corpus = corporaById[row.corpusId] else { return nil }
             // Legacy-migrated ids carry family == size (the flat cache had no
             // family); normalize to the whisper family so re-benchmarks of the
-            // same candidate supersede legacy rows (verify #14 M-9).
-            if parts[0] != ModelGrid.backendMLXAudio, parts[1] == parts[2] {
-                parts[1] = "whisper"
-            }
+            // same candidate supersede legacy rows (verify #14 M-9). Four such
+            // ids are still in the store, so this is load-bearing until the
+            // re-encoding change retires them — it is no longer conditioned on
+            // the backend, because no catalog family equals its own size.
+            if parts[1] == parts[2] { parts[1] = "whisper" }
             let backend = parts[0]
-            // mlx-audio rows are addressed family/size; whisper backends by size.
-            let model = backend == ModelGrid.backendMLXAudio
-                ? "\(parts[1])/\(parts[2])" : parts[2]
+            let identity = ModelID(family: parts[1], size: parts[2])
+            let quantization = Quantization(serialised: parts[3])
+            // The address carries the family exactly when the size alone would
+            // not say which model it is. That is a property of the catalog, not
+            // of who ships the runtime — the old rule named mlx-audio and so
+            // discarded the family from every other backend's records (#183).
+            let model: String
+            if let identity,
+                ModelGrid.identity(backend: backend, matching: identity.size) == identity {
+                model = identity.size
+            } else {
+                model = "\(parts[1])/\(parts[2])"
+            }
             return BenchmarkRecord(
                 backend: backend, model: model, quantization: parts[3],
+                identity: identity, identityComplete: identity != nil && quantization.isComplete,
                 language: corpus.language, metricKind: row.metricKind,
                 errorRate: row.errorRate, rtf: row.rtf,
                 peakMemoryGB: row.peakMemoryGB, audioDuration: corpus.duration,

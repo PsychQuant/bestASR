@@ -159,6 +159,34 @@ struct ModelGridTests {
                 .quantization == .named("fp16"))
     }
 
+    @Test func `A row nobody recorded a quantization for is excluded, and named`() {
+        // The mlx-audio reference catalog is where the incomplete identities
+        // live, so it is where the split is observable.
+        let (comparable, excluded) = ModelGrid.comparable(
+            backend: ModelGrid.backendMLXAudio, priorityCeiling: nil)
+        #expect(!excluded.isEmpty)
+        #expect(excluded.allSatisfy { $0.quantization == .unknown })
+        #expect(comparable.allSatisfy { $0.quantization != .unknown })
+        // Nothing is lost, only sorted: the two halves rebuild the whole.
+        #expect(comparable.count + excluded.count
+                == ModelGrid.rows(backend: ModelGrid.backendMLXAudio, priorityCeiling: nil).count)
+
+        // Excluded is not the same as absent — every drop can be said out
+        // loud, naming the row and the reason.
+        for row in excluded {
+            let note = ModelGrid.exclusionNote(for: row)
+            #expect(note.contains(row.identity.family))
+            #expect(note.contains(row.identity.size))
+            #expect(note.contains(row.backend))
+        }
+
+        // A backend whose rows all state their quantization loses nothing.
+        let (whisperKit, none) = ModelGrid.comparable(
+            backend: ModelGrid.backendWhisperKit, priorityCeiling: nil)
+        #expect(none.isEmpty)
+        #expect(whisperKit.count == 6)
+    }
+
     @Test func `Model ids are unique across the whole grid — BCNF key discipline`() {
         let ids = ModelGrid.rows.map(\.modelId)
         #expect(Set(ids).count == ids.count)

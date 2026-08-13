@@ -134,7 +134,13 @@ public struct BenchmarkRunner {
             // reference catalog never reaches here (engines drive the loop,
             // spec benchmark: Reference rows never enumerate).
             let ceiling: Int? = allGrid ? nil : 1
-            for row in ModelGrid.rows(backend: backend.rawValue, priorityCeiling: ceiling) {
+            // A row whose quantization nobody recorded cannot be compared with
+            // anything, so it is not a candidate — and every drop is named,
+            // because a silent one is indistinguishable from having no rows.
+            let (comparable, excluded) = ModelGrid.comparable(
+                backend: backend.rawValue, priorityCeiling: ceiling)
+            notes += excluded.map(ModelGrid.exclusionNote(for:))
+            for row in comparable {
                 // --models accepts the bare size AND the family/size address
                 // that list-models prints (#65 verify F2 — the two must agree).
                 let rowAddress = "\(row.family)/\(row.size)".lowercased()

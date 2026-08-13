@@ -59,6 +59,29 @@ public enum ModelGrid {
         return rows.filter { $0.backend == backend && $0.size == input }
     }
 
+    /// Rows split into those a measurement may be compared against and those
+    /// whose identity is too incomplete to be one (#183).
+    ///
+    /// A row whose quantization is `unknown` names an artifact nobody can
+    /// point at: two runs of it could have used different weights and the
+    /// record would look identical. Such a row stays listable — it is still
+    /// reference information — but it does not enter candidate enumeration.
+    /// Both halves are returned because "excluded" must be sayable: dropping
+    /// rows and not saying so reads exactly like having none.
+    public static func comparable(
+        backend: String, priorityCeiling: Int?
+    ) -> (rows: [ModelRow], excluded: [ModelRow]) {
+        let all = rows(backend: backend, priorityCeiling: priorityCeiling)
+        return (all.filter { $0.quantization.isComplete },
+                all.filter { !$0.quantization.isComplete })
+    }
+
+    /// Why a row was left out of candidate enumeration, in one line naming it.
+    public static func exclusionNote(for row: ModelRow) -> String {
+        "excluded '\(row.identity)' on \(row.backend): its quantization is unrecorded, "
+            + "so a measurement of it could not be compared with another (#183)"
+    }
+
     /// The one model a user's string names under this runtime, or `nil` when
     /// it names none — or more than one. Refusing to choose is the point.
     public static func identity(backend: String, matching input: String) -> ModelID? {

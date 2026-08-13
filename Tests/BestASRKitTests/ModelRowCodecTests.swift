@@ -119,3 +119,65 @@ struct ModelRowCodecTests {
         }
     }
 }
+
+/// Task 4.1 of change `model-identity-structured` (issue #183).
+///
+/// `StoreProjection` used to downgrade the store's four-segment identity to
+/// fit an address grammar that varied by runtime, discarding the family from
+/// every non-mlx record. It no longer branches on who ships the runtime.
+struct StoreProjectionIdentityTests {
+
+    private func snapshot(modelId: String) -> BenchmarkStore.Snapshot {
+        let corpus = CorpusRow(
+            name: "c", language: "en", audioSHA256: String(repeating: "c", count: 64),
+            referenceSHA256: "", duration: 30, audioPath: "", referencePath: "")
+        return BenchmarkStore.Snapshot(
+            machines: [], models: [], corpora: [corpus],
+            measurements: [MeasurementRow(
+                modelId: modelId, corpusId: corpus.corpusId, machineId: "h",
+                measuredAt: Date(timeIntervalSince1970: 1_000), metricKind: .wer,
+                errorRate: 0.1, rtf: 0.1, peakMemoryGB: 1, warmupSeconds: 1,
+                appVersion: "0.3.0", macosVersion: "27.0")],
+            warnings: [])
+    }
+
+    @Test func `A non-mlx record keeps the family the stored key gave it`() throws {
+        // Today this family survives only because the legacy patch puts it
+        // back; before #183 the projection dropped it for every backend whose
+        // name was not mlx-audio.
+        let record = try #require(
+            snapshot(modelId: "whisperkit|whisper|small|deferred:runtime")
+                .projectedRecords().first)
+        #expect(record.identity == ModelID(family: "whisper", size: "small"))
+        #expect(record.identity?.family == "whisper")
+        // Unambiguous under this runtime, so the address stays the bare size —
+        // which is what `--model small` matches against.
+        #expect(record.model == "small")
+        #expect(record.identityComplete)
+    }
+
+    @Test func `An ambiguous size keeps its family in the address too`() throws {
+        // canary 1b and mms 1b both exist, so `1b` alone would name neither.
+        let record = try #require(
+            snapshot(modelId: "mlx-audio|canary|1b|q8").projectedRecords().first)
+        #expect(record.identity == ModelID(family: "canary", size: "1b"))
+        #expect(record.model == "canary/1b")
+    }
+
+    @Test func `A record whose quantization is unrecorded is marked, not dropped`() throws {
+        let record = try #require(
+            snapshot(modelId: "mlx-audio|mms|1b|unknown").projectedRecords().first)
+        #expect(record.identity == ModelID(family: "mms", size: "1b"))
+        #expect(record.identityComplete == false)
+    }
+
+    @Test func `A legacy id whose family repeats its size still reads as whisper`() throws {
+        // Four such ids are in the store (whisperkit|base|base|default and
+        // friends). Dropping the normalisation would split their history from
+        // re-benchmarks of the same candidate.
+        let record = try #require(
+            snapshot(modelId: "whisperkit|base|base|default").projectedRecords().first)
+        #expect(record.identity == ModelID(family: "whisper", size: "base"))
+        #expect(record.model == "base")
+    }
+}

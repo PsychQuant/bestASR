@@ -307,12 +307,25 @@ public struct BenchmarkRecord: Codable, Sendable, Equatable {
     public let macosVersion: String
     public let appVersion: String
 
+    /// Which model this measured, as a value — `nil` only when the stored key
+    /// carried no usable family or size (#183). `model` above is how the
+    /// record is ADDRESSED; this is what it IS.
+    public var identity: ModelID?
+    /// Whether the record names its artifact well enough to be compared with
+    /// another. A record with an unrecorded quantization stays readable and
+    /// stays listed; it is not silently dropped, and it is not silently
+    /// ranked either.
+    public var identityComplete: Bool = true
+
     public init(
-        backend: String, model: String, quantization: String, language: String,
+        backend: String, model: String, quantization: String,
+        identity: ModelID? = nil, identityComplete: Bool = true, language: String,
         metricKind: MetricKind, errorRate: Double, rtf: Double, peakMemoryGB: Double,
         audioDuration: Double, measuredAt: Date, chip: String, macosVersion: String,
         appVersion: String
     ) {
+        self.identity = identity
+        self.identityComplete = identityComplete
         self.backend = backend
         self.model = model
         self.quantization = quantization

@@ -206,20 +206,25 @@ public enum Router {
         // about a model the user never asked for (#35 verify H2: the natural
         // "benchmarked whisper, now try parakeet" first step must route).
         if modelOverride == nil,
-            ModelRegistry.quantizations(for: backend, model: model).isEmpty,
-            let catalogFallback = ModelGrid.rows(
-                backend: backend.rawValue, priorityCeiling: nil
-            ).first?.size {
+            ModelRegistry.quantizations(for: backend, model: model).isEmpty {
+            // Fall back only to rows that could be compared: a row whose
+            // quantization is unrecorded is not a recommendation, it is a
+            // question. Each one skipped is named in the reasons (#183).
+            let (comparable, excluded) = ModelGrid.comparable(
+                backend: backend.rawValue, priorityCeiling: nil)
+            reasons += excluded.map(ModelGrid.exclusionNote(for:))
+            if let catalogFallback = comparable.first?.size {
             reasons.append(
                 "cold-start prior has no '\(model)' on \(backend.rawValue); "
                     + "using its catalog model '\(catalogFallback)'")
-            if let row = ModelGrid.rows(backend: backend.rawValue, priorityCeiling: nil)
-                .first(where: { $0.size == catalogFallback }), !row.verified {
+            if let row = comparable.first(where: { $0.size == catalogFallback }),
+                !row.verified {
                 reasons.append(
                     "warning: '\(catalogFallback)' on \(backend.rawValue) is unverified "
                         + "on this machine — quality is not established (#50)")
             }
             model = catalogFallback
+            }
         }
 
         // #105 declared-language check on the cold-start outcome: a locked or
