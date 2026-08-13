@@ -10,7 +10,7 @@ API 層走了另一條路。`ModelGrid.row(backend:modelAddress:)` 接受一個*
 
 約束：
 
-- 對機序列化**不能改**。337 筆記錄（37 model + 300 measurement 外鍵）以四段字串為鍵，本 change 不做資料遷移
+- 對機序列化**不能改**。420 筆記錄（37 model + 383 measurement 外鍵）以四段字串為鍵，本 change 不做資料遷移
 - `WeightVerifier` 對 grid 列有 pinned revision + digest 要求
 - 使用者已裁定：CLI 與 MCP 一併直接改，不做 alias
 - `.spectra.yaml` locale 為 tw；spec delta 依規定仍以英文撰寫
@@ -21,13 +21,13 @@ API 層走了另一條路。`ModelGrid.row(backend:modelAddress:)` 接受一個*
 
 - 模型身分成為型別（`ModelID`），可當查找鍵、可比較、可雜湊
 - 同一模型在不同 runtime 下**可被辨識為同一模型**（`whisper large-v3-turbo` 於 whisperkit / whisper.cpp / mlx-audio）
-- 身分中不再出現 `default` 佔位字；無法確定的情況以型別明示，並使該列無法進入比較
-- 收攏四個既有轉譯點為一個
+- 型別上**能夠**表達「無法確定」而不必塞假值（實際指派每一列的值 → #187）
+- 收攏轉譯點。**未達成**：round 5 數出至少五條身分轉譯規則仍在 `Sources/`（`ModelGrid.address` 這條正解、`ModelRegistry.liveIdentity`、`StoreProjection` 的 legacy 修補、`CommandCore` 的 fallback、`BenchmarkStore` 的 legacy 遷移），其中兩條彼此不一致。收攏到一條仍是目標，本 change 只做到把 writer 與 reader 統一
 - 對機字串零改動，對人字串改為 `family size (runtime)`
 
 **Non-Goals:**
 
-- 342 筆歷史量測的重新編碼（另立 change；使用者已裁定採「重新編碼能映射的部分」，un-mappable 的處置見 Decision 5）
+- 383 筆歷史量測的重新編碼（→ #187；使用者已裁定採「重新編碼能映射的部分」）
 - 納入新模型（#185 / #123）
 - 多因子比較的量測語意（#184）
 - 收攏 `fluid-*` 三個 `BackendID` case 成單一 runtime——與身分結構正交
@@ -45,11 +45,13 @@ API 層走了另一條路。`ModelGrid.row(backend:modelAddress:)` 接受一個*
 
 ### D2：對機序列化沿用四段字串，由 `ModelID` 產出
 
-序列化形式 `runtime|family|size|quantization` 與 store 現行完全一致，因此 337 筆既有記錄的鍵**不需要任何遷移**。`ModelRow.id(...)` 保留為相容入口，內部改由 `ModelID` 組出。
+序列化形式 `runtime|family|size|quantization` 與 store 現行完全一致，因此 420 筆既有記錄的鍵**不需要任何遷移**。`ModelRow.id(...)` 保留為相容入口，內部改由 `ModelID` 組出。
 
 **替代方案**：改用 JSON 物件或新分隔符。否決——會迫使本 change 承擔資料遷移，而遷移已明確劃為另一個 change。
 
-### D3：`size` 正規化是前提，不是附帶清理
+### D3：`size` 正規化是前提，不是附帶清理 —— **延後至 #187**
+
+> 決策本身不變（下述理由仍成立），但執行被移出：正規化會旋轉那一列的 `model_id`，而 15 筆量測仍指向舊拼法。後果是 #183 明列的第二個 EXPECTED（parakeet 跨兩 runtime 為同一模型）**本 change 未交付**。round 5 另指出一個延後帶來的新風險：`ModelRegistry.nextSmaller` 不帶 runtime，可能把 `fluid-parakeet 0.6b-v3` 降級成只存在於 mlx-audio 的 `0.6b`，產出不存在的組合——那項一併記在 #187。
 
 pinned repo 證明兩筆 parakeet 指向**同一個模型版本**：
 
@@ -77,7 +79,9 @@ unknown                // 沒人知道
 
 **替代方案**：`String?`，nil 表示不適用。否決——無法區分上述四種，而稽核顯示現況正是七種情況壓成一個字（`docs/model-identity-audit.csv`）。
 
-### D5：`deferred(.dependency)` 在本 change 內就地消除
+### D5：`deferred(.dependency)` 在本 change 內就地消除 —— **只落地引擎半邊**
+
+> `ChineseFamilyEngine` 與 `ParakeetEngine` 已顯式傳入 precision（fp16 / fp16 / int8），相依版本 bump 不再靜默改變載入的權重。但**目錄標示仍是 `default`**（隨 re-key 延後），所以 pin 之前與之後的量測在身分上仍無法區分——D5 自述要消除的無聲漂移，只消除了一半。
 
 `ChineseFamilyEngine` 改為**顯式傳入 precision**，不再委由 FluidAudio 預設。三列 `fluid-*` 因此從 `deferred` 變成 `named`。
 
@@ -93,7 +97,7 @@ whisperkit 的 6 列維持 `deferred(.runtime)`：上游 `argmaxinc/whisperkit-c
 
 **Behavior（可觀察的結果）**
 
-1. `bestasr list-models` 的輸出對每個模型顯示 `family size (runtime)`，且**不再出現 `default` 字樣**；量化未定的列顯示其延後來源（如 `quantization deferred to runtime`）
+1. `bestasr list-models` 的輸出對每個模型顯示 `family size (runtime)`。**輸出仍含 `default` 19 次**——渲染器能區分四種 kind，但目錄每一列目前都是 `named`，值的指派隨 re-key 延後（#187）
 2. `bestasr recommend` 對非 whisper 家族的模型給出與 whisper 家族一致的排序行為（不再因 `accuracyRank == -1` 而墊底）
 3. `ModelRegistry.requirements(for:)` 對 `sensevoice small` 回 1.5 GB（今日回 2.5 GB，即 whisperkit small 的值）
 4. MCP `list_models` / `list_backends` 的輸出同步改為新形式
@@ -103,27 +107,32 @@ whisperkit 的 6 列維持 `deferred(.runtime)`：上游 `argmaxinc/whisperkit-c
 - 新型別 `ModelID`：`family: String`、`size: String`，`Hashable`、`Codable`、`Sendable`
 - `ModelID` **只有一個建構子且為 failable**（`init?(family:size:)`）。無不檢查的入口——`BestASRKit` 是單一 module，`internal` 的逃生口保護不了任何東西，最可能走捷徑的呼叫者就在 module 內。持有編譯期字面值的呼叫端（catalog）自行 unwrap 一次並大聲失敗
 - `ModelID` 與 `Quantization(named:)` 共用同一組**語法**拒絕規則：空字串、純空白、**前後帶空白**（`"whisper "` 與 `"whisper"` 會變成同一模型的兩個身分，正是本 change 要終結的缺陷類）
-- **`default` 的規則刻意不放在 `ModelID` 建構子**。它是目錄列**內容**的缺陷，不是元件語法的缺陷：37 筆記錄中有 2 筆（`mega-asr`、`qwen3-forcedaligner`）的 size 就是這個字串，而任務 4.1 要求 `StoreProjection` 直接由那四段建構 `ModelID`。若在型別層拒絕，這些歷史記錄將**讀不進來**，與 benchmark-store 的 "Incomplete records remain readable" 直接衝突。「任何**列**都不得帶它」由目錄層的測試（任務 2.4）執行。`Quantization(named:)` 仍拒絕它——那裡它不是內容問題，而是封閉列舉中不存在的 case
+- **`default` 的規則刻意不放在 `ModelID` 建構子**。它是目錄列**內容**的缺陷，不是元件語法的缺陷：37 筆記錄中有 2 筆（`mega-asr`、`qwen3-forcedaligner`）的 size 就是這個字串，而任務 4.1 要求 `StoreProjection` 直接由那四段建構 `ModelID`。若在型別層拒絕，這些歷史記錄將**讀不進來**，與 benchmark-store 的 "Incomplete records remain readable" 直接衝突。「任何**列**都不得帶它」原由目錄層的測試執行，該測試已隨 re-key 移至 #187——**目前沒有任何測試主張這件事**。`Quantization(named:)` 仍拒絕它——那裡它不是內容問題，而是封閉列舉中不存在的 case
 - 新型別 `Quantization`：四 case 封閉列舉（見 D4），`Codable` 序列化為既有字串值（`named` 直出其值；其餘三者各有保留字）。`init(serialised:)` **仍會**把舊值 `"default"` 讀成 `.named("default")`——不重新詮釋，讓錯的記錄讀起來仍然是錯的，migration 才找得到
 - `ModelRow` 持有 `ModelID` 與 `Quantization`，其序列化 `model_id` 字串維持 `runtime|family|size|quantization` 四段，**與現行 37 筆記錄逐字相容**
 - `ModelGrid.row(backend:modelAddress:)` 移除，改為以 `ModelID` + runtime 查找的介面
 
 **Failure modes**
 
-- 身分不完整（`Quantization.unknown` 或 `size` 缺失）的列：`ModelGrid` 仍收錄以供查閱，但 `Router` 與 benchmark 候選列舉**排除**它，並在 `notes` 出現一則具名說明。**不得靜默略過**
+- 身分不完整（`Quantization.unknown` 或 `size` 缺失）的列：`ModelGrid` 仍收錄以供查閱，`ModelGrid.comparable(backend:priorityCeiling:)` 與 `BenchmarkRunner` 將其排除並具名。**`Router` 的排除延後至 #187**——目前 `Sources/` 內沒有任何路徑依 `identityComplete` 過濾（round 5 確認），因為 344/383 筆量測仍帶佔位字，照做會讓本機幾乎所有 measured recommendation 退回 cold-start prior
 - 舊格式 `modelAddress` 字串傳入已移除的介面：編譯期失敗（此為刻意——使用者裁定不做 alias）
 - `ModelRow.id` 的四段字串解析遇到非四段輸入：回傳 nil 而非崩潰，呼叫端須處理
 
 **Acceptance criteria**
 
-- `ModelRegistryTests`：新增一則主張 `requirements(for: ModelID("sensevoice","small"))` 回 1.5 GB 且不等於 `ModelID("whisper","small")` 的值；`memoryEstimates` 中不再存在 `uniquingKeysWith: max`
-- `ModelGridTests`：新增一則主張 `ModelID("parakeet","0.6b-v3")` 在 fluid 與 mlx 兩個 runtime 下**是同一個 `ModelID`**（size 正規化生效）；並主張 `Quantization` 為 `.unknown` 的列**恰好**是 8 列未 bundle 的 mlx-audio reference row（封閉列舉，見 tasks 2.4）。（原條文寫「任一 grid 列的 `Quantization` 不為 `.unknown`」，與 tasks 2.4 明文指派 `unknown` 給部分列直接矛盾——此處以 tasks 為準修正）
-- 全域檢查：`Sources/` 中不再有任何列**以** `default` 作為 quantization 或 size 的值。以 grep 驗證，並且**恰好只有一個允許的例外**：`ModelID.removedPlaceholder` 這個具名常數（它的存在正是為了拒絕該字面值，且讓「主張其不存在的測試」與「拒絕它的建構子」不會對拼法各說各話）。此為封閉列舉，**不得依性質相似再加第二個例外**
-- `StoreProjection` 中不再存在針對特定 backend 的分支（mlx 三元運算子與 `parts[1] == parts[2]` legacy 修補皆移除）
-- 既有 37 筆 `models.jsonl` 記錄以新程式讀入後，其 `model_id` 序列化結果與檔案中的字串**逐字相同**
-- 全套測試綠燈（本分支基線實測 493 筆 / 98 suites，於 `idd/183-model-identity-audit` 起點量得；先前寫的 453 是 PR #142 分支的數字）
+> 於 verify round 5 後重寫。先前版本列的六條裡有三條在拆分時被還原，而條文沒有跟上——round 5 的 requirements lens 把這件事當成 HIGH 提報，因為 acceptance criteria 是「這個 change 做完了沒」的判準，判準本身過期比程式碼有缺陷更難察覺。
+
+- `DataModelTests` 的 `ModelRegistryTests`（該 struct 已存在於該檔，非新檔）：主張 `requirements(for: ModelID("sensevoice","small"))` 回 1.5 GB 且不等於 `ModelID("whisper","small")` 的 2.5 GB。**`uniquingKeysWith: max` 保留**——round 4 證實同一身分在兩個精度下是正常情形（`whisper.cpp` 今天就有兩列），移除它會在 `ColdStartPrior.fits()` 的迴圈裡 fatalError
+- `ModelGridTests`：主張 `ModelID("canary","1b")` 與 `ModelID("mms","1b")` 各自命中自己的列且互不返回對方；主張裸字串 `"1b"` 解析為 nil（歧義）而 `whisper.cpp` 的 `"tiny"` 仍解析成功
+- `CatalogKeyStabilityTests`：每一列 catalog 的 `model_id` 與已提交的 `models.jsonl` 快照比對，**0 rotated / 0 orphaned**。這是本 change 的核心驗收——它承諾不動任何一把既有的 key
+- `ModelRowCodecTests`：37 筆 `model_id` 逐一 decode 成 `ModelRow` 再 encode，主張 key 逐字相同（不是字串 split∘join 的恆真式——round 4 指出原版是）
+- `StoreProjection` 中不再存在針對特定 backend 的分支（mlx 三元運算子已移除）。**`parts[1] == parts[2]` 的 legacy 修補保留**——store 內仍有 4 筆這種 id
+- 全套測試綠燈（本分支基線實測 493 筆 / 98 suites）
+
+**不在本 change 的驗收範圍內**（移至 #187）：`Sources/` 不含 `default` 作為值、8 列 `unknown` 的封閉列舉、兩筆 parakeet 為同一 `ModelID`、`Router` 排除不完整候選。
 
 **Scope boundaries**
 
-- **In scope**：型別、目錄查找、記憶體估計、router 排序鍵、CLI 與 MCP 對外字串、`ChineseFamilyEngine` 的 precision 顯式化、對應測試、六份 spec delta
-- **Out of scope**：歷史量測記錄的重新編碼、新模型納入、多因子比較語意、`fluid-*` 三 case 的收攏、WhisperKit 實際 variant 的查明
+- **In scope**：型別（`ModelID` / `Quantization`）、目錄查找與歧義回報、記憶體估計與 router 排序鍵、`StoreProjection` 去 vendor 分支、CLI 與 MCP 對外字串、engine 的 precision 顯式化、對應測試、六份 spec delta
+- **Out of scope（→ #187）**：catalog re-key（quantization 值 + parakeet size）、從身分移除 `default`、`isComplete` 拒絕該佔位字、`Router` 排除不完整候選、383 筆歷史量測的重新編碼
+- **Out of scope（其他）**：新模型納入（#185 / #123）、多因子比較語意（#184）、`fluid-*` 三 case 的收攏、WhisperKit 實際 variant 的查明
