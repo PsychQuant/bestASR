@@ -59,6 +59,21 @@ public enum ModelGrid {
         return rows.filter { $0.backend == backend && $0.size == input }
     }
 
+    /// How a model is addressed under one runtime: the bare size when that
+    /// names it unambiguously there, `family/size` when it does not.
+    ///
+    /// ONE rule, used by the benchmark writer and by every reader. #183's
+    /// stated goal is to collapse the translation points into one, and two of
+    /// them survived the first pass with *different* rules — the writer asked
+    /// "is this mlx-audio?" while the reader asked "is this size ambiguous?".
+    /// They agree on today's catalog, which is exactly what makes a divergence
+    /// like that survive review: it is not wrong yet.
+    public static func address(for identity: ModelID, backend: String) -> String {
+        Self.identity(backend: backend, matching: identity.size) == identity
+            ? identity.size
+            : "\(identity.family)/\(identity.size)"
+    }
+
     /// Rows split into those a measurement may be compared against and those
     /// whose identity is too incomplete to be one (#183).
     ///

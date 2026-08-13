@@ -152,11 +152,13 @@ public struct BenchmarkRunner {
                 {
                     continue
                 }
-                // mlx-audio candidates are addressed family/size (#65 —
-                // bare sizes collide across families and trapped the report's
-                // keyed dictionaries: canary 1b vs mms 1b).
-                let address = backend.rawValue == ModelGrid.backendMLXAudio
-                    ? "\(row.family)/\(row.size)" : row.size
+                // Addressed by the one rule the readers use (#183): the bare
+                // size where it is unambiguous, family/size where it is not.
+                // This used to ask "is this mlx-audio?" — a vendor test standing
+                // in for the ambiguity it was really about (#65: canary 1b vs
+                // mms 1b), which left the writer and the reader on two rules.
+                let address = ModelGrid.address(
+                    for: row.identity, backend: backend.rawValue)
                 candidates.append(
                     BenchmarkCandidate(
                         backend: backend, model: address, quantization: row.quantization.serialised))

@@ -248,3 +248,42 @@ struct ModelGridTests {
                 == ModelID(family: "whisper", size: "tiny"))
     }
 }
+
+/// Task 2.2 residue found during verify round 1 (#183): the benchmark WRITER
+/// and the projection READER were addressing models by two different rules
+/// that happen to agree on today's catalog.
+struct ModelAddressingTests {
+    @Test func `Writer and reader address every catalog row identically`() {
+        // The divergence that survived the first pass: the writer asked "is
+        // this mlx-audio?", the reader asked "is this size ambiguous?". They
+        // agree today, which is precisely why nobody noticed — a rule that is
+        // not wrong yet reads exactly like a rule that is right.
+        for row in ModelGrid.rows {
+            let address = ModelGrid.address(for: row.identity, backend: row.backend)
+            // Whatever the address is, it must resolve back to the same model.
+            #expect(ModelGrid.identity(backend: row.backend, matching: address) == row.identity,
+                    "\(row.modelId) addressed as '\(address)' does not resolve back")
+        }
+    }
+
+    @Test func `A size shared by two families keeps the family in its address`() throws {
+        let canary = try #require(ModelID(family: "canary", size: "1b"))
+        let mms = try #require(ModelID(family: "mms", size: "1b"))
+        #expect(ModelGrid.address(for: canary, backend: ModelGrid.backendMLXAudio) == "canary/1b")
+        #expect(ModelGrid.address(for: mms, backend: ModelGrid.backendMLXAudio) == "mms/1b")
+
+        // And an unambiguous one does not — `--model tiny` stays what users type.
+        let tiny = try #require(ModelID(family: "whisper", size: "tiny"))
+        #expect(ModelGrid.address(for: tiny, backend: ModelGrid.backendWhisperCpp) == "tiny")
+    }
+
+    @Test func `The rule keys on ambiguity, not on which vendor ships the runtime`() throws {
+        // mlx-audio hosts both ambiguous and unambiguous sizes. A vendor rule
+        // gives every mlx row a family prefix; the ambiguity rule gives one
+        // only where the size needs it. That difference is the finding.
+        let moonshine = try #require(ModelID(family: "moonshine", size: "base"))
+        #expect(ModelGrid.address(for: moonshine, backend: ModelGrid.backendMLXAudio) == "base")
+        let canary = try #require(ModelID(family: "canary", size: "1b"))
+        #expect(ModelGrid.address(for: canary, backend: ModelGrid.backendMLXAudio) == "canary/1b")
+    }
+}

@@ -25,13 +25,8 @@ extension BenchmarkStore.Snapshot {
             // not say which model it is. That is a property of the catalog, not
             // of who ships the runtime — the old rule named mlx-audio and so
             // discarded the family from every other backend's records (#183).
-            let model: String
-            if let identity,
-                ModelGrid.identity(backend: backend, matching: identity.size) == identity {
-                model = identity.size
-            } else {
-                model = "\(parts[1])/\(parts[2])"
-            }
+            let model = identity.map { ModelGrid.address(for: $0, backend: backend) }
+                ?? "\(parts[1])/\(parts[2])"
             return BenchmarkRecord(
                 backend: backend, model: model, quantization: parts[3],
                 identity: identity, identityComplete: identity != nil && quantization.isComplete,
