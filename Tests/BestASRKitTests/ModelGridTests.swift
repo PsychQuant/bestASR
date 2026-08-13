@@ -29,10 +29,10 @@ struct ModelGridTests {
         let p1 = ModelGrid.rows(backend: ModelGrid.backendMLXAudio, priorityCeiling: 1)
             .map(\.modelId)
         #expect(Set(p1) == Set([
-            "mlx-audio|whisper|large-v3-turbo|default",
-            "mlx-audio|parakeet|0.6b|default",
+            "mlx-audio|whisper|large-v3-turbo|unknown",
+            "mlx-audio|parakeet|0.6b-v3|unknown",
             "mlx-audio|qwen3-asr|small|4bit",
-            "mlx-audio|moonshine|base|default",
+            "mlx-audio|moonshine|base|unknown",
         ]))
     }
 
@@ -76,29 +76,21 @@ struct ModelGridTests {
 
 
 
-    @Test func `The catalog still spells the placeholder — deferred, not forgotten`() {
-        // The user's instruction was to remove `default` from identities
-        // entirely, and this change does not do it. Verify round 4 measured
-        // why: assigning the real values rotates 19 of 37 model_id keys while
-        // 344 of 383 stored measurements still reference the old ones, and the
-        // record re-encoding is a declared Non-Goal here. Option 3 was chosen —
-        // the type work lands, the re-key travels with the re-encoding.
-        //
-        // This test exists so that deferral is VISIBLE in the suite rather than
-        // absent from it. When the re-encoding change lands it must fail, and
-        // the tests it replaced (the four-case assignment, the closed unknown
-        // list, the CLI/MCP placeholder assertions) come back with it.
-        let placeholder = ModelGrid.rows.filter {
-            $0.quantization == .named(ModelID.removedPlaceholder)
-                || $0.size == ModelID.removedPlaceholder
+    @Test func `No catalog row spells the removed placeholder`() {
+        // The deferral this replaced is over: read-time canonicalisation
+        // (`ModelGrid.canonical`) lets the catalog carry true values without
+        // rewriting a stored key, so the placeholder is gone from the catalog
+        // while every measurement taken under it still resolves.
+        for row in ModelGrid.rows {
+            #expect(row.quantization != .named(ModelID.removedPlaceholder), "\(row.modelId)")
         }
-        #expect(placeholder.count == 19,
-                "the catalog's placeholder count moved without the re-key landing")
-        // And every one of them still produces the key that is on disk today.
-        for row in placeholder {
-            #expect(row.modelId.hasSuffix("|\(ModelID.removedPlaceholder)")
-                    || row.size == ModelID.removedPlaceholder)
-        }
+        // The SIZE axis has two rows left, and they are a CLOSED list: neither
+        // upstream publishes a version name, so there is nothing true to put
+        // there. Naming them keeps the gap visible; #187 decides between
+        // dropping the rows, relaxing the spec, or waiting for upstream.
+        let sizeGap = Set(
+            ModelGrid.rows.filter { $0.size == ModelID.removedPlaceholder }.map(\.family))
+        #expect(sizeGap == ["mega-asr", "qwen3-forcedaligner"])
     }
 
     @Test func `Model ids are unique across the whole grid — BCNF key discipline`() {
@@ -129,7 +121,7 @@ struct ModelGridTests {
         // The persisted modelId built from the resolved row keeps the family.
         // The pin `Mediform/canary-1b-v2-mlx-q8` states the quantization the row
         // used to hide behind `default` (#183).
-        #expect(row.modelId == "mlx-audio|canary|1b|default")
+        #expect(row.modelId == "mlx-audio|canary|1b|q8")
     }
 
     @Test func `Two families sharing a size each resolve to their own row`() throws {
@@ -167,56 +159,41 @@ struct ModelGridTests {
 /// and the projection READER were addressing models by two different rules
 /// that happen to agree on today's catalog.
 struct ModelAddressingTests {
-    @Test func `A measurement of any catalog row projects back to that row's identity`() throws {
-        // Round-4 verify C7 renamed and rebuilt this. The previous version
-        // claimed to lock "writer and reader address every row identically"
-        // and could not fail: `address(for:backend:)` is DEFINED as
-        // `identity(matching: size) == identity ? size : "family/size"`, so
-        // re-asking that question is true in both branches — and it called
-        // neither the writer nor the reader whose agreement its name claimed.
-        //
-        // What it checks now is a real round trip through the reader: a stored
-        // key for each catalog row, projected, must come back as that row's
-        // identity. That can fail — the legacy `parts[1] == parts[2]` rewrite
-        // would swallow any row whose family equals its own size.
-        let corpus = CorpusRow(
-            name: "c", language: "en", audioSHA256: String(repeating: "c", count: 64),
-            referenceSHA256: "", duration: 30, audioPath: "", referencePath: "")
+    @Test func `Every catalog row addresses canonically, and resolves back`() throws {
+        // The address no longer asks which runtime is hosting. Round 6 showed
+        // why the previous rule failed #183's third EXPECTED: under whisperkit
+        // `base` meant whisper/base, under mlx-audio it meant moonshine/base,
+        // and both addressed as the bare `base` because each was unambiguous
+        // *within its own runtime*. Keeping the model string and changing
+        // --backend silently changed the model.
         for row in ModelGrid.rows {
-            let snapshot = BenchmarkStore.Snapshot(
-                machines: [], models: [], corpora: [corpus],
-                measurements: [MeasurementRow(
-                    modelId: row.modelId, corpusId: corpus.corpusId, machineId: "h",
-                    measuredAt: Date(timeIntervalSince1970: 1), metricKind: .wer,
-                    errorRate: 0.1, rtf: 0.1, peakMemoryGB: 1, warmupSeconds: 1,
-                    appVersion: "0.3.0", macosVersion: "27.0")],
-                warnings: [])
-            let projected = try #require(
-                snapshot.projectedRecords().first, "\(row.modelId) projected to nothing")
-            #expect(projected.identity == row.identity,
-                    "\(row.modelId) projected to \(String(describing: projected.identity))")
-            #expect(projected.backend == row.backend)
+            let address = ModelGrid.address(for: row.identity)
+            #expect(address == "\(row.family)/\(row.size)")
+            #expect(ModelGrid.identity(backend: row.backend, matching: address) == row.identity,
+                    "\(row.modelId) addressed as '\(address)' does not resolve back")
+        }
+    }
+
+    @Test func `One address means one model in every runtime`() throws {
+        // The concrete case round 6 found. Both rows exist; `base` used to
+        // address both.
+        let whisperBase = try #require(ModelID(family: "whisper", size: "base"))
+        let moonshineBase = try #require(ModelID(family: "moonshine", size: "base"))
+        #expect(ModelGrid.address(for: whisperBase) == "whisper/base")
+        #expect(ModelGrid.address(for: moonshineBase) == "moonshine/base")
+        #expect(ModelGrid.address(for: whisperBase) != ModelGrid.address(for: moonshineBase))
+
+        // And an address resolves to the same model no matter which runtime
+        // is asked — when that runtime hosts it at all.
+        for backend in [ModelGrid.backendWhisperKit, ModelGrid.backendWhisperCpp] {
+            #expect(ModelGrid.identity(backend: backend, matching: "whisper/base") == whisperBase)
         }
     }
 
     @Test func `A size shared by two families keeps the family in its address`() throws {
         let canary = try #require(ModelID(family: "canary", size: "1b"))
         let mms = try #require(ModelID(family: "mms", size: "1b"))
-        #expect(ModelGrid.address(for: canary, backend: ModelGrid.backendMLXAudio) == "canary/1b")
-        #expect(ModelGrid.address(for: mms, backend: ModelGrid.backendMLXAudio) == "mms/1b")
-
-        // And an unambiguous one does not — `--model tiny` stays what users type.
-        let tiny = try #require(ModelID(family: "whisper", size: "tiny"))
-        #expect(ModelGrid.address(for: tiny, backend: ModelGrid.backendWhisperCpp) == "tiny")
-    }
-
-    @Test func `The rule keys on ambiguity, not on which vendor ships the runtime`() throws {
-        // mlx-audio hosts both ambiguous and unambiguous sizes. A vendor rule
-        // gives every mlx row a family prefix; the ambiguity rule gives one
-        // only where the size needs it. That difference is the finding.
-        let moonshine = try #require(ModelID(family: "moonshine", size: "base"))
-        #expect(ModelGrid.address(for: moonshine, backend: ModelGrid.backendMLXAudio) == "base")
-        let canary = try #require(ModelID(family: "canary", size: "1b"))
-        #expect(ModelGrid.address(for: canary, backend: ModelGrid.backendMLXAudio) == "canary/1b")
+        #expect(ModelGrid.address(for: canary) == "canary/1b")
+        #expect(ModelGrid.address(for: mms) == "mms/1b")
     }
 }

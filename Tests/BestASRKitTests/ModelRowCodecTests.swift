@@ -164,7 +164,7 @@ struct StoreProjectionIdentityTests {
         #expect(record.identity?.family == "whisper")
         // Unambiguous under this runtime, so the address stays the bare size —
         // which is what `--model small` matches against.
-        #expect(record.model == "small")
+        #expect(record.model == "whisper/small")
         #expect(record.identityComplete)
     }
 
@@ -190,36 +190,53 @@ struct StoreProjectionIdentityTests {
         let record = try #require(
             snapshot(modelId: "whisperkit|base|base|default").projectedRecords().first)
         #expect(record.identity == ModelID(family: "whisper", size: "base"))
-        #expect(record.model == "base")
+        #expect(record.model == "whisper/base")
     }
 }
 
 extension StoreProjectionIdentityTests {
 }
 
-/// The acceptance criterion for the split (#183 verify round 4, option 3):
-/// this change must not rotate a single stored key.
-struct CatalogKeyStabilityTests {
-    @Test func `Every catalog row produces the key already on disk`() throws {
-        // The committed audit CSV is a snapshot of ~/.bestasr/store/models.jsonl
-        // taken before this change. If the catalog and the snapshot disagree on
-        // even one key, the change rotates it — which is exactly what option 3
-        // defers. This is the test the first three rounds did not have, and its
-        // absence is why the re-key reached round 4 undetected.
+/// The acceptance criterion for read-time canonicalisation (#183, round 6 →
+/// option 1). The catalog now carries true values, so its keys deliberately
+/// DIFFER from what is on disk. What must hold instead — and it is the
+/// stronger claim — is that every stored key still resolves to a model the
+/// catalog holds, so no measurement is orphaned by the rotation.
+struct CatalogCanonicalisationTests {
+    private static func storedKeys() throws -> [String] {
         let url = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .appending(path: "docs/model-identity-audit.csv")
-        let text = try String(contentsOf: url, encoding: .utf8)
-        var lines = text.split(whereSeparator: \.isNewline)
+            .deletingLastPathComponent().appending(path: "docs/model-identity-audit.csv")
+        var lines = try String(contentsOf: url, encoding: .utf8).split(whereSeparator: \.isNewline)
         lines.removeFirst()
-        let onDisk = Set(lines.map { String($0.split(separator: ",")[0]) })
-        #expect(onDisk.count == 37)
+        return lines.map { String($0.split(separator: ",")[0]) }
+    }
 
-        let fromCatalog = Set(ModelGrid.rows.map(\.modelId))
-        let rotated = fromCatalog.subtracting(onDisk).sorted()
-        let orphaned = onDisk.subtracting(fromCatalog).sorted()
-        #expect(rotated.isEmpty, "catalog produces keys not on disk: \(rotated)")
-        #expect(orphaned.isEmpty, "disk holds keys the catalog no longer produces: \(orphaned)")
+    @Test func `Every stored key resolves to a model the catalog holds`() throws {
+        let stored = try Self.storedKeys()
+        #expect(stored.count == 37)
+        var orphaned: [String] = []
+        for key in stored {
+            let p = key.split(separator: "|", omittingEmptySubsequences: false).map(String.init)
+            guard let canon = ModelGrid.canonical(
+                    backend: p[0], family: p[1], size: p[2], quantization: p[3]),
+                  !ModelGrid.rows(backend: p[0], identity: canon.identity).isEmpty
+            else { orphaned.append(key); continue }
+        }
+        #expect(orphaned.isEmpty, "stored keys the catalog can no longer place: \(orphaned)")
+    }
+
+    @Test func `A rotated key and its replacement name one candidate`() throws {
+        // The round-4 CRITICAL, inverted into a guard: the 140 measurements
+        // stored as `…|default` and every new one written as
+        // `…|deferred:runtime` must collapse, not compete.
+        let old = try #require(ModelGrid.canonical(
+            backend: "whisperkit", family: "whisper", size: "large-v3-turbo",
+            quantization: ModelID.removedPlaceholder))
+        let new = try #require(ModelGrid.canonical(
+            backend: "whisperkit", family: "whisper", size: "large-v3-turbo",
+            quantization: Quantization.deferred(.runtime).serialised))
+        #expect(old.identity == new.identity)
+        #expect(old.quantization == new.quantization)
     }
 }

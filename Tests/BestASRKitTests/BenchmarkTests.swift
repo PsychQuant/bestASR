@@ -52,11 +52,13 @@ struct BenchmarkEnumerationTests {
         #expect(
             enumeration.candidates == [
                 BenchmarkCandidate(
-                    backend: .whisperKit, model: "large-v3-turbo",
+                    // Addressed canonically as `family/size` for every runtime
+                    // (#183): a bare size named a different model under a
+                    // different backend, which is what the change exists to end.
+                    backend: .whisperKit, model: "whisper/large-v3-turbo",
                     // WhisperKit fetches its own bundle from among 27 published
-                    // variants — the candidate now says so instead of "default"
-                    // (#183).
-                    quantization: ModelID.removedPlaceholder)
+                    // variants — the candidate says so instead of "default".
+                    quantization: Quantization.deferred(.runtime).serialised)
             ]
         )
     }
@@ -86,7 +88,7 @@ struct BenchmarkEnumerationTests {
         let enumeration = try await runner.enumerateCandidates()
         #expect(enumeration.candidates.contains(
             BenchmarkCandidate(
-                backend: .fluidParakeet, model: "0.6b-v3", quantization: ModelID.removedPlaceholder)))
+                backend: .fluidParakeet, model: "parakeet/0.6b-v3", quantization: "int8")))
         // And the model filter accepts the parakeet size as a grid name.
         let filtered = try await runner.enumerateCandidates(modelFilter: ["0.6b-v3"])
         #expect(filtered.candidates.allSatisfy { $0.backend == .fluidParakeet })

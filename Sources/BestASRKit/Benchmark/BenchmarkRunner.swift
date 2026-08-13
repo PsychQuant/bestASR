@@ -157,8 +157,7 @@ public struct BenchmarkRunner {
                 // This used to ask "is this mlx-audio?" — a vendor test standing
                 // in for the ambiguity it was really about (#65: canary 1b vs
                 // mms 1b), which left the writer and the reader on two rules.
-                let address = ModelGrid.address(
-                    for: row.identity, backend: backend.rawValue)
+                let address = ModelGrid.address(for: row.identity)
                 candidates.append(
                     BenchmarkCandidate(
                         backend: backend, model: address, quantization: row.quantization.serialised))

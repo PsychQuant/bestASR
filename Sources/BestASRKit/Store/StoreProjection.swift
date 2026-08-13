@@ -9,26 +9,22 @@ extension BenchmarkStore.Snapshot {
         let machinesById = Dictionary(uniqueKeysWithValues: machines.map { ($0.machineId, $0) })
         let corporaById = Dictionary(uniqueKeysWithValues: corpora.map { ($0.corpusId, $0) })
         let projected = BenchmarkStore.latestMeasurements(measurements).compactMap { row -> BenchmarkRecord? in
-            var parts = row.modelId.split(separator: "|").map(String.init)
+            let parts = row.modelId.split(separator: "|").map(String.init)
             guard parts.count == 4, let corpus = corporaById[row.corpusId] else { return nil }
-            // Legacy-migrated ids carry family == size (the flat cache had no
-            // family); normalize to the whisper family so re-benchmarks of the
-            // same candidate supersede legacy rows (verify #14 M-9). Four such
-            // ids are still in the store, so this is load-bearing until the
-            // re-encoding change retires them — it is no longer conditioned on
-            // the backend, because no catalog family equals its own size.
-            if parts[1] == parts[2] { parts[1] = "whisper" }
             let backend = parts[0]
-            let identity = ModelID(family: parts[1], size: parts[2])
-            let quantization = Quantization(serialised: parts[3])
-            // The address carries the family exactly when the size alone would
-            // not say which model it is. That is a property of the catalog, not
-            // of who ships the runtime — the old rule named mlx-audio and so
-            // discarded the family from every other backend's records (#183).
-            let model = identity.map { ModelGrid.address(for: $0, backend: backend) }
-                ?? "\(parts[1])/\(parts[2])"
+            // Canonicalise on READ (#183). The stored key is never rewritten;
+            // this says what it means in today's catalog, so a measurement
+            // taken before the catalog stated its quantization collapses with
+            // one taken after into a single candidate instead of competing
+            // with itself in the ranking pool.
+            let canon = ModelGrid.canonical(
+                backend: backend, family: parts[1], size: parts[2], quantization: parts[3])
+            let identity = canon?.identity
+            let quantization = canon?.quantization ?? Quantization(serialised: parts[3])
+            let model = identity.map(ModelGrid.address(for:)) ?? "\(parts[1])/\(parts[2])"
             return BenchmarkRecord(
-                backend: backend, model: model, quantization: parts[3],
+                backend: backend, model: model,
+                quantization: quantization.serialised,
                 identity: identity,
                 language: corpus.language, metricKind: row.metricKind,
                 errorRate: row.errorRate, rtf: row.rtf,

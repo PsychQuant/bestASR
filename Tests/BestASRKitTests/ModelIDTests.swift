@@ -98,14 +98,12 @@ struct ModelIDTests {
         #expect(Quantization(serialised: Quantization.unknown.serialised) != .deferred(.runtime))
     }
 
-    @Test func `only unknown is an incomplete identity, while the catalog still spells default`() {
+    @Test func `neither unknown nor the removed placeholder is a complete identity`() {
         #expect(Quantization.unknown.isComplete == false)
-        // The placeholder IS still vouched for — deferred with the catalog
-        // re-key, not accepted. Refusing it while 19 rows spell it excluded
-        // every whisperkit row from benchmarking (measured: zero candidates).
-        // The refusal and the re-key are one unit; both move to the
-        // re-encoding change.
-        #expect(Quantization(serialised: ModelID.removedPlaceholder).isComplete)
+        // The refusal is back: no catalog row spells it any more, and a stored
+        // record that still does is canonicalised on read before it reaches
+        // here, so nothing legitimate arrives saying `default`.
+        #expect(Quantization(serialised: ModelID.removedPlaceholder).isComplete == false)
         #expect(Quantization.notApplicable.isComplete)
         #expect(Quantization.deferred(.runtime).isComplete)
         #expect(Quantization.deferred(.dependency).isComplete)

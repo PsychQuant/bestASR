@@ -220,14 +220,12 @@ public enum Quantization: Hashable, Codable, Sendable {
         // the gate that matters asks the constructor's own question instead: a
         // value this type would not accept is not one it will vouch for.
         //
-        // ``ModelID/removedPlaceholder`` is the ONE exception, and it is a
-        // deferral rather than a judgment. Refusing it belongs with the change
-        // that stops the catalog from spelling it — while 19 rows still do,
-        // refusing it here excluded every whisperkit row from benchmarking:
-        // measured, `enumerateCandidates` returned an empty list. The refusal
-        // and the re-key are one unit; splitting them breaks the product.
-        case .named(let value):
-            return value == ModelID.removedPlaceholder || Quantization(named: value) != nil
+        // The placeholder is refused like any other value this type would not
+        // accept. That became possible once the catalog stopped spelling it —
+        // and a stored record that still does is canonicalised on read
+        // (`ModelGrid.canonical`), so nothing legitimate reaches here saying
+        // `default`.
+        case .named(let value): return Quantization(named: value) != nil
         case .notApplicable, .deferred: return true
         }
     }
