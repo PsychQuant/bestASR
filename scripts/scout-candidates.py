@@ -118,10 +118,40 @@ WHISPERKIT_VARIANTS = [
 ]
 
 
+
+# Probed 2026-08-13 via https://huggingface.co/api/models/<repo>: commit sha +
+# the language/license the model card declares. These nine are the shortlist —
+# a pinned sha is what the supply-chain rule requires before a row may enter the
+# grid, so only these are addable; everything else in CANDIDATES still needs its
+# own probe. `language` blank means the card declares none (NOT "English").
+PROBED = {
+    "FluidInference/paraformer-large-zh-coreml":      ("5dd557bd0634", "zh",    "other"),
+    "FluidInference/parakeet-ctc-0.6b-zh-cn-coreml":  ("ad0da3a453ce", "zh,en", "cc-by-4.0"),
+    "FluidInference/parakeet-0.6b-ja-coreml":         ("2952296ff1da", "ja",    "cc-by-4.0"),
+    "FluidInference/parakeet-unified-en-0.6b-coreml": ("4252711f6f06", "en",    "cc-by-4.0"),
+    "mlx-community/parakeet-tdt_ctc-0.6b-ja":         ("e3810190ff52", "",      "cc-by-4.0"),
+    "mlx-community/parakeet-tdt-0.6b-v2":             ("8ae155301e23", "",      "cc-by-4.0"),
+    "mlx-community/whisper-large-v3-turbo-4bit":      ("0f058d38170d", "",      "apache-2.0"),
+    "mlx-community/whisper-large-v3-turbo-8bit":      ("62103fc276a3", "",      "apache-2.0"),
+    "BRlin/Breeze-ASR-25-mlx-fp16":                   ("9c3ad66c7bd6", "zh,en", "apache-2.0"),
+}
+
 def main():
     fields = ["repo_id", "ecosystem", "family", "language_signal", "language_evidence",
-              "downloads", "in_catalog", "note"]
-    rows = [dict(zip(fields[:6], c[:6]), in_catalog="no", note=c[6]) for c in CANDIDATES]
+              "downloads", "revision", "license", "addable", "in_catalog", "note"]
+    rows = []
+    for c in CANDIDATES:
+        r = dict(zip(fields[:6], c[:6]), in_catalog="no", note=c[6])
+        sha, lang, lic = PROBED.get(c[0], ("", "", ""))
+        r["revision"], r["license"] = sha, lic
+        # A probed card's declared language beats a guess from the repo id.
+        if lang:
+            r["language_signal"], r["language_evidence"] = lang, "model card (probed)"
+        elif sha:
+            r["language_evidence"] = "card declares none — NOT to be read as English"
+        # Addable = has the pinned sha the supply-chain rule demands.
+        r["addable"] = "yes — sha pinned" if sha else "no — needs revision probe"
+        rows.append(r)
 
     # WhisperKit variants are a different shape: they are not "new models" but the
     # named alternatives that `quantization=default` currently hides.
@@ -131,7 +161,8 @@ def main():
             "repo_id": f"argmaxinc/whisperkit-coreml :: {v}",
             "ecosystem": "whisperkit", "family": "whisper",
             "language_signal": lang, "language_evidence": "from variant name",
-            "downloads": "", "in_catalog": "variant-of-existing-row",
+            "downloads": "", "revision": "", "license": "",
+            "addable": "n/a — not a new model", "in_catalog": "variant-of-existing-row",
             "note": "published variant that bestASR's quantization=default does not distinguish",
         })
 
@@ -145,10 +176,12 @@ def main():
     var = sum(1 for r in rows if r["in_catalog"] == "variant-of-existing-row")
     zh_ja = sum(1 for r in rows if r["in_catalog"] == "no"
                 and any(t in r["language_signal"] for t in ("zh", "ja")))
+    addable = sum(1 for r in rows if r["addable"].startswith("yes"))
     print(f"wrote {os.path.normpath(OUT)}")
     print(f"  {new} candidate models not in the catalog")
     print(f"  {var} WhisperKit variants hidden behind quantization=default")
-    print(f"  {zh_ja} of the candidates signal zh or ja in their repo id")
+    print(f"  {zh_ja} of the candidates signal zh or ja")
+    print(f"  {addable} have a pinned sha and are addable; the rest still need a probe")
 
 
 if __name__ == "__main__":
