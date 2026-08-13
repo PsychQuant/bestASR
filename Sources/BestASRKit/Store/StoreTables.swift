@@ -93,12 +93,13 @@ public struct ModelRow: Codable, Sendable, Equatable {
         self.verified = verified
     }
 
-    /// Build a row from loose strings — the spelling the catalog literals still
-    /// use. Traps on a family or size that names nothing, because a catalog row
-    /// is a compile-time constant: failing at launch, naming the row, beats
+    /// Build a row the way the catalog literals read: family and size spelled
+    /// out, quantization stated as one of the four facts it can be. Traps on a
+    /// family or size that names nothing, because a catalog row is a
+    /// compile-time constant — failing at launch, naming the row, beats
     /// carrying an identity that identifies nothing.
     public init(
-        backend: String, family: String, size: String, quantization: String,
+        backend: String, family: String, size: String, quantization: Quantization,
         hfRepo: String? = nil, hfRevision: String? = nil,
         languages: [String] = ["multi"],
         estMemoryGB: Double, priority: Int, verified: Bool = false
@@ -108,8 +109,7 @@ public struct ModelRow: Codable, Sendable, Equatable {
                 "catalog row names no model: family \"\(family)\", size \"\(size)\"")
         }
         self.init(
-            backend: backend, identity: identity,
-            quantization: Quantization(serialised: quantization),
+            backend: backend, identity: identity, quantization: quantization,
             hfRepo: hfRepo, hfRevision: hfRevision, languages: languages,
             estMemoryGB: estMemoryGB, priority: priority, verified: verified)
     }

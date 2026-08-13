@@ -327,7 +327,9 @@ struct AppleSpeechGridTests {
         let rows = ModelGrid.rows(backend: ModelGrid.backendAppleSpeech, priorityCeiling: nil)
         let row = try #require(rows.first)
         #expect(rows.count == 1)
-        #expect(row.quantization.serialised == "default")
+        // An OS-bundled model has no quantization axis at all — a distinct
+        // fact from one that is merely unrecorded (#183).
+        #expect(row.quantization == .notApplicable)
         // Ships with macOS — there is no HuggingFace artifact to pin, and the
         // grid invariant forbids a repo id on an unverified row.
         #expect(row.hfRepo == nil)
@@ -356,7 +358,7 @@ struct AppleSpeechGridTests {
                 backend: ModelGrid.backendAppleSpeech,
                 matching: "\(bare.family)/\(bare.size)"))
         #expect(named == addressed)
-        #expect(bare.modelId == "apple-speech|speechanalyzer|system|default")
+        #expect(bare.modelId == "apple-speech|speechanalyzer|system|n/a")
     }
 
     @Test func `Declared languages are the probed locale set — never the multi sentinel`() throws {

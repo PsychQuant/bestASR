@@ -122,7 +122,11 @@ public struct ParakeetEngine: Engine {
             // drifted weights must never reach CoreML compilation.
             let modelsDir = try await AsrModels.download(version: version)
             try WeightVerifier.verifyBundled(repo: "parakeet-tdt-0.6b-v3")
-            let models = try await AsrModels.load(from: modelsDir, version: version)
+            // #183 D5: `.int8` is AsrModels.load's current default — stated here
+            // so the grid row can name it, and so a FluidAudio bump cannot
+            // change what the parakeet measurements were measured on.
+            let models = try await AsrModels.load(
+                from: modelsDir, version: version, encoderPrecision: .int8)
             return FluidAudioParakeetPipeline(manager: AsrManager(config: .default, models: models))
         })
     }

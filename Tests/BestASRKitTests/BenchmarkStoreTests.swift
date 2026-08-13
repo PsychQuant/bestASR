@@ -15,7 +15,7 @@ struct StoreTablesTests {
 
     @Test func `Model id is the four-part key`() {
         let row = ModelRow(
-            backend: "mlx-audio", family: "moonshine", size: "base", quantization: "default",
+            backend: "mlx-audio", family: "moonshine", size: "base", quantization: .named("default"),
             estMemoryGB: 0.5, priority: 1)
         #expect(row.modelId == "mlx-audio|moonshine|base|default")
     }
@@ -71,7 +71,7 @@ struct BenchmarkStoreTests {
         try store.upsert(machine: MachineRow(chip: "Apple M5 Max", unifiedMemoryGB: 128))
         try store.seed(models: [
             ModelRow(backend: "mlx-audio", family: "moonshine", size: "base",
-                     quantization: "default", estMemoryGB: 0.5, priority: 1)
+                     quantization: .named("default"), estMemoryGB: 0.5, priority: 1)
         ])
         try store.upsert(corpus: CorpusRow(
             name: "jfk", language: "en", audioSHA256: String(repeating: "a", count: 64),
@@ -355,7 +355,7 @@ struct StoreResilienceTests {
     @Test func `Model seeding preserves an unparseable line verbatim`() throws {
         let (store, dir) = try freshStore()
         try store.seed(models: [ModelRow(
-            backend: "whisperkit", family: "whisper", size: "tiny", quantization: "default",
+            backend: "whisperkit", family: "whisper", size: "tiny", quantization: .named("default"),
             estMemoryGB: 0.4, priority: 1)])
         let table = dir.appendingPathComponent("models.jsonl")
         let garbage = "not-even-braces"
@@ -364,7 +364,7 @@ struct StoreResilienceTests {
         try content.write(to: table, atomically: true, encoding: .utf8)
 
         try store.seed(models: [ModelRow(
-            backend: "whisperkit", family: "whisper", size: "base", quantization: "default",
+            backend: "whisperkit", family: "whisper", size: "base", quantization: .named("default"),
             estMemoryGB: 0.5, priority: 1)])  // wholesale re-seed = rewrite
 
         let rewritten = try String(contentsOf: table, encoding: .utf8)
@@ -418,7 +418,7 @@ struct StoreResilienceTests {
     @Test func `Re-seeding with a new pin does not alter an appended measurement`() throws {
         let (store, _) = try freshStore()
         let base = ModelRow(
-            backend: "whisperkit", family: "whisper", size: "tiny", quantization: "default",
+            backend: "whisperkit", family: "whisper", size: "tiny", quantization: .named("default"),
             hfRepo: "openai/whisper-tiny", hfRevision: String(repeating: "a", count: 40),
             estMemoryGB: 0.4, priority: 1)
         try store.seed(models: [base])
@@ -429,7 +429,7 @@ struct StoreResilienceTests {
             appVersion: "0.4.0", macosVersion: "27.0",
             hfRevision: base.hfRevision))
         try store.seed(models: [ModelRow(
-            backend: "whisperkit", family: "whisper", size: "tiny", quantization: "default",
+            backend: "whisperkit", family: "whisper", size: "tiny", quantization: .named("default"),
             hfRepo: "openai/whisper-tiny", hfRevision: String(repeating: "b", count: 40),
             estMemoryGB: 0.4, priority: 1)])  // pin bump
 
@@ -440,11 +440,11 @@ struct StoreResilienceTests {
     @Test func `Seeded-row lookup matches by backend size quantization and misses honestly`() {
         let rows = [
             ModelRow(backend: "whisperkit", family: "parakeet", size: "0.6b",
-                     quantization: "default", hfRepo: "x/y",
+                     quantization: .named("default"), hfRepo: "x/y",
                      hfRevision: String(repeating: "e", count: 40),
                      estMemoryGB: 2, priority: 1),
             ModelRow(backend: "whisperkit", family: "whisper", size: "tiny",
-                     quantization: "default", estMemoryGB: 0.4, priority: 1),
+                     quantization: .named("default"), estMemoryGB: 0.4, priority: 1),
         ]
         let hit = CommandCore.seededRow(
             in: rows, backend: "whisperkit", size: "0.6b", quantization: "default")

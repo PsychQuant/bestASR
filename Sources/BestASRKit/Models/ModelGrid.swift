@@ -78,7 +78,7 @@ public enum ModelGrid {
     static let fluidParakeetRows: [ModelRow] = [
         ModelRow(
             backend: backendFluidParakeet, family: "parakeet", size: "0.6b-v3",
-            quantization: "default", hfRepo: "FluidInference/parakeet-tdt-0.6b-v3-coreml",
+            quantization: .named("int8"), hfRepo: "FluidInference/parakeet-tdt-0.6b-v3-coreml",
             // #105: parakeet-tdt-0.6b-v3 is English + 24 European languages
             // (NVIDIA model card) — NOT blanket multilingual. The earlier
             // "multi" label let the router propose it for zh/ja/ko audio.
@@ -106,11 +106,11 @@ public enum ModelGrid {
     static let chineseFamilyRows: [ModelRow] = [
         ModelRow(
             backend: backendFluidParaformer, family: "paraformer", size: "large-zh",
-            quantization: "default",
+            quantization: .named("fp16"),
             languages: ["zh"], estMemoryGB: 2.5, priority: 2, verified: false),
         ModelRow(
             backend: backendFluidSenseVoice, family: "sensevoice", size: "small",
-            quantization: "default", hfRepo: "FluidInference/sensevoice-small-coreml",
+            quantization: .named("fp16"), hfRepo: "FluidInference/sensevoice-small-coreml",
             languages: ["multi"], estMemoryGB: 1.5, priority: 1, verified: true),
     ]
 
@@ -160,7 +160,7 @@ public enum ModelGrid {
     static let appleSpeechRows: [ModelRow] = [
         ModelRow(
             backend: backendAppleSpeech, family: "speechanalyzer", size: "system",
-            quantization: "default",
+            quantization: .notApplicable,
             languages: [
                 "bn", "de", "en", "es", "fr", "gu", "hi", "it", "ja", "kn", "ko", "ks",
                 "mai", "ml", "mr", "mul", "ne", "or", "pa", "pt", "ta", "te", "ur",
@@ -175,14 +175,14 @@ public enum ModelGrid {
         for (size, memory) in whisperSizes {
             rows.append(ModelRow(
                 backend: backendWhisperKit, family: "whisper", size: size,
-                quantization: "default", languages: ["multi"],
+                quantization: .deferred(.runtime), languages: ["multi"],
                 estMemoryGB: memory, priority: 1, verified: true))
             // whisper.cpp quant availability mirrors the HF distribution (#5).
-            let quants: [String]
+            let quants: [Quantization]
             switch size {
-            case "tiny", "base", "small": quants = ["q5_1", "q8_0"]
-            case "large-v3": quants = ["q5_0"]
-            default: quants = ["q5_0", "q8_0"]
+            case "tiny", "base", "small": quants = [.named("q5_1"), .named("q8_0")]
+            case "large-v3": quants = [.named("q5_0")]
+            default: quants = [.named("q5_0"), .named("q8_0")]
             }
             for quant in quants {
                 rows.append(ModelRow(
@@ -202,11 +202,14 @@ public enum ModelGrid {
         // conversions lack preprocessor_config.json and fail mlx_audio's
         // whisper loader — live-probed 2026-07-02.
         ModelRow(backend: backendMLXAudio, family: "whisper", size: "large-v3-turbo",
-                 quantization: "default", hfRepo: "openai/whisper-large-v3-turbo",
+                 quantization: .unknown, hfRepo: "openai/whisper-large-v3-turbo",
                  hfRevision: "41f01f3fe87f28c78e2fbf8b568835947dd65ed9",
                  languages: ["multi"], estMemoryGB: 3.2, priority: 1, verified: true),
-        ModelRow(backend: backendMLXAudio, family: "parakeet", size: "0.6b",
-                 quantization: "default", hfRepo: "mlx-community/parakeet-tdt-0.6b-v3",
+        // size is the version the pin resolves to, not an abbreviation of it
+        // (#183 D3): `0.6b` made this row and the fluid-parakeet row look like
+        // two models when both pin parakeet-tdt-0.6b-v3.
+        ModelRow(backend: backendMLXAudio, family: "parakeet", size: "0.6b-v3",
+                 quantization: .unknown, hfRepo: "mlx-community/parakeet-tdt-0.6b-v3",
                  hfRevision: "ed2b7e8c15f9aaa0b5772e2efb986255eaef7e15",
                  // #105: same parakeet-tdt-0.6b-v3 weights — European set, not "multi".
                  languages: [
@@ -215,54 +218,54 @@ public enum ModelGrid {
                  ],
                  estMemoryGB: 1.5, priority: 1, verified: true),
         ModelRow(backend: backendMLXAudio, family: "qwen3-asr", size: "small",
-                 quantization: "4bit", hfRepo: nil,
+                 quantization: .named("4bit"), hfRepo: nil,
                  languages: ["multi"], estMemoryGB: 2.0, priority: 1, verified: false),
         ModelRow(backend: backendMLXAudio, family: "moonshine", size: "base",
-                 quantization: "default", hfRepo: "UsefulSensors/moonshine-base",
+                 quantization: .unknown, hfRepo: "UsefulSensors/moonshine-base",
                  hfRevision: "7a73d8d55ac0ba2ef3ae761593f6784b51f96dcf",
                  languages: ["en"], estMemoryGB: 0.4, priority: 1, verified: true),
         // ── priority 2: one representative per remaining family
         ModelRow(backend: backendMLXAudio, family: "distil-whisper", size: "large-v3",
-                 quantization: "default", hfRepo: nil,
+                 quantization: .unknown, hfRepo: nil,
                  languages: ["en"], estMemoryGB: 1.6, priority: 2, verified: false),
         ModelRow(backend: backendMLXAudio, family: "canary", size: "1b",
-                 quantization: "default", hfRepo: "Mediform/canary-1b-v2-mlx-q8",
+                 quantization: .named("q8"), hfRepo: "Mediform/canary-1b-v2-mlx-q8",
                  hfRevision: "0b6b32ee10f30c89e3ead7249bb636445e3019ee",
                  languages: ["multi"], estMemoryGB: 1.4, priority: 2, verified: true),
         ModelRow(backend: backendMLXAudio, family: "mms", size: "1b",
-                 quantization: "default", hfRepo: nil,
+                 quantization: .unknown, hfRepo: nil,
                  languages: ["multi"], estMemoryGB: 1.6, priority: 2, verified: false),
         ModelRow(backend: backendMLXAudio, family: "granite-speech", size: "2b",
-                 quantization: "4bit", hfRepo: "mlx-community/granite-speech-4.1-2b-nar-mlx",
+                 quantization: .named("4bit"), hfRepo: "mlx-community/granite-speech-4.1-2b-nar-mlx",
                  hfRevision: "6acb7892068dd30227f20aba6eb7c4b0ae5c7e7c",
                  languages: ["multi"], estMemoryGB: 1.6, priority: 2, verified: true),
         ModelRow(backend: backendMLXAudio, family: "nemotron-asr", size: "streaming",
-                 quantization: "default", hfRepo: "mlx-community/nemotron-3.5-asr-streaming-0.6b",
+                 quantization: .unknown, hfRepo: "mlx-community/nemotron-3.5-asr-streaming-0.6b",
                  hfRevision: "e550040c0478027ed679b2b6b0d055502c103663",
                  languages: ["multi"], estMemoryGB: 2.0, priority: 2, verified: true),
         ModelRow(backend: backendMLXAudio, family: "voxtral", size: "mini-3b",
-                 quantization: "4bit", hfRepo: nil,
+                 quantization: .named("4bit"), hfRepo: nil,
                  languages: ["multi"], estMemoryGB: 2.2, priority: 2, verified: false),
         ModelRow(backend: backendMLXAudio, family: "qwen2-audio", size: "7b",
-                 quantization: "4bit", hfRepo: "mlx-community/Qwen2-Audio-7B-Instruct-4bit",
+                 quantization: .named("4bit"), hfRepo: "mlx-community/Qwen2-Audio-7B-Instruct-4bit",
                  hfRevision: "c65570002626f41b4dc08b7b54f42f99f3e82e7f",
                  languages: ["multi"], estMemoryGB: 4.5, priority: 2, verified: true),
         ModelRow(backend: backendMLXAudio, family: "mega-asr", size: "default",
-                 quantization: "default", hfRepo: nil,
+                 quantization: .unknown, hfRepo: nil,
                  languages: ["multi"], estMemoryGB: 2.0, priority: 2, verified: false),
         ModelRow(backend: backendMLXAudio, family: "qwen3-forcedaligner", size: "default",
-                 quantization: "default", hfRepo: nil,
+                 quantization: .unknown, hfRepo: nil,
                  languages: ["multi"], estMemoryGB: 1.0, priority: 2, verified: false),
         // ── priority 3: deferred / large
         ModelRow(backend: backendMLXAudio, family: "vibevoice-asr", size: "9b",
-                 quantization: "4bit", hfRepo: "mlx-community/VibeVoice-ASR-4bit",
+                 quantization: .named("4bit"), hfRepo: "mlx-community/VibeVoice-ASR-4bit",
                  hfRevision: "a1a15cb6c7b70f76b588af7e12f6fab34d5ab654",
                  languages: ["multi"], estMemoryGB: 5.5, priority: 3, verified: true),
         ModelRow(backend: backendMLXAudio, family: "voxtral", size: "small-24b",
-                 quantization: "4bit", hfRepo: nil,
+                 quantization: .named("4bit"), hfRepo: nil,
                  languages: ["multi"], estMemoryGB: 13.0, priority: 3, verified: false),
         ModelRow(backend: backendMLXAudio, family: "voxtral-realtime", size: "4b",
-                 quantization: "4bit", hfRepo: "mlx-community/Voxtral-Mini-4B-Realtime-2602-4bit",
+                 quantization: .named("4bit"), hfRepo: "mlx-community/Voxtral-Mini-4B-Realtime-2602-4bit",
                  hfRevision: "fdebf7b2af834a1db4b8a3c99ab7480b333adf9e",
                  languages: ["multi"], estMemoryGB: 2.6, priority: 3, verified: true),
     ]

@@ -117,7 +117,7 @@ whisperkit 的 6 列維持 `deferred(.runtime)`：上游 `argmaxinc/whisperkit-c
 **Acceptance criteria**
 
 - `ModelRegistryTests`：新增一則主張 `requirements(for: ModelID("sensevoice","small"))` 回 1.5 GB 且不等於 `ModelID("whisper","small")` 的值；`memoryEstimates` 中不再存在 `uniquingKeysWith: max`
-- `ModelGridTests`：新增一則主張 `ModelID("parakeet","0.6b-v3")` 在 fluid 與 mlx 兩個 runtime 下**是同一個 `ModelID`**（size 正規化生效）；並主張任一 grid 列的 `Quantization` 不為 `.unknown`
+- `ModelGridTests`：新增一則主張 `ModelID("parakeet","0.6b-v3")` 在 fluid 與 mlx 兩個 runtime 下**是同一個 `ModelID`**（size 正規化生效）；並主張 `Quantization` 為 `.unknown` 的列**恰好**是 8 列未 bundle 的 mlx-audio reference row（封閉列舉，見 tasks 2.4）。（原條文寫「任一 grid 列的 `Quantization` 不為 `.unknown`」，與 tasks 2.4 明文指派 `unknown` 給部分列直接矛盾——此處以 tasks 為準修正）
 - 全域檢查：`Sources/` 中不再有任何列**以** `default` 作為 quantization 或 size 的值。以 grep 驗證，並且**恰好只有一個允許的例外**：`ModelID.removedPlaceholder` 這個具名常數（它的存在正是為了拒絕該字面值，且讓「主張其不存在的測試」與「拒絕它的建構子」不會對拼法各說各話）。此為封閉列舉，**不得依性質相似再加第二個例外**
 - `StoreProjection` 中不再存在針對特定 backend 的分支（mlx 三元運算子與 `parts[1] == parts[2]` legacy 修補皆移除）
 - 既有 37 筆 `models.jsonl` 記錄以新程式讀入後，其 `model_id` 序列化結果與檔案中的字串**逐字相同**

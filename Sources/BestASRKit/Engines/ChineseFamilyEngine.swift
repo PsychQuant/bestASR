@@ -81,7 +81,14 @@ public struct ChineseFamilyEngine: Engine {
             id: .fluidParaformer,
             probeDuration: Self.probedDuration,
             pipelineFactory: { _ in
-                FluidAudioParaformerPipeline(manager: try await ParaformerManager.load())
+                FluidAudioParaformerPipeline(
+                    // #183 D5: state the precision rather than inherit it.
+                    // `.fp16` is FluidAudio's current default, so every
+                    // measurement already in the store stays valid — the point
+                    // of pinning is to freeze what was measured, not to
+                    // upgrade it. A dependency bump can no longer change the
+                    // quantization without changing this line.
+                    manager: try await ParaformerManager.load(precision: .fp16))
             })
     }
 
@@ -90,7 +97,9 @@ public struct ChineseFamilyEngine: Engine {
             id: .fluidSenseVoice,
             probeDuration: Self.probedDuration,
             pipelineFactory: { _ in
-                FluidAudioSenseVoicePipeline(manager: try await SenseVoiceManager.load())
+                FluidAudioSenseVoicePipeline(
+                    // #183 D5, as above: `.fp16` is today's default, stated.
+                    manager: try await SenseVoiceManager.load(precision: .fp16))
             },
             // #106: SenseVoice's CoreML graph accepts 3 200–480 000 samples
             // (0.2–30 s at the 16 kHz the engine seam guarantees) per call.
