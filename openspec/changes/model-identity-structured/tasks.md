@@ -27,7 +27,7 @@
 
 ## 6. 對外字串
 
-- [x] 6.1 [P] `CommandCore` 與 `Sources/bestasr/BestASRCommand.swift` 的 `list-models` 輸出改為 `family size (runtime)`；quantization 為 `deferred` 時輸出其 decider。**行為**：輸出不再出現 `default`。**驗證**：`Tests/BestASRKitTests/CLITests.swift` 新增一則測試主張輸出符合新格式且不含 `default`。（滿足 cli 的 "list-backends and list-models"）
+- [x] 6.1 [P] `CommandCore` 與 `Sources/bestasr/BestASRCommand.swift` 的 `list-models` 輸出改為 `family size (runtime)`；quantization 為 `deferred` 時輸出其 decider。**行為**：`list-models` 的輸出不再出現 `default`。**此條僅涵蓋目錄輸出，不涵蓋 `recommend`**——`recommend` 的 measured path 直接帶出量測記錄自身的 `quantization` 字串，而 store 內 383 筆量測有 **35 筆**（`mlx-audio|parakeet|0.6b|default` 15 筆、`fluid-parakeet|parakeet|0.6b-v3|default` 20 筆）的值就是 `default`；實跑 `bestasr recommend` 確認其 JSON 的 `quantization` 與 reason 行仍含該字。那是**記錄的事實**、不是目錄的佔位字，在歷史量測重新編碼那個 change 落地前無法消除。**驗證**：`CLITests` 主張 `list-models` 輸出符合新格式且不含 `default`；`StoreProjectionIdentityTests` 主張一筆 legacy `default` 記錄的值**逐字保留**（migration 靠它定位）但 `identityComplete` 為 **false**（不背書其可比較性）。（滿足 cli 的 "list-backends and list-models"）
 - [x] 6.2 [P] `Sources/BestASRMCPCore/Server.swift` 的 `list_models` 與 `list_backends` 改為以 family / size / runtime 三個獨立欄位回傳，並標示身分不完整的項目。**行為**：client 不需解析複合字串即可分組同一模型的多個 runtime。**驗證**：新增一則測試主張回應中同一模型的兩個 runtime 項目其 family 與 size 相同。（滿足 mcp-surface 的 "Model-listing tools report structured identity"）
 
 ## 7. 驗收

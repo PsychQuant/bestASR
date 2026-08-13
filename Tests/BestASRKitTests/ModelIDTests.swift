@@ -98,8 +98,14 @@ struct ModelIDTests {
         #expect(Quantization(serialised: Quantization.unknown.serialised) != .deferred(.runtime))
     }
 
-    @Test func `only unknown is an incomplete identity`() {
+    @Test func `neither unknown nor the legacy placeholder is a complete identity`() {
         #expect(Quantization.unknown.isComplete == false)
+        // Preserving the legacy value and vouching for it are different acts.
+        // 35 of the 383 stored measurements spell their quantization `default`;
+        // the value round-trips verbatim so the migration can find them, but a
+        // record that does not say which artifact it measured cannot be
+        // compared with one that does.
+        #expect(Quantization(serialised: ModelID.removedPlaceholder).isComplete == false)
         #expect(Quantization.notApplicable.isComplete)
         #expect(Quantization.deferred(.runtime).isComplete)
         #expect(Quantization.deferred(.dependency).isComplete)

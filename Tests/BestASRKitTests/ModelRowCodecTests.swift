@@ -181,3 +181,21 @@ struct StoreProjectionIdentityTests {
         #expect(record.model == "base")
     }
 }
+
+extension StoreProjectionIdentityTests {
+    @Test func `A legacy record carrying the placeholder is not marked comparable`() throws {
+        // Found while the verify ensemble was down (#183 round 1): 35 of the
+        // 383 stored measurements carry `default` as their quantization, and
+        // the projection was marking every one of them identityComplete: true.
+        // `identityComplete` means "names its artifact well enough to compare",
+        // and `default` is exactly what does not.
+        let record = try #require(
+            snapshot(modelId: "whisperkit|whisper|small|\(ModelID.removedPlaceholder)")
+                .projectedRecords().first)
+        #expect(record.identity == ModelID(family: "whisper", size: "small"))
+        // The value is preserved verbatim — the migration finds these by it.
+        #expect(record.quantization == ModelID.removedPlaceholder)
+        // But it is not vouched for.
+        #expect(record.identityComplete == false)
+    }
+}

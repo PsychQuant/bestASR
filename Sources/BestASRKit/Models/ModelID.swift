@@ -172,9 +172,20 @@ public enum Quantization: Hashable, Codable, Sendable {
     ///
     /// `deferred` counts as complete: the value is determinate at the moment of
     /// the run even though this project did not pick it. `unknown` does not.
+    ///
+    /// Neither does the legacy ``ModelID/removedPlaceholder``, and the two acts
+    /// that separates are worth naming: ``init(serialised:)`` **preserves** it
+    /// verbatim so the migration can find the records that carry it, while this
+    /// property declines to **vouch** for it. 35 of the 383 stored measurements
+    /// spell their quantization that way; marking them comparable would let a
+    /// record that never said which artifact it measured rank against one that
+    /// did.
     public var isComplete: Bool {
-        if case .unknown = self { return false }
-        return true
+        switch self {
+        case .unknown: return false
+        case .named(let value): return value != ModelID.removedPlaceholder
+        case .notApplicable, .deferred: return true
+        }
     }
 }
 
