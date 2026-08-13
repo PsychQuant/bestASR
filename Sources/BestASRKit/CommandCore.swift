@@ -759,15 +759,17 @@ public struct CommandCore: Sendable {
             // Whisper sizes list whisper-family backends only — a same-named
             // size on another family (sensevoice "small", #50 verify H1) must
             // not masquerade as a whisper variant.
+            let identity = ModelID(family: "whisper", size: size)
             let quants = whisperBackends.compactMap { backend -> String? in
-                let variants = ModelGrid.rows.filter {
-                    $0.backend == backend && $0.size == size
-                }.map(\.quantization.serialised)
-                guard !variants.isEmpty else { return nil }
-                return "\(backend): \(variants.joined(separator: "/"))"
+                guard let identity,
+                    case let variants = ModelGrid.rows(backend: backend, identity: identity),
+                    !variants.isEmpty
+                else { return nil }
+                return "\(backend): \(variants.map { Self.describe($0.quantization) }.joined(separator: "/"))"
             }
             lines.append(
-                "\(size.padding(toLength: 16, withPad: " ", startingAt: 0)) (\(quants.joined(separator: " · ")))")
+                "\(Self.name(family: "whisper", size: size).padding(toLength: 26, withPad: " ", startingAt: 0)) "
+                    + "(\(quants.joined(separator: " · ")))")
         }
         // Live non-Whisper families (#35/#50, spec model-grid "Full-family
         // catalog") — every bundled non-whisper backend renders its own rows.
@@ -781,8 +783,9 @@ public struct CommandCore: Sendable {
         for backend in liveFamilies {
             for row in ModelGrid.rows(backend: backend, priorityCeiling: nil) {
                 lines.append(
-                    "\(row.size.padding(toLength: 16, withPad: " ", startingAt: 0)) "
-                        + "(\(row.backend): \(row.quantization.serialised)\(row.verified ? "" : " · unverified"))")
+                    "\(Self.name(row).padding(toLength: 26, withPad: " ", startingAt: 0)) "
+                        + "(\(row.backend): \(Self.describe(row.quantization))"
+                        + "\(row.verified ? "" : " · unverified"))")
             }
         }
         lines.append("")
@@ -794,11 +797,117 @@ public struct CommandCore: Sendable {
         for row in ModelGrid.rows(backend: ModelGrid.backendMLXAudio, priorityCeiling: nil)
             .sorted(by: { ($0.priority, $0.family) < ($1.priority, $1.family) })
         {
-            let name = "\(row.family)/\(row.size)"
             lines.append(
-                "  P\(row.priority) \(name.padding(toLength: 28, withPad: " ", startingAt: 0)) "
-                    + "\(row.quantization.serialised)\(row.verified ? " *" : "")")
+                "  P\(row.priority) \(Self.name(row).padding(toLength: 34, withPad: " ", startingAt: 0)) "
+                    + "\(Self.describe(row.quantization))\(row.verified ? " *" : "")")
         }
         return lines.joined(separator: "\n")
+    }
+
+    /// The catalog as data rather than as a paragraph (#183).
+    ///
+    /// A client asking "which runtimes host this model?" had to parse a
+    /// composite string whose grammar varied by runtime. Family, size and
+    /// runtime are three fields now, so grouping the same model across its
+    /// hosts is a group-by rather than a regex.
+    public func listModelsJSON() -> String {
+        struct Entry: Encodable {
+            let family: String
+            let size: String?
+            let runtime: String
+            let quantization: String?
+            let quantizationKind: String
+            let identityComplete: Bool
+            let verified: Bool
+            let priority: Int
+            let languages: [String]
+            let hfRepo: String?
+            let hfRevision: String?
+            let estMemoryGB: Double
+
+            enum CodingKeys: String, CodingKey {
+                case family, size, runtime, quantization
+                case quantizationKind = "quantization_kind"
+                case identityComplete = "identity_complete"
+                case verified, priority, languages
+                case hfRepo = "hf_repo"
+                case hfRevision = "hf_revision"
+                case estMemoryGB = "est_memory_gb"
+            }
+        }
+
+        let entries = ModelGrid.rows.map { row -> Entry in
+            let kind: String
+            var value: String?
+            switch row.quantization {
+            case .named(let named): kind = "named"; value = named
+            case .notApplicable: kind = "not_applicable"
+            case .deferred(let by): kind = "deferred"; value = by.rawValue
+            case .unknown: kind = "unknown"
+            }
+            // Two reference rows have no upstream version name; null says so
+            // without inventing one (tasks 2.4 — the open item).
+            let size: String? = row.size == ModelID.removedPlaceholder ? nil : row.size
+            return Entry(
+                family: row.family, size: size, runtime: row.backend,
+                quantization: value, quantizationKind: kind,
+                identityComplete: size != nil && row.quantization.isComplete,
+                verified: row.verified, priority: row.priority,
+                languages: row.languages, hfRepo: row.hfRepo, hfRevision: row.hfRevision,
+                estMemoryGB: row.estMemoryGB)
+        }
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        guard let data = try? encoder.encode(["models": entries]),
+            let json = String(data: data, encoding: .utf8)
+        else { return #"{"models":[]}"# }
+        return json
+    }
+
+    /// Backends as data: the runtime id, and whether this machine can run it.
+    public func listBackendsJSON() async -> String {
+        struct Entry: Encodable {
+            let runtime: String
+            let available: Bool
+        }
+        var entries: [Entry] = []
+        for engine in engines {
+            entries.append(
+                Entry(runtime: engine.id.rawValue, available: await engine.isAvailable()))
+        }
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        guard let data = try? encoder.encode(["backends": entries]),
+            let json = String(data: data, encoding: .utf8)
+        else { return #"{"backends":[]}"# }
+        return json
+    }
+
+    /// A model for a human: `family size`, the subordination the old output
+    /// inverted by leading with the provider (#183).
+    ///
+    /// Two reference rows carry the removed placeholder as their SIZE because
+    /// neither upstream publishes a version name, and the identity question
+    /// that raises is still open (see tasks 2.4). Until it closes, the output
+    /// says what is true — the version is unnamed — rather than printing a
+    /// word that tells the reader nothing.
+    static func name(family: String, size: String) -> String {
+        size == ModelID.removedPlaceholder
+            ? "\(family) (version unnamed upstream)"
+            : "\(family) \(size)"
+    }
+    static func name(_ row: ModelRow) -> String { name(family: row.family, size: row.size) }
+
+    /// A quantization for a human. The three valueless cases say what they
+    /// are instead of all reading `default`: a value someone else picks names
+    /// its decider, an unrecorded one says so, and a runtime with no
+    /// quantization axis says that too.
+    static func describe(_ quantization: Quantization) -> String {
+        switch quantization {
+        case .named(let value): return value
+        case .notApplicable: return "no quantization dimension"
+        case .deferred(let by): return "quantization deferred to \(by.rawValue)"
+        case .unknown: return "quantization unrecorded"
+        }
     }
 }

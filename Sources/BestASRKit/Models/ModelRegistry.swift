@@ -69,7 +69,10 @@ public enum ModelRegistry {
     }
 
     /// Quantization variants offered per (backend, model). WhisperKit models
-    /// are CoreML bundles published per-variant ("default" = standard build).
+    /// are CoreML bundles it fetches itself, so their rows state
+    /// `deferred(.runtime)` rather than a value (#183): upstream publishes 27
+    /// named variants and `large-v3-turbo` alone maps to at least four,
+    /// differing in checkpoint date and compression size.
     /// whisper.cpp rows mirror the actual ggerganov/whisper.cpp HF file list
     /// (probed 2026-07-02, #5): tiny/base/small ship q5_1 (q5_0 is 404),
     /// medium/large-tier ship q5_0, and large-v3 has no q8_0. A wrong row

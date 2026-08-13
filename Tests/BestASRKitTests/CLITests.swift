@@ -253,6 +253,40 @@ struct ListCommandTests {
         #expect(output.contains("q5_0"))  // medium/large-tier row
     }
 
+    @Test func `list-models names the model first and the provider second`() throws {
+        // #183: the old output led with the runtime and printed the size
+        // alone, so a model was findable only through its provider. Every
+        // line now reads `family size (runtime)`.
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let core = makeCore(engines: [], cacheDir: dir)
+        let output = core.listModels()
+
+        #expect(output.contains("whisper large-v3-turbo"))
+        #expect(output.contains("sensevoice small"))
+        #expect(output.contains("parakeet 0.6b-v3"))
+        // The size never stands alone as a whole line's leading token.
+        let whisperLine = try #require(
+            output.split(separator: "\n").first { $0.contains("large-v3-turbo") })
+        #expect(whisperLine.hasPrefix("whisper "))
+        #expect(whisperLine.contains("whisperkit"))
+    }
+
+    @Test func `list-models never prints the removed placeholder`() throws {
+        // The word stood for seven different facts (#183). Each valueless
+        // case now says which one it is, so a reader can tell "nobody
+        // recorded it" from "the runtime picks it".
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let core = makeCore(engines: [], cacheDir: dir)
+        let output = core.listModels()
+
+        #expect(!output.contains(ModelID.removedPlaceholder))
+        #expect(output.contains("quantization deferred to runtime"))
+        #expect(output.contains("no quantization dimension"))
+        #expect(output.contains("quantization unrecorded"))
+    }
+
     @Test func `Production wiring bundles every non-external engine`() {
         // #35/#51 (spec asr-engine + external-engine-protocol): live() always
         // carries the bundled engines; external backends join only when the
@@ -426,5 +460,58 @@ struct ContextCommandTests {
             try JSONSerialization.jsonObject(with: Data(output.utf8)) as? [String: Any])
         let reasons = try #require(json["reason"] as? [String])
         #expect(reasons.contains { $0.contains("context:") && $0.contains("5 value(s) injected") })
+    }
+}
+
+/// Task 6.2 of change `model-identity-structured` (issue #183).
+struct StructuredModelListingTests {
+    private func entries() throws -> [[String: Any]] {
+        let core = CommandCore(engines: [], store: BenchmarkStore())
+        let data = Data(core.listModelsJSON().utf8)
+        let object = try #require(
+            try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        return try #require(object["models"] as? [[String: Any]])
+    }
+
+    @Test func `The same model under two runtimes shares family and size`() throws {
+        // The point of the whole change, made checkable by a client: parakeet
+        // 0.6b-v3 is hosted by fluid-parakeet and catalogued under mlx-audio,
+        // and grouping them is now a group-by rather than a regex over a
+        // composite string.
+        let parakeet = try entries().filter { $0["family"] as? String == "parakeet" }
+        #expect(parakeet.count == 2)
+        #expect(Set(parakeet.compactMap { $0["size"] as? String }) == ["0.6b-v3"])
+        #expect(Set(parakeet.compactMap { $0["runtime"] as? String })
+                == ["fluid-parakeet", "mlx-audio"])
+    }
+
+    @Test func `Each row says which kind of quantization fact it carries`() throws {
+        let rows = try entries()
+        let kinds = Set(rows.compactMap { $0["quantization_kind"] as? String })
+        #expect(kinds == ["named", "not_applicable", "deferred", "unknown"])
+
+        // A deferred value names its decider rather than reading as a value.
+        let whisperKit = try #require(rows.first { $0["runtime"] as? String == "whisperkit" })
+        #expect(whisperKit["quantization_kind"] as? String == "deferred")
+        #expect(whisperKit["quantization"] as? String == "runtime")
+    }
+
+    @Test func `A row that cannot be compared is marked, not omitted`() throws {
+        let rows = try entries()
+        let incomplete = rows.filter { $0["identity_complete"] as? Bool == false }
+        #expect(!incomplete.isEmpty)
+        // Marked, not dropped: every row is still listed.
+        #expect(rows.count == ModelGrid.rows.count)
+        // And every incomplete row says WHY — either no size or no quantization.
+        for row in incomplete {
+            let noSize = row["size"] == nil || row["size"] is NSNull
+            let unknownQuant = row["quantization_kind"] as? String == "unknown"
+            #expect(noSize || unknownQuant)
+        }
+    }
+
+    @Test func `No entry spells the removed placeholder in any field`() throws {
+        let json = CommandCore(engines: [], store: BenchmarkStore()).listModelsJSON()
+        #expect(!json.contains("\"\(ModelID.removedPlaceholder)\""))
     }
 }

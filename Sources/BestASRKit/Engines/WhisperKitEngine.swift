@@ -138,8 +138,10 @@ public struct WhisperKitEngine: Engine {
         audioPath: String, options: TranscribeOptions
     ) async throws -> RawTranscription {
         let modelName = Self.whisperKitModelName(for: options.model)
-        // Key carries quantization (issue #7 Expected) even though WhisperKit
-        // currently ships a single "default" variant per model.
+        // Key carries quantization (issue #7 Expected). WhisperKit resolves
+        // which published variant to fetch itself — the catalog row records
+        // that as deferred rather than naming one (#183), so this key
+        // distinguishes runs only as far as that decision is visible here.
         let cacheKey = "\(modelName)|\(options.quantization)"
         let pipe: any TranscribingPipeline
         do {

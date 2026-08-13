@@ -27,9 +27,9 @@
 
 ## 6. 對外字串
 
-- [ ] 6.1 [P] `CommandCore` 與 `Sources/bestasr/BestASRCommand.swift` 的 `list-models` 輸出改為 `family size (runtime)`；quantization 為 `deferred` 時輸出其 decider。**行為**：輸出不再出現 `default`。**驗證**：`Tests/BestASRKitTests/CLITests.swift` 新增一則測試主張輸出符合新格式且不含 `default`。（滿足 cli 的 "list-backends and list-models"）
-- [ ] 6.2 [P] `Sources/BestASRMCPCore/Server.swift` 的 `list_models` 與 `list_backends` 改為以 family / size / runtime 三個獨立欄位回傳，並標示身分不完整的項目。**行為**：client 不需解析複合字串即可分組同一模型的多個 runtime。**驗證**：新增一則測試主張回應中同一模型的兩個 runtime 項目其 family 與 size 相同。（滿足 mcp-surface 的 "Model-listing tools report structured identity"）
+- [x] 6.1 [P] `CommandCore` 與 `Sources/bestasr/BestASRCommand.swift` 的 `list-models` 輸出改為 `family size (runtime)`；quantization 為 `deferred` 時輸出其 decider。**行為**：輸出不再出現 `default`。**驗證**：`Tests/BestASRKitTests/CLITests.swift` 新增一則測試主張輸出符合新格式且不含 `default`。（滿足 cli 的 "list-backends and list-models"）
+- [x] 6.2 [P] `Sources/BestASRMCPCore/Server.swift` 的 `list_models` 與 `list_backends` 改為以 family / size / runtime 三個獨立欄位回傳，並標示身分不完整的項目。**行為**：client 不需解析複合字串即可分組同一模型的多個 runtime。**驗證**：新增一則測試主張回應中同一模型的兩個 runtime 項目其 family 與 size 相同。（滿足 mcp-surface 的 "Model-listing tools report structured identity"）
 
 ## 7. 驗收
 
-- [ ] 7.1 全套測試綠燈（本分支基線實測 493 筆 / 98 suites，於 `idd/183-model-identity-audit` 起點量得；先前寫的 453 是 PR #142 分支的數字），並確認 `StoreProjection` 中不再存在任何依 backend 分支的邏輯。**驗證**：執行 `swift test`，並以 grep 主張該檔案中不含 `backendMLXAudio` 的比較。
+- [x] 7.1 全套測試綠燈（本分支基線實測 493 筆 / 98 suites，於 `idd/183-model-identity-audit` 起點量得；先前寫的 453 是 PR #142 分支的數字），並確認 `StoreProjection` 中不再存在任何依 backend 分支的邏輯。**驗證**：執行 `swift test`，並以 grep 主張該檔案中不含 `backendMLXAudio` 的比較。
