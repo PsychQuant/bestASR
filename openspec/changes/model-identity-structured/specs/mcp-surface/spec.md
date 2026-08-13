@@ -2,9 +2,7 @@
 
 ### Requirement: Model-listing tools report structured identity
 
-The `list_models` and `list_backends` tools SHALL report a model's family, size and hosting runtime as separate fields, so a client can group one model across its runtimes without parsing a composite string.
-
-As with the CLI, removing the literal `default` from the emitted values lives with the catalog re-key, not here.
+The `list_models` and `list_backends` tools SHALL report a model's family, size and hosting runtime as separate fields, so a client can group one model across its runtimes without parsing a composite string. Neither tool SHALL emit the literal string `default` as a quantization or a size.
 
 #### Scenario: A client can relate one model across runtimes
 
@@ -16,4 +14,4 @@ As with the CLI, removing the literal `default` from the emitted values lives wi
 - **WHEN** a listed model's size or quantization is unrecorded
 - **THEN** the entry carries `identity_complete: false`, so a client does not treat it as comparable with complete entries
 
-Note: while the catalog still spells the placeholder, only the two rows with no published size report `false`. The quantization axis begins reporting it with the re-key.
+Note: `identity_complete` is `false` for a row whose size or quantization is unrecorded. Two reference rows publish no size upstream, and eight carry an unrecorded quantization.

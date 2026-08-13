@@ -1,8 +1,8 @@
 ## Summary
 
-把模型身分從 provider-first 的 `BackendID` × 字串位址，改成結構化的 `ModelID{family, size}` × runtime。**不改動任何一把既有的 store key。**
+把模型身分從 provider-first 的 `BackendID` × 字串位址，改成結構化的 `ModelID{family, size}` × runtime，並移除身分裡的 `default` 佔位字。**既有的 store 檔案一個 byte 都不改**——舊 key 在讀取時 canonical 化。
 
-> **本文件於 verify round 5 後重寫。** 先前版本描述的是拆分前的 change——它宣稱移除 `default` 佔位字、正規化 size、移除 legacy 修補與 max-uniquing，這四項在 round 4 之後**全部被還原或刻意保留**，而本文件沒有跟上。artifacts 與程式碼漂移到需要逐筆對照才知道哪句還算數，正是 round 4 與 round 5 的 CRITICAL 反覆出現的溫床，所以這裡改成描述**現況**，不描述曾經的意圖。
+> **本文件於 verify round 6 後再次重寫。** 它先後描述過三個不同的 change：原始版本、round 4 拆分後的版本、以及現在的讀時 canonical 化版本。前兩次它都落後於程式碼，而那正是 round 5 與 round 6 CRITICAL 的來源。本次的規矩是：**先改 artifacts 再送審**，不是改完程式碼才回頭補。
 
 ## Motivation
 
@@ -23,7 +23,7 @@ API 層因此走了另一條路：`ModelGrid.row(backend:modelAddress:)` 的位�
 
 **2. 查找改以身分為鍵。** 移除 `modelAddress` 的雙文法與裸 size fallback。使用者輸入的字串另由 `ModelGrid.identity(backend:matching:)` 解析：命中零個或多於一個模型時回 `nil`，由呼叫端拒絕，而非代為挑一個。
 
-**3. `Quantization` 成為封閉列舉**（不適用 / 具名值 / 延後決定並註明由誰決定 / 未知），取代 `String`。**這是型別層的改動；每一列實際帶哪個值不在本 change 內**——見 Non-Goals。
+**3. `Quantization` 成為封閉列舉**（不適用 / 具名值 / 延後決定並註明由誰決定 / 未知），取代 `String`，且**每一列都帶它真正的值**——`default` 從目錄消失。
 
 **4. 記憶體估計與 router 排序鍵改以 `ModelID` 為鍵**，讓 `sensevoice small` 拿到自己的 1.5 GB，讓非 whisper family 不再一律 rank −1。
 
@@ -31,13 +31,10 @@ API 層因此走了另一條路：`ModelGrid.row(backend:modelAddress:)` 的位�
 
 ## Non-Goals
 
-以下五項在 verify round 4 之後移出本 change，統一由 **issue #187** 承接。它們互相耦合：任何一項單獨落地都會壞掉，理由記在 #187。
+round 4 曾把五項移出本 change，理由是它們都被同一個阻礙擋住：「catalog 帶真值會旋轉 19 把 key，而 344 筆量測指向舊的」。round 6 之後證明那個阻礙不成立——**讀時 canonical 化**（design D7）讓舊 key 在讀取時映射到今天的身分，檔案一個 byte 都不改。五項中的四項因此已落地，只剩：
 
-- **catalog re-key**——把每一列的 quantization 指派為真值、把 `mlx-audio parakeet` 的 size 由 `0.6b` 正規化為 `0.6b-v3`。兩者都會旋轉 `model_id`（37 把裡的 19 把），而 383 筆量測中有 **344 筆（89%）** 仍指向舊拼法
-- **從身分移除 `default` 佔位字**——與 re-key 不可分離。使用者明確要求過這件事；本 change **沒有做到**
-- **`Quantization.isComplete` 拒絕該佔位字**——實測：在 19 列仍拼它的情況下拒絕，會讓 `enumerateCandidates` 回傳**空清單**（whisperkit 全部 6 列被排除）
-- **Router 排除身分不完整的候選**——照做會讓 89% 的量測退出排序，本機幾乎每個 measured recommendation 退回 cold-start prior
-- **383 筆歷史量測的重新編碼**——上述四項的前提
+- **383 筆歷史量測的實體重新編碼**（→ #187）。canonical 化讓它不再是任何事情的前提，但把舊拼法真正寫成新拼法仍有價值：可以移除映射表、讓 store 自我描述。純屬清理，不阻擋任何人。
+- **`Router` 排除身分不完整的候選**（→ #187）。兩份 spec 有 SHALL；canonical 化後 store 內已無 `.unknown` 的量測，所以這條規則現在**沒有可觸發的資料**，實作它等於寫一段無法被測到的程式碼。
 
 另外不在本 change 內：
 
@@ -49,9 +46,11 @@ API 層因此走了另一條路：`ModelGrid.row(backend:modelAddress:)` 的位�
 
 **只統一位址文法、維持 String**（discuss 的方案 B）：改動最小，同樣消滅裸 size 歧義與雙文法。否決理由——身分仍是靠約定維護的字串，而本專案剛在 PR #142 花了 26 輪修「文法隱含的字串解析」缺陷；讓編譯器承擔比讓約定承擔可靠。
 
-**在本 change 內同時 re-key 並加投影層等價**（round 4 的選項 1）：把新舊拼法在投影層收斂成同一候選。否決——等於把資料遷移搬進一個明文宣告不做遷移的 change。
+**在本 change 內同時 re-key 並加投影層等價**（round 4 的選項 1）：**這就是最後採用的方案**（design D7）。round 4 時我把它描述成「等於把資料遷移搬進一個宣告不做遷移的 change」而否決——那個描述是錯的：讀時映射一個 byte 都不寫。這個錯誤估計讓後續三輪走錯方向。
 
-**先做重新編碼、本 change 等**（round 4 的選項 2）：順序正確，但型別工作是 #184 / #185 的前置，沒有理由一起等。
+**先做重新編碼、本 change 等**（round 4 的選項 2）：否決——canonical 化之後，重新編碼不再是任何事情的前提。
+
+**拆分：型別先落地、re-key 隨重新編碼**（round 4 的選項 3，round 4–6 實際採用）：否決並已回退。它把「能交付 issue 的部分」延後、「不能交付的部分」留下，round 6 的五個 CRITICAL 有四個是「沒交付」而非「壞掉」。
 
 **為 CLI / MCP 保留 alias 層**：使用者明確裁定不需要。
 
@@ -67,10 +66,10 @@ API 層因此走了另一條路：`ModelGrid.row(backend:modelAddress:)` 的位�
     - `Tests/BestASRKitTests/IdentityValidationTests.swift`
   - Modified:
     - `Sources/BestASRKit/Store/StoreTables.swift`（`ModelRow` 持有 `ModelID` 與 `Quantization`；平坦 JSON 與四段 key 不變）
-    - `Sources/BestASRKit/Models/ModelGrid.swift`（移除 `modelAddress` 雙文法與裸 size fallback；新增 `address(for:backend:)` 作為 writer 與 reader 共用的唯一定址規則）
+    - `Sources/BestASRKit/Models/ModelGrid.swift`（移除 `modelAddress` 雙文法與裸 size fallback；`address(for:)` 一律回 `family/size`，**不收 backend**——位址 runtime-independent 是 #183 第三條 EXPECTED；新增 `canonical(...)` 做讀時映射）
     - `Sources/BestASRKit/Models/ModelRegistry.swift`（記憶體估計與 `accuracyRank` / `nextSmaller` / `profileModels` 改以 `ModelID` 為鍵。**`uniquingKeysWith: max` 保留**——round 4 證實同一身分在兩個精度下是正常情形，移除它會在 `ColdStartPrior.fits()` 的迴圈裡 fatalError）
     - `Sources/BestASRKit/Models/DataModels.swift`（`BenchmarkRecord` 新增 `identity`；`identityComplete` 為導出屬性）
-    - `Sources/BestASRKit/Store/StoreProjection.swift`（移除 mlx 三元運算子。**`parts[1] == parts[2]` 的 legacy 修補保留**——store 內仍有 4 筆這種 id，移除會讓它們與同候選的新量測分家）
+    - `Sources/BestASRKit/Store/StoreProjection.swift`（移除 mlx 三元運算子；改為呼叫 `ModelGrid.canonical(...)` 做讀時映射，`family == size` 的 legacy 規則也收進該處）
     - `Sources/BestASRKit/Router/Router.swift`、`Sources/BestASRKit/Router/ColdStartPrior.swift`
     - `Sources/BestASRKit/CommandCore.swift`（對人渲染與結構化 JSON）
     - `Sources/BestASRKit/Benchmark/BenchmarkRunner.swift`

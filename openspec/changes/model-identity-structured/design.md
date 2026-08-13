@@ -49,9 +49,9 @@ API 層走了另一條路。`ModelGrid.row(backend:modelAddress:)` 接受一個*
 
 **替代方案**：改用 JSON 物件或新分隔符。否決——會迫使本 change 承擔資料遷移，而遷移已明確劃為另一個 change。
 
-### D3：`size` 正規化是前提，不是附帶清理 —— **延後至 #187**
+### D3：`size` 正規化是前提，不是附帶清理 —— **已落地**
 
-> 決策本身不變（下述理由仍成立），但執行被移出：正規化會旋轉那一列的 `model_id`，而 15 筆量測仍指向舊拼法。後果是 #183 明列的第二個 EXPECTED（parakeet 跨兩 runtime 為同一模型）**本 change 未交付**。round 5 另指出一個延後帶來的新風險：`ModelRegistry.nextSmaller` 不帶 runtime，可能把 `fluid-parakeet 0.6b-v3` 降級成只存在於 mlx-audio 的 `0.6b`，產出不存在的組合——那項一併記在 #187。
+> 延後過兩輪，理由是正規化會旋轉那一列的 key。D7 讓那個理由消失：15 筆存為 `0.6b` 的量測在讀取時映射到 `0.6b-v3`，檔案不動。#183 的第二個 EXPECTED 因此交付。
 
 pinned repo 證明兩筆 parakeet 指向**同一個模型版本**：
 
@@ -79,9 +79,9 @@ unknown                // 沒人知道
 
 **替代方案**：`String?`，nil 表示不適用。否決——無法區分上述四種，而稽核顯示現況正是七種情況壓成一個字（`docs/model-identity-audit.csv`）。
 
-### D5：`deferred(.dependency)` 在本 change 內就地消除 —— **只落地引擎半邊**
+### D5：`deferred(.dependency)` 在本 change 內就地消除 —— **已落地**
 
-> `ChineseFamilyEngine` 與 `ParakeetEngine` 已顯式傳入 precision（fp16 / fp16 / int8），相依版本 bump 不再靜默改變載入的權重。但**目錄標示仍是 `default`**（隨 re-key 延後），所以 pin 之前與之後的量測在身分上仍無法區分——D5 自述要消除的無聲漂移，只消除了一半。
+> engine 顯式傳 precision（fp16 / fp16 / int8），且目錄標示與之相符。
 
 `ChineseFamilyEngine` 改為**顯式傳入 precision**，不再委由 FluidAudio 預設。三列 `fluid-*` 因此從 `deferred` 變成 `named`。
 
@@ -92,6 +92,24 @@ whisperkit 的 6 列維持 `deferred(.runtime)`：上游 `argmaxinc/whisperkit-c
 ### D6：`accuracyRank` / `nextSmaller` / `profileModels` 改以 `ModelID` 為鍵
 
 三者目前以 `supportedModels`（whisper 尺寸清單）為鍵，非 whisper 模型的 `accuracyRank` 一律回 -1，cold-start router 排序對 parakeet / paraformer / sensevoice / 15 個 mlx family 全部失效。身分改了而這三個不改，等於修好型別卻沒修行為。
+
+### D7：身分在**讀取時** canonical 化，不遷移檔案
+
+這條決策推翻了前三輪的前提。
+
+round 4 的 CRITICAL 是：目錄帶真值會旋轉 37 把 key 中的 19 把，而 383 筆量測中有 344 筆指向舊拼法，於是同一候選會以兩個拼法同時進入排序池。當時我把可能的出路描述成三條，其中「加投影層等價」被我判為「等於把資料遷移搬進一個宣告不做遷移的 change」而否決。
+
+**那個判斷是錯的。** 讀時映射不寫任何檔案：
+
+```
+ModelGrid.canonical(backend:family:size:quantization:) -> (ModelID, Quantization)?
+```
+
+三個轉換涵蓋 store 實際持有的全部 25 把 key——`family == size` 的 flat-cache 遺留、被改名的 size、以及佔位字量化（它從來不是一個值，而是「未記錄」，所以它的意思就是目錄現在對該模型說的值）。`StoreProjection` 呼叫它，於是舊拼法與新拼法收斂成**同一個候選**。
+
+**代價與邊界**：映射表是一份必須與目錄同步維護的知識。`renamedSizes` 目前只有一筆（parakeet）。若日後改名頻繁，這張表會變成第二個真相來源——那時 #187 的實體重新編碼就從「清理」升格為「必要」。現在不是。
+
+**替代方案**：(i) 遷移檔案後再 re-key（正確但把型別工作綁在資料工作後面）；(ii) 拆分，型別先走、re-key 後走（round 4–6 實際採用，已回退——它延後的正好是交付 issue 的部分）。
 
 ## Implementation Contract
 
