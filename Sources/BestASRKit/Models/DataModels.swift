@@ -279,12 +279,23 @@ public enum RunKind: String, Codable, Sendable, CaseIterable {
 /// One (backend × model × quantization) configuration to measure.
 public struct BenchmarkCandidate: Sendable, Equatable, Hashable {
     public let backend: BackendID
-    public let model: String
+    /// The model itself, not a spelling of it.
+    ///
+    /// A candidate is always built from a catalog row, so its identity is
+    /// known at construction. Storing the identity rather than an address is
+    /// what stops the string from being flattened here and re-parsed later:
+    /// every round of this change fixed one instance of "a consumer re-derived
+    /// something the producer already knew".
+    public let identity: ModelID
     public let quantization: String
 
-    public init(backend: BackendID, model: String, quantization: String) {
+    /// Derived, never stored — a candidate cannot carry an address that
+    /// disagrees with the model it names.
+    public var model: String { ModelGrid.address(for: identity) }
+
+    public init(backend: BackendID, identity: ModelID, quantization: String) {
         self.backend = backend
-        self.model = model
+        self.identity = identity
         self.quantization = quantization
     }
 }
@@ -381,7 +392,19 @@ public struct MeasuredSummary: Codable, Sendable, Equatable {
 /// A chosen backend/model/quantization plus the reasoning behind it.
 public struct ASRRecommendation: Sendable, Equatable {
     public let backend: BackendID
+    /// How the model is spelled for a user and for the store.
+    ///
+    /// Derived from `identity` wherever one is known — never assigned
+    /// independently of it. The cold-start path used to assign a bare size
+    /// here while every later layer treated the field as an address, and the
+    /// bare size travelled untouched to the engine (#183, round-8 verify).
     public let model: String
+    /// The model itself, when this catalog can name one.
+    ///
+    /// `nil` only for a `--model` string the catalog cannot place, which
+    /// travels as the user typed it because there is nothing else true to say
+    /// about it.
+    public let identity: ModelID?
     public let quantization: String
     public let profile: RouterProfile
     public let language: String?
@@ -390,13 +413,26 @@ public struct ASRRecommendation: Sendable, Equatable {
     public let reason: [String]
     public let warnings: [String]
 
+    /// - Parameters:
+    ///   - identity: the model, when this catalog can name one.
+    ///   - unplaceableName: the string to carry when it cannot — a `--model`
+    ///     value no runtime here publishes. Ignored whenever `identity` is
+    ///     present, so the spelling can never disagree with the model.
+    ///
+    /// There is deliberately no way to pass `model` directly. The cold-start
+    /// path used to set it to a bare size while `identity` said otherwise, and
+    /// nothing could notice: the two were independent fields saying the same
+    /// thing (#183, round-8 verify).
     public init(
-        backend: BackendID, model: String, quantization: String, profile: RouterProfile,
+        backend: BackendID, identity: ModelID?, unplaceableName: String? = nil,
+        quantization: String,
+        profile: RouterProfile,
         language: String?, dataSource: RecommendationDataSource, measured: MeasuredSummary?,
         reason: [String], warnings: [String]
     ) {
         self.backend = backend
-        self.model = model
+        self.model = identity.map(ModelGrid.address(for:)) ?? unplaceableName ?? ""
+        self.identity = identity
         self.quantization = quantization
         self.profile = profile
         self.language = language
@@ -411,8 +447,9 @@ public struct ASRRecommendation: Sendable, Equatable {
     public func prepending(reasons: [String]) -> ASRRecommendation {
         guard !reasons.isEmpty else { return self }
         return ASRRecommendation(
-            backend: backend, model: model, quantization: quantization, profile: profile,
-            language: language, dataSource: dataSource, measured: measured,
+            backend: backend, identity: identity, unplaceableName: model,
+            quantization: quantization,
+            profile: profile, language: language, dataSource: dataSource, measured: measured,
             reason: reasons + reason, warnings: warnings)
     }
 
@@ -422,8 +459,9 @@ public struct ASRRecommendation: Sendable, Equatable {
         -> ASRRecommendation {
         guard !extraReasons.isEmpty || !extraWarnings.isEmpty else { return self }
         return ASRRecommendation(
-            backend: backend, model: model, quantization: quantization, profile: profile,
-            language: language, dataSource: dataSource, measured: measured,
+            backend: backend, identity: identity, unplaceableName: model,
+            quantization: quantization,
+            profile: profile, language: language, dataSource: dataSource, measured: measured,
             reason: extraReasons + reason, warnings: warnings + extraWarnings)
     }
 }

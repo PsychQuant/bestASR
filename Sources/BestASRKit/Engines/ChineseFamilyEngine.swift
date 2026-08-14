@@ -117,11 +117,15 @@ public struct ChineseFamilyEngine: Engine {
     public func transcribeRaw(
         audioPath: String, options: TranscribeOptions
     ) async throws -> RawTranscription {
+        // Translated inside the engine, ahead of the load — the pipeline cache
+        // is keyed by the runtime's own name so two spellings of one model
+        // cannot occupy two cache entries.
+        let engineModel = ModelGrid.engineName(backend: id.rawValue, address: options.model)
         let pipe: any TextTranscribing
         do {
             let factory = pipelineFactory
-            pipe = try await pipelines.value(for: options.model) {
-                try await factory(options.model)
+            pipe = try await pipelines.value(for: engineModel) {
+                try await factory(engineModel)
             }
         } catch {
             throw TranscriptionError(

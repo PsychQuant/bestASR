@@ -79,7 +79,9 @@ struct IdentityValidationTests {
             records: [], availability: [.fluidSenseVoice: true])
 
         #expect(rec.backend == .fluidSenseVoice)
-        #expect(rec.model == "small")
+        // The ADDRESS, which is what makes the claim: `small` alone is also
+        // whisper small, and that collision is the defect this test guards.
+        #expect(rec.model == "sensevoice/small")
     }
 
     @Test func `An unlocked bare size still means whisper`() throws {
@@ -115,7 +117,7 @@ struct DowngradeStaysInsideItsRuntimeTests {
         #expect(rec.backend == .fluidParakeet)
         let hosted = Set(
             ModelGrid.rows(backend: ModelGrid.backendFluidParakeet, priorityCeiling: nil)
-                .map(\.size))
+                .map { ModelGrid.address(for: $0.identity) })
         #expect(hosted.contains(rec.model),
                 "recommended '\(rec.model)' which fluid-parakeet does not host (\(hosted))")
         _ = identity

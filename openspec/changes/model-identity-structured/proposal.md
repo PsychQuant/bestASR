@@ -29,12 +29,15 @@ API 層因此走了另一條路：`ModelGrid.row(backend:modelAddress:)` 的位�
 
 **5. 對人渲染** `family size (runtime)`，CLI 與 MCP 一併直接改，不做 alias 層。
 
+**6. 身分不提早壓成字串，翻譯放進 engine**（design D8，round 8 後追加）。`BenchmarkCandidate` 持有 `ModelID`、`ASRRecommendation.model` 由 `identity` 導出而非獨立指定；address → runtime 自有名字的翻譯移進每個 engine 載入模型的那一步。前五輪的缺陷都是同一個形狀——某個已知的身分被壓成字串，之後由別處重新解析或忘了解析。
+
 ## Non-Goals
 
 round 4 曾把五項移出本 change，理由是它們都被同一個阻礙擋住：「catalog 帶真值會旋轉 19 把 key，而 344 筆量測指向舊的」。round 6 之後證明那個阻礙不成立——**讀時 canonical 化**（design D7）讓舊 key 在讀取時映射到今天的身分，檔案一個 byte 都不改。五項中的四項因此已落地，只剩：
 
 - **383 筆歷史量測的實體重新編碼**（→ #187）。canonical 化讓它不再是任何事情的前提，但把舊拼法真正寫成新拼法仍有價值：可以移除映射表、讓 store 自我描述。純屬清理，不阻擋任何人。
-- **`Router` 排除身分不完整的候選**（→ #187）。兩份 spec 有 SHALL；canonical 化後 store 內已無 `.unknown` 的量測，所以這條規則現在**沒有可觸發的資料**，實作它等於寫一段無法被測到的程式碼。
+
+> **原本列在此處的第二項已刪除並實作。** 它寫的是「`Router` 排除身分不完整的候選（→ #187）……canonical 化後 store 內已無 `.unknown` 的量測，所以這條規則現在沒有可觸發的資料」。**實測推翻該理由**：本機 store 的 383 筆量測中有 **44 筆**（四個 mlx-audio key）canonical 化後 quantization 仍是 `unknown`。規則已於任務 3.3 落地。這句被證偽的話是我自己的改動造成的——它在寫下時就沒有量過。
 
 另外不在本 change 內：
 
@@ -60,6 +63,7 @@ round 4 曾把五項移出本 change，理由是它們都被同一個阻礙擋�
 - Affected code:
   - New:
     - `Sources/BestASRKit/Models/ModelID.swift`
+    - `Tests/BestASRKitTests/EngineSeamTests.swift`（spy engine 與兩條路徑共用的斷言）
     - `Tests/BestASRKitTests/ModelIDTests.swift`
     - `Tests/BestASRKitTests/ModelRowCodecTests.swift`
     - `Tests/BestASRKitTests/IdentityCompletenessTests.swift`

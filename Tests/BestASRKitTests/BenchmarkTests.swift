@@ -55,7 +55,7 @@ struct BenchmarkEnumerationTests {
                     // Addressed canonically as `family/size` for every runtime
                     // (#183): a bare size named a different model under a
                     // different backend, which is what the change exists to end.
-                    backend: .whisperKit, model: "whisper/large-v3-turbo",
+                    backend: .whisperKit, identity: .whisper("large-v3-turbo"),
                     // WhisperKit fetches its own bundle from among 27 published
                     // variants — the candidate says so instead of "default".
                     quantization: Quantization.deferred(.runtime).serialised)
@@ -88,7 +88,7 @@ struct BenchmarkEnumerationTests {
         let enumeration = try await runner.enumerateCandidates()
         #expect(enumeration.candidates.contains(
             BenchmarkCandidate(
-                backend: .fluidParakeet, model: "parakeet/0.6b-v3", quantization: "int8")))
+                backend: .fluidParakeet, identity: .of("parakeet", "0.6b-v3"), quantization: "int8")))
         // And the model filter accepts the parakeet size as a grid name.
         let filtered = try await runner.enumerateCandidates(modelFilter: ["0.6b-v3"])
         #expect(filtered.candidates.allSatisfy { $0.backend == .fluidParakeet })
@@ -106,7 +106,7 @@ struct BenchmarkMeasurementTests {
             probe: clock.probe()
         )
         let candidate = BenchmarkCandidate(
-            backend: .whisperKit, model: "tiny", quantization: "default")
+            backend: .whisperKit, identity: .whisper("tiny"), quantization: "default")
         let outcome = await runner.run(
             candidates: [candidate], notes: [], audio: audio60s,
             referenceText: "hello world", metricKind: .wer, language: "en"
@@ -125,9 +125,9 @@ struct BenchmarkMeasurementTests {
             probe: FakeClock(step: 1).probe()
         )
         let candidates = [
-            BenchmarkCandidate(backend: .whisperKit, model: "tiny", quantization: "default"),
-            BenchmarkCandidate(backend: .whisperCpp, model: "tiny", quantization: "q5_0"),
-            BenchmarkCandidate(backend: .whisperKit, model: "small", quantization: "default"),
+            BenchmarkCandidate(backend: .whisperKit, identity: .whisper("tiny"), quantization: "default"),
+            BenchmarkCandidate(backend: .whisperCpp, identity: .whisper("tiny"), quantization: "q5_0"),
+            BenchmarkCandidate(backend: .whisperKit, identity: .whisper("small"), quantization: "default"),
         ]
         let outcome = await runner.run(
             candidates: candidates, notes: [], audio: audio60s,
@@ -147,7 +147,7 @@ struct BenchmarkMeasurementTests {
         )
         let outcome = await runner.run(
             candidates: [
-                BenchmarkCandidate(backend: .whisperKit, model: "tiny", quantization: "default")
+                BenchmarkCandidate(backend: .whisperKit, identity: .whisper("tiny"), quantization: "default")
             ],
             notes: [], audio: audio60s,
             referenceText: "hi", metricKind: .wer, language: "en"
@@ -162,15 +162,16 @@ struct RankingTests {
         // Spec SBE: wk large-v3-turbo (CER .05, 12x) #1; wcpp large-v3 q5 (.06, 6x) #2;
         // wcpp small q5 (.15, 20x) #3.
         let records = [
-            Fixtures.record(backend: .whisperCpp, model: "small", quantization: "q5_0",
+            Fixtures.record(backend: .whisperCpp, size: "small", quantization: "q5_0",
                             errorRate: 0.15, timesRealtime: 20),
-            Fixtures.record(backend: .whisperKit, model: "large-v3-turbo",
+            Fixtures.record(backend: .whisperKit, size: "large-v3-turbo",
                             errorRate: 0.05, timesRealtime: 12),
-            Fixtures.record(backend: .whisperCpp, model: "large-v3", quantization: "q5_0",
+            Fixtures.record(backend: .whisperCpp, size: "large-v3", quantization: "q5_0",
                             errorRate: 0.06, timesRealtime: 6),
         ]
         let ranked = Ranking.rank(records, profile: .high)
-        #expect(ranked.map(\.record.model) == ["large-v3-turbo", "large-v3", "small"])
+        #expect(ranked.map(\.record.model)
+                == ["whisper/large-v3-turbo", "whisper/large-v3", "whisper/small"])
         #expect(ranked.map(\.rank) == [1, 2, 3])
     }
 
@@ -218,8 +219,8 @@ struct BenchmarkCacheTests {
         let dir = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: dir) }
         let cache = BenchmarkCache(fileURL: dir.appendingPathComponent("benchmarks.json"))
-        try cache.upsert([Fixtures.record(model: "tiny")])
-        try cache.upsert([Fixtures.record(model: "small")])
+        try cache.upsert([Fixtures.record(size: "tiny")])
+        try cache.upsert([Fixtures.record(size: "small")])
         #expect(try cache.load().count == 2)
     }
 }
@@ -285,7 +286,7 @@ struct ContextDeltaBenchmarkTests {
     }
 
     private let candidate = BenchmarkCandidate(
-        backend: .whisperKit, model: "tiny", quantization: "default")
+        backend: .whisperKit, identity: .whisper("tiny"), quantization: "default")
     private let audio = AudioInfo(
         path: "clip.wav", duration: 60, format: "wav", sampleRate: 16000, channels: 1)
 
@@ -371,7 +372,7 @@ struct ContextDeltaBenchmarkTests {
         let outcome = await runner.run(
             candidates: [
                 BenchmarkCandidate(
-                    backend: .fluidParakeet, model: "parakeet", quantization: "default")
+                    backend: .fluidParakeet, identity: .of("parakeet", "0.6b-v3"), quantization: "int8")
             ],
             notes: [], audio: audio, referenceText: "hello world", metricKind: .wer,
             language: "en", contextPrompt: "鄭澈, world"
@@ -396,7 +397,7 @@ struct ContextDeltaBenchmarkTests {
             candidates: [
                 candidate,
                 BenchmarkCandidate(
-                    backend: .fluidParakeet, model: "parakeet", quantization: "default"),
+                    backend: .fluidParakeet, identity: .of("parakeet", "0.6b-v3"), quantization: "int8"),
             ],
             notes: [], audio: audio, referenceText: "hello world", metricKind: .wer,
             language: "en", contextPrompt: "鄭澈, world"
@@ -456,7 +457,7 @@ struct ContextDeltaBenchmarkTests {
             ],
             detect: { Fixtures.m5Max })
         func grid(_ backends: [BackendID]) -> [BenchmarkCandidate] {
-            backends.map { BenchmarkCandidate(backend: $0, model: "m", quantization: "default") }
+            backends.map { BenchmarkCandidate(backend: $0, identity: .whisper("tiny"), quantization: "default") }
         }
         // Whisper-only, and mixed with a backend that cannot consume it: the
         // agreeing budget wins — the non-consumer constrains nothing.
@@ -478,7 +479,7 @@ struct ContextDeltaBenchmarkTests {
             ],
             detect: { Fixtures.m5Max })
         let grid = [BackendID.whisperKit, .whisperCpp].map {
-            BenchmarkCandidate(backend: $0, model: "m", quantization: "default")
+            BenchmarkCandidate(backend: $0, identity: .whisper("tiny"), quantization: "default")
         }
         // One prompt cannot honour two budgets; nil keeps the previous global
         // default and leaves the smaller backend's own clamp as the backstop.
@@ -574,7 +575,7 @@ struct BenchmarkNormalizationTests {
             path: source, duration: 2, format: "wav", sampleRate: 44100, channels: 2)
         let outcome = await runner.run(
             candidates: [
-                BenchmarkCandidate(backend: .whisperKit, model: "tiny", quantization: "default")
+                BenchmarkCandidate(backend: .whisperKit, identity: .whisper("tiny"), quantization: "default")
             ],
             notes: [], audio: audio, referenceText: "hello world",
             metricKind: .wer, language: "en", contextPrompt: "hint")

@@ -120,17 +120,58 @@ public enum ModelGrid {
         "\(identity.family)/\(identity.size)"
     }
 
-    /// The name a runtime's own API uses for this model.
+    /// How one runtime's own API spells a model.
+    ///
+    /// A CLOSED enumeration of runtimes, not a rule to infer from. Round 8
+    /// shipped the rule `engineName = identity.size` — universally true of
+    /// every runtime anyone checked, and false for mlx-audio, which publishes
+    /// two families at `1b` and therefore spells models `canary/1b`. A rule
+    /// whose counterexample nobody looked at is indistinguishable from a
+    /// correct one, so this is data, per-runtime, and a test asserts every
+    /// backend appears.
+    public enum EngineVocabulary: Sendable {
+        /// The runtime names models by size alone (`large-v3-turbo`).
+        case size
+        /// The runtime's own name IS the address (`canary/1b`).
+        case address
+    }
+
+    public static let engineVocabularies: [String: EngineVocabulary] = [
+        backendWhisperKit: .size,
+        backendWhisperCpp: .size,
+        backendFluidParakeet: .size,
+        backendFluidParaformer: .size,
+        backendFluidSenseVoice: .size,
+        // No model string reaches Speech.framework at all; `.size` is the
+        // narrower claim and nothing observes it.
+        backendAppleSpeech: .size,
+        backendMLXAudio: .address,
+    ]
+
+    /// The name `backend`'s own API uses for the model `address` names.
     ///
     /// The address (`family/size`) is OURS — runtime-independent, identity
     /// level, what a store key and a `--model` argument carry. A vendor SDK
     /// wants its own vocabulary: WhisperKit's catalog says `large-v3-turbo`,
     /// not `whisper/large-v3-turbo`, and handing it the address fails to load.
     ///
-    /// This is a translation at a real boundary, not an alias layer: the two
-    /// strings belong to two different vocabularies, and the seam is where one
-    /// ends. Round 7 broke the measured path by letting the address cross it.
-    public static func engineName(for identity: ModelID) -> String { identity.size }
+    /// Call this INSIDE the engine, at the point that loads the model. Round 8
+    /// put the translation at the caller instead, where installing it is
+    /// optional and forgetting it is silent — and it was installed at one of
+    /// its two call sites. An engine that skips it cannot load anything.
+    ///
+    /// A string that names no single model passes through untouched: it may be
+    /// an external adapter's own vocabulary, and inventing a translation for
+    /// something we cannot place would be guessing.
+    public static func engineName(backend: String, address: String) -> String {
+        guard case .resolved(let identity) = identity(backend: backend, matching: address),
+              let vocabulary = engineVocabularies[backend]
+        else { return address }
+        switch vocabulary {
+        case .size: return identity.size
+        case .address: return self.address(for: identity)
+        }
+    }
 
     /// Rows split into those a measurement may be compared against and those
     /// whose identity is too incomplete to be one (#183).
@@ -155,11 +196,37 @@ public enum ModelGrid {
             + "so a measurement of it could not be compared with another (#183)"
     }
 
-    /// The one model a user's string names under this runtime, or `nil` when
-    /// it names none — or more than one. Refusing to choose is the point.
-    public static func identity(backend: String, matching input: String) -> ModelID? {
+    /// What a user's model string names under one runtime.
+    ///
+    /// Three outcomes, not two. This used to return `ModelID?`, collapsing
+    /// "names nothing" and "names several" into one `nil` — and every caller
+    /// then inherited whatever the collapse implied, without having to say
+    /// what it wanted. That collapse is behind the lost supply-chain pin
+    /// (`ExternalProcessEngine` cannot tell "no pin exists" from "two pins
+    /// compete") and behind a language gate that read an unplaceable model as
+    /// an unrestricted one. Returning three values makes each caller state its
+    /// position on ambiguity instead of receiving one by default.
+    public enum Resolution: Equatable, Sendable {
+        /// Exactly one model. The only case that may be acted on.
+        case resolved(ModelID)
+        /// No model in this runtime's catalog answers to the string. It may be
+        /// an external adapter's own vocabulary — unknown is not invalid.
+        case unknown
+        /// More than one model answers to it, so it names none of them.
+        /// Carries the candidates so a caller can say WHICH, rather than only
+        /// that it refused.
+        case ambiguous([ModelID])
+    }
+
+    /// The model a user's string names under this runtime — or the reason it
+    /// names no single one. Refusing to choose is the point.
+    public static func identity(backend: String, matching input: String) -> Resolution {
         let named = Set(rows(backend: backend, matching: input).map(\.identity))
-        return named.count == 1 ? named.first : nil
+        switch named.count {
+        case 0: return .unknown
+        case 1: return .resolved(named.first!)
+        default: return .ambiguous(named.sorted { address(for: $0) < address(for: $1) })
+        }
     }
 
     /// Live rows for the fluid-parakeet backend (#35, spec model-grid

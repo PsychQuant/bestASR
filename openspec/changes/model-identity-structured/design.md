@@ -111,6 +111,16 @@ ModelGrid.canonical(backend:family:size:quantization:) -> (ModelID, Quantization
 
 **替代方案**：(i) 遷移檔案後再 re-key（正確但把型別工作綁在資料工作後面）；(ii) 拆分，型別先走、re-key 後走（round 4–6 實際採用，已回退——它延後的正好是交付 issue 的部分）。
 
+### D8：翻譯在 engine 內，不在呼叫端；身分不提早壓成字串
+
+round 8 把「address → runtime 自己的名字」的翻譯放在**呼叫端**（`CommandCore.engineModelName`），結果裝在兩個呼叫點中的一個，`benchmark` 帶著與 `transcribe` 一模一樣的破口，由修好 `transcribe` 的那個 commit 引入。
+
+翻譯改放進 **engine 內部、載入模型的那一步**。差別是**強制性**：`transcribeRaw` 一定要產生一個名字去載入，不翻譯就載不動；呼叫端的翻譯則永遠是可選、可忘的。每個 backend 恰好一處，且都在早已存在的翻譯函式裡（`whisperKitModelName`、`modelFileName`、pipeline cache key、subprocess `--model`）。
+
+runtime 的詞彙是**資料不是規則**：`ModelGrid.engineVocabularies` 為封閉列舉（`.size` / `.address`），由測試主張每個 `BackendID` 與每個目錄 backend 都有條目。round 8 出貨的是規則 `engineName = identity.size`——對每個有人檢查過的 runtime 都成立，對 mlx-audio 不成立（它在 `1b` 上有兩個 family，其詞彙就是 address）。**沒人看過反例的規則，與正確的規則無法區分。**
+
+同一原則的另一半：**身分不提早壓成字串**。`BenchmarkCandidate` 持有 `ModelID`、`model` 為導出屬性；`BenchmarkRecord` 帶著 `identity`；`ASRRecommendation.model` 由 initialiser 從 `identity` 導出、**無法**獨立指定。每一輪的缺陷都是「某個值被提早壓成字串，之後被（或沒被）重新解析」——`ColdStartPrior.selectModel` 手上有 `ModelID` 卻回傳 `.size`，是這個形狀的第三個實例，也是讓裸 size 一路走到 engine 的那一個。
+
 ## Implementation Contract
 
 **Behavior（可觀察的結果）**

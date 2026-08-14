@@ -52,7 +52,9 @@ struct CanonicalAddressConsumerTests {
         #expect(ModelGrid.address(for: identity) == "whisper/large-v3-turbo")
         // WhisperKit's own catalog calls it `large-v3-turbo`. Handing it the
         // address would fail to load.
-        #expect(ModelGrid.engineName(for: identity) == "large-v3-turbo")
+        #expect(ModelGrid.engineName(
+            backend: ModelGrid.backendWhisperKit,
+            address: ModelGrid.address(for: identity)) == "large-v3-turbo")
     }
 
     /// `--models` must accept what a user can see, in either spelling.
@@ -68,27 +70,52 @@ struct CanonicalAddressConsumerTests {
     }
 }
 
-/// The engine boundary. A recommendation carries the canonical address; the
-/// engine must receive its vendor's own name.
+/// The engine boundary, after round 8's verify moved it.
+///
+/// The translation used to live at the CALLER (`CommandCore.engineModelName`),
+/// where installing it was optional — and it was installed at one of its two
+/// call sites, leaving `benchmark` broken by the commit that fixed
+/// `transcribe`. It now lives inside each engine, at the point that loads the
+/// model, so an engine that skips it cannot load anything.
+///
+/// These tests moved with it; the round-trip claim below is unchanged and now
+/// covers the case the old rule got wrong.
 struct EngineBoundaryTranslationTests {
-    @Test func `A canonical address is translated before it reaches the engine`() throws {
-        // What CommandCore hands TranscribeOptions.model.
-        #expect(CommandCore.engineModelName("whisper/large-v3-turbo", backend: "whisperkit")
-                == "large-v3-turbo")
-        #expect(CommandCore.engineModelName("parakeet/0.6b-v3", backend: "fluid-parakeet")
-                == "0.6b-v3")
+    @Test func `Each engine translates the address into its own vocabulary`() throws {
+        #expect(WhisperKitEngine.whisperKitModelName(for: "whisper/large-v3-turbo")
+                == "large-v3_turbo")
+        #expect(WhisperCppEngine.modelFileName(model: "whisper/tiny", quantization: "q5_1")
+                == "ggml-tiny-q5_1.bin")
+        #expect(ModelGrid.engineName(
+            backend: ModelGrid.backendFluidParakeet, address: "parakeet/0.6b-v3") == "0.6b-v3")
         // A name the runtime already uses is unchanged.
-        #expect(CommandCore.engineModelName("tiny", backend: "whisperkit") == "tiny")
+        #expect(ModelGrid.engineName(
+            backend: ModelGrid.backendWhisperKit, address: "tiny") == "tiny")
         // A string the catalog cannot place passes through rather than being
         // guessed at — an external adapter may have its own vocabulary.
-        #expect(CommandCore.engineModelName("who/knows", backend: "whisperkit") == "who/knows")
+        #expect(ModelGrid.engineName(
+            backend: ModelGrid.backendWhisperKit, address: "who/knows") == "who/knows")
     }
 
     @Test func `The translation is not lossy — the address resolves back`() throws {
         for row in ModelGrid.rows {
             let address = ModelGrid.address(for: row.identity)
-            #expect(ModelGrid.identity(backend: row.backend, matching: address) == row.identity)
-            #expect(CommandCore.engineModelName(address, backend: row.backend) == row.size)
+            #expect(ModelGrid.identity(backend: row.backend, matching: address)
+                    == .resolved(row.identity))
+            // What the runtime is handed is what that runtime calls the model
+            // — which is NOT `row.size` everywhere. Round 8 asserted exactly
+            // that here, and the assertion passed because no case in the loop
+            // contradicted a rule the catalog itself does.
+            let expected: String
+            switch ModelGrid.engineVocabularies[row.backend] {
+            case .size: expected = row.size
+            case .address: expected = address
+            case nil:
+                Issue.record("\(row.backend) does not say how its runtime spells a model")
+                continue
+            }
+            #expect(ModelGrid.engineName(backend: row.backend, address: address) == expected,
+                    "\(row.modelId): wrong vocabulary at the engine boundary")
         }
     }
 }

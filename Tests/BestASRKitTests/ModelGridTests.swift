@@ -140,18 +140,26 @@ struct ModelGridTests {
         #expect(canaryRow.modelId != mmsRow.modelId)
     }
 
-    @Test func `A bare size naming two families resolves to neither`() {
+    @Test func `A bare size naming two families resolves to neither`() throws {
         // The ambiguity is now reported rather than settled. `matching` still
         // returns both rows — a caller that wants to list them can — but the
         // single-identity resolution refuses to choose.
         let ambiguous = ModelGrid.rows(backend: ModelGrid.backendMLXAudio, matching: "1b")
         #expect(Set(ambiguous.map(\.identity)).count == 2)
-        #expect(ModelGrid.identity(backend: ModelGrid.backendMLXAudio, matching: "1b") == nil)
+        // And it SAYS which two, rather than only that it refused. Round 8's
+        // verify named this: a caller handed a bare `nil` inherits a position
+        // on ambiguity it never took.
+        let resolution = ModelGrid.identity(backend: ModelGrid.backendMLXAudio, matching: "1b")
+        guard case .ambiguous(let named) = resolution else {
+            Issue.record("'1b' resolved to \(resolution), not to the two models that publish it")
+            return
+        }
+        #expect(named.map(ModelGrid.address(for:)) == ["canary/1b", "mms/1b"])
 
         // An unambiguous bare size still resolves, so whisper-style backends
         // keep addressing rows the way their users type them.
         #expect(ModelGrid.identity(backend: ModelGrid.backendWhisperCpp, matching: "tiny")
-                == ModelID(family: "whisper", size: "tiny"))
+                == .resolved(try #require(ModelID(family: "whisper", size: "tiny"))))
     }
 }
 
@@ -169,7 +177,8 @@ struct ModelAddressingTests {
         for row in ModelGrid.rows {
             let address = ModelGrid.address(for: row.identity)
             #expect(address == "\(row.family)/\(row.size)")
-            #expect(ModelGrid.identity(backend: row.backend, matching: address) == row.identity,
+            #expect(ModelGrid.identity(backend: row.backend, matching: address)
+                    == .resolved(row.identity),
                     "\(row.modelId) addressed as '\(address)' does not resolve back")
         }
     }
@@ -186,7 +195,8 @@ struct ModelAddressingTests {
         // And an address resolves to the same model no matter which runtime
         // is asked — when that runtime hosts it at all.
         for backend in [ModelGrid.backendWhisperKit, ModelGrid.backendWhisperCpp] {
-            #expect(ModelGrid.identity(backend: backend, matching: "whisper/base") == whisperBase)
+            #expect(ModelGrid.identity(backend: backend, matching: "whisper/base")
+                    == .resolved(whisperBase))
         }
     }
 

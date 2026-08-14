@@ -80,7 +80,20 @@ public enum Router {
         }
 
         // Tier 1 — measured ranking (spec: Rank candidates by measured benchmark data).
+        // A measurement whose identity is incomplete names an artifact nobody
+        // can point at: two runs of it could have used different weights and
+        // the record would look identical, so it cannot be compared with
+        // another and must not rank.
+        //
+        // This is measured, not asserted: 44 of the 383 measurements in this
+        // machine's store canonicalise to an unrecorded quantization (four
+        // mlx-audio keys). proposal.md deferred this rule on the ground that
+        // canonicalisation had left it with no data to act on — which the
+        // count disproves.
+        let excludedForIdentity = records.filter { !$0.identityComplete }
         let usable = records.filter { record in
+            record.identityComplete
+                &&
             record.chip == host.chip
                 && BackendID(rawValue: record.backend).map { backend in
                     availableOrdered.contains(backend)
@@ -103,6 +116,15 @@ public enum Router {
         // error rate / realtime factor become equal-weight means over the
         // candidate's usable records, so one flattering short-corpus record
         // can never outrank a broadly measured candidate.
+        // Named, not merely dropped: excluding rows and not saying so reads
+        // exactly like having none (the same rule `ModelGrid.comparable` follows).
+        if !excludedForIdentity.isEmpty {
+            let names = Set(excludedForIdentity.map { "\($0.backend) \($0.model)" })
+                .sorted().joined(separator: ", ")
+            reasons.append(
+                "excluded \(excludedForIdentity.count) measurement(s) whose quantization is "
+                    + "unrecorded, so they could not be compared: \(names) (#183)")
+        }
         let aggregated = Self.aggregate(usable)
         // Quality floor: mean error rate above 0.5 has negative practical
         // value and is excluded from AUTONOMOUS ranking. A locked backend is
@@ -148,7 +170,8 @@ public enum Router {
             )
             return ASRRecommendation(
                 backend: backend,
-                model: record.model,
+                identity: record.identity,
+                unplaceableName: record.model,
                 quantization: record.quantization,
                 profile: profile,
                 language: requestedLanguage,
@@ -174,6 +197,12 @@ public enum Router {
             reasons += choice.reasons
         }
 
+        // The MODEL, carried as an identity for as long as one is known, and
+        // spelled exactly once — at the return. Every round of this change
+        // fixed one instance of a value being flattened to a string early and
+        // re-derived (or not) late; the cold-start path was the last one, and
+        // it shipped a bare size all the way to the engine (round-8 verify).
+        var identity: ModelID?
         var model: String
         if let modelOverride {
             reasons.append("model '\(modelOverride)' explicitly requested")
@@ -188,21 +217,42 @@ public enum Router {
             // `--backend fluid-sensevoice --model small` whisper small's
             // 2.5 GB and downgraded it off the machine, the very defect
             // proposal.md leads with (round-4 verify C5).
-            let resolved = ModelGrid.identity(backend: backend.rawValue, matching: modelOverride)
-                ?? ModelRegistry.liveIdentity(named: modelOverride)
-            if let identity = resolved {
+            //
+            // Ambiguity is NOT a miss: `--model 1b` under mlx-audio names two
+            // models, and falling through to `liveIdentity` would answer with
+            // whisper's — a different model than either. Only "this runtime
+            // has never heard of it" may fall through.
+            let resolved: ModelID?
+            switch ModelGrid.identity(backend: backend.rawValue, matching: modelOverride) {
+            case .resolved(let identity):
+                resolved = identity
+            case .unknown:
+                resolved = ModelRegistry.liveIdentity(named: modelOverride)
+            case .ambiguous(let candidates):
+                resolved = nil
+                let named = candidates.map(ModelGrid.address(for:)).joined(separator: ", ")
+                warnings.append(
+                    "model '\(modelOverride)' names \(candidates.count) models under "
+                        + "\(backend.rawValue) (\(named)) — name one of them")
+            }
+            if let requested = resolved {
                 let (fitted, downgradeWarnings, downgradeReasons) = ColdStartPrior.ensureFits(
-                    identity, in: host.unifiedMemoryGB, hostedBy: backend.rawValue)
-                model = fitted.size
+                    requested, in: host.unifiedMemoryGB, hostedBy: backend.rawValue)
+                identity = fitted
+                model = ModelGrid.address(for: fitted)  // for the reasons/warnings below
                 warnings += downgradeWarnings
                 reasons += downgradeReasons
             } else {
+                // Nothing to address: the catalog cannot place this string, so
+                // it travels as the user typed it and the engine decides.
+                identity = nil
                 model = modelOverride
             }
         } else {
             let choice = ColdStartPrior.selectModel(
                 profile: profile, unifiedMemoryGB: host.unifiedMemoryGB)
-            model = choice.model
+            identity = choice.identity
+            model = ModelGrid.address(for: choice.identity)
             reasons += choice.reasons
             warnings += choice.warnings
         }
@@ -224,17 +274,18 @@ public enum Router {
             let (comparable, excluded) = ModelGrid.comparable(
                 backend: backend.rawValue, priorityCeiling: nil)
             reasons += excluded.map(ModelGrid.exclusionNote(for:))
-            if let catalogFallback = comparable.first?.size {
-            reasons.append(
-                "cold-start prior has no '\(model)' on \(backend.rawValue); "
-                    + "using its catalog model '\(catalogFallback)'")
-            if let row = comparable.first(where: { $0.size == catalogFallback }),
-                !row.verified {
+            if let fallback = comparable.first {
+                let address = ModelGrid.address(for: fallback.identity)
                 reasons.append(
-                    "warning: '\(catalogFallback)' on \(backend.rawValue) is unverified "
-                        + "on this machine — quality is not established (#50)")
-            }
-            model = catalogFallback
+                    "cold-start prior has no '\(model)' on \(backend.rawValue); "
+                        + "using its catalog model '\(address)'")
+                if !fallback.verified {
+                    reasons.append(
+                        "warning: '\(address)' on \(backend.rawValue) is unverified "
+                            + "on this machine — quality is not established (#50)")
+                }
+                identity = fallback.identity
+                model = address
             }
         }
 
@@ -260,7 +311,8 @@ public enum Router {
         }
         return ASRRecommendation(
             backend: backend,
-            model: model,
+            identity: identity,
+            unplaceableName: model,
             quantization: quantization,
             profile: profile,
             language: requestedLanguage,
@@ -279,8 +331,11 @@ public enum Router {
     /// router silently to the cold-start prior (round-7 verify).
     static func namesSameModel(_ a: String, _ b: String, backend: String) -> Bool {
         if a == b { return true }
-        guard let left = ModelGrid.identity(backend: backend, matching: a),
-              let right = ModelGrid.identity(backend: backend, matching: b)
+        // Only two RESOLVED identities may be compared. Two ambiguous strings
+        // are not "the same model" even when they are the same string of
+        // characters — neither names a model, so there is nothing to equate.
+        guard case .resolved(let left) = ModelGrid.identity(backend: backend, matching: a),
+              case .resolved(let right) = ModelGrid.identity(backend: backend, matching: b)
         else { return false }
         return left == right
     }
@@ -296,10 +351,26 @@ public enum Router {
         // projection emits `family/size`, so the old comparison matched
         // nothing and this gate — a SAFETY gate, #105 — returned true for
         // every measured record (round-7 verify).
-        guard
-            let identity = ModelGrid.identity(backend: backend, matching: model),
-            let row = ModelGrid.rows(backend: backend, priorityCeiling: nil)
-                .first(where: { $0.identity == identity })
+        //
+        // The three outcomes do NOT all fail open, and this is the gate where
+        // that distinction matters most:
+        //
+        // - unknown   → open, per #105 above: the grid catalogs only
+        //               non-whisper backends, and whisper sizes are
+        //               multilingual by construction.
+        // - ambiguous → CLOSED. A string naming two models cannot be checked
+        //               against either's declared languages, and the failure
+        //               this gate exists to prevent — proposing a
+        //               European-only row for zh audio — is exactly what
+        //               opening here would allow.
+        let identity: ModelID
+        switch ModelGrid.identity(backend: backend, matching: model) {
+        case .resolved(let resolved): identity = resolved
+        case .unknown: return true
+        case .ambiguous: return false
+        }
+        guard let row = ModelGrid.rows(backend: backend, priorityCeiling: nil)
+            .first(where: { $0.identity == identity })
         else { return true }
         let base = LanguageResolver.baseSubtag(language)
         return row.languages.contains {

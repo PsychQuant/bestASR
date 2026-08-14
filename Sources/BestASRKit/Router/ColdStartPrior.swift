@@ -28,16 +28,18 @@ public enum ColdStartPrior {
     public static func selectModel(
         profile: RouterProfile,
         unifiedMemoryGB: Double
-    ) -> (model: String, reasons: [String], warnings: [String]) {
+    ) -> (identity: ModelID, reasons: [String], warnings: [String]) {
         let candidates = ModelRegistry.profileModels[profile] ?? []
-        // The lists are whisper-only, whose size names are unique across the
-        // live catalog, so reporting `.size` is the same string as before.
-        // A non-whisper entry would need the fuller form (task 6.1).
+        // Returns the MODEL, not a spelling of it. Flattening to `.size` here
+        // is what let a bare size travel all the way to the engine while every
+        // layer in between believed it was passing an address (#183, round-8
+        // verify) — the caller could not have restored the family, because by
+        // then there was nothing left saying which family it was.
         let feasible = candidates.filter { fits($0, in: unifiedMemoryGB) }
         if let best = feasible.max(by: {
             ModelRegistry.accuracyRank(of: $0) < ModelRegistry.accuracyRank(of: $1)
         }) {
-            return (best.size, ["\(profile.rawValue) profile selected '\(best.size)'"], [])
+            return (best, ["\(profile.rawValue) profile selected '\(best.size)'"], [])
         }
 
         let smallest = candidates.min(by: {
@@ -50,7 +52,7 @@ public enum ColdStartPrior {
         let (finalModel, warnings, downgradeReasons) = ensureFits(
             smallest, in: unifiedMemoryGB)
         reasons += downgradeReasons
-        return (finalModel.size, reasons, warnings)
+        return (finalModel, reasons, warnings)
     }
 
     /// Downgrade along large-v3 → medium → small → base → tiny until the model

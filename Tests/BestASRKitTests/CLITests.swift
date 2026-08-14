@@ -17,13 +17,6 @@ private func makeCore(
     )
 }
 
-private enum FakeClockProbe {
-    static func probe() -> MeasurementProbe {
-        let clock = FakeClock(step: 1.0)
-        return clock.probe()
-    }
-}
-
 private let auto = SelectionRequest(
     profileName: "medium", backendOverride: nil, modelOverride: nil, requestedLanguage: "auto")
 

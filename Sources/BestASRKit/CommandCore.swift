@@ -397,7 +397,8 @@ public struct CommandCore: Sendable {
                 warnings.append(note)
             }
             rec = ASRRecommendation(
-                backend: rec.backend, model: rec.model, quantization: rec.quantization,
+                backend: rec.backend, identity: rec.identity, unplaceableName: rec.model,
+                quantization: rec.quantization,
                 profile: rec.profile, language: rec.language, dataSource: rec.dataSource,
                 measured: rec.measured,
                 reason: rec.reason + [Self.contextReasonLine(bundle)],
@@ -465,7 +466,12 @@ public struct CommandCore: Sendable {
         let transcript = try await engine.transcribe(
             audioPath: audio.path,
             options: TranscribeOptions(
-                model: Self.engineModelName(rec.model, backend: rec.backend.rawValue),
+                // Spelled from the identity, not from a field that was set
+                // somewhere else and might disagree with it. Untranslated on
+                // purpose: the engine owns the translation into its own
+                // vocabulary, because the engine is what loads the model and
+                // cannot skip the step.
+                model: rec.model,
                 quantization: rec.quantization,
                 language: lang.language, prompt: context?.rendered?.prompt,
                 noSpeechThreshold: noSpeechThreshold,
@@ -697,17 +703,24 @@ public struct CommandCore: Sendable {
         // PRIMARY KEY honest for non-whisper families (#16 verify DA).
         for measured in outcome.measured {
             let record = measured.record
-            // record.model is an ADDRESS for mlx-audio (family/size, #65) —
-            // resolve through the same helper as the read side, or the
-            // persisted modelId mangles to 'whisper|family/size' and the
-            // revision pin is lost (verify F1).
-            let seededRow = ModelGrid.identity(
-                backend: record.backend, matching: record.model)
-                .flatMap { identity in
-                    ModelGrid.rows(backend: record.backend, identity: identity)
-                        .first { $0.quantization.serialised == record.quantization }
-                }
-            let modelId = seededRow?.modelId ?? ModelRow.id(
+            // No re-parse. The runner knew the identity at enumeration and now
+            // carries it on the record, so the store key is built from the
+            // model itself rather than from a string that has to be resolved
+            // back into one — which is where 'whisper|family/size' came from,
+            // and with it the lost revision pin (verify F1).
+            //
+            // A record without an identity is one this catalog cannot place;
+            // its key keeps the legacy shape so the measurement is still
+            // written and still visibly unplaced, rather than being dropped.
+            let seededRow = record.identity.flatMap { identity in
+                ModelGrid.rows(backend: record.backend, identity: identity)
+                    .first { $0.quantization.serialised == record.quantization }
+            }
+            let modelId = seededRow?.modelId ?? record.identity.map {
+                ModelRow.id(
+                    backend: record.backend, family: $0.family, size: $0.size,
+                    quantization: record.quantization)
+            } ?? ModelRow.id(
                 backend: record.backend, family: "whisper", size: record.model,
                 quantization: record.quantization)
             try store.append(measurement: MeasurementRow(
@@ -897,20 +910,6 @@ public struct CommandCore: Sendable {
 
     /// The name to hand a runtime for a model our own address names.
     ///
-    /// A recommendation carries the canonical address (`whisper/large-v3-turbo`);
-    /// WhisperKit's catalog calls it `large-v3-turbo` and cannot load the
-    /// address. Letting the address cross this seam is what broke `transcribe`
-    /// on the measured path (round-7 verify), and it broke silently — every
-    /// test fixture still used the pre-change spelling.
-    ///
-    /// A string the catalog cannot place passes through untouched: it may be an
-    /// external adapter's own vocabulary, and inventing a translation for it
-    /// would be guessing.
-    static func engineModelName(_ address: String, backend: String) -> String {
-        ModelGrid.identity(backend: backend, matching: address)
-            .map(ModelGrid.engineName(for:)) ?? address
-    }
-
     /// A model for a human: `family size`, the subordination the old output
     /// inverted by leading with the provider (#183).
     ///

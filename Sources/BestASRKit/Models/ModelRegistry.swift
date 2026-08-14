@@ -93,9 +93,16 @@ public enum ModelRegistry {
         // A string that names two models names none: returning canary's
         // variants for a bare "1b" would put mms's quantizations out of reach
         // and never say why (#183).
-        guard let identity = ModelGrid.identity(backend: backend.rawValue, matching: model)
-        else { return [] }
-        return quantizations(for: backend, identity: identity)
+        switch ModelGrid.identity(backend: backend.rawValue, matching: model) {
+        case .resolved(let identity):
+            return quantizations(for: backend, identity: identity)
+        case .ambiguous, .unknown:
+            // Both answer "no variants", for different reasons that agree
+            // here: an unknown model has none to report, and returning
+            // canary's variants for a bare "1b" would put mms's out of reach
+            // and never say why (#183).
+            return []
+        }
     }
 
     /// Quantization variants of one model — no name resolution, so no way for

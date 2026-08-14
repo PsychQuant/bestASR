@@ -152,15 +152,13 @@ public struct BenchmarkRunner {
                 {
                     continue
                 }
-                // Addressed by the one rule the readers use (#183): the bare
-                // size where it is unambiguous, family/size where it is not.
-                // This used to ask "is this mlx-audio?" — a vendor test standing
-                // in for the ambiguity it was really about (#65: canary 1b vs
-                // mms 1b), which left the writer and the reader on two rules.
-                let address = ModelGrid.address(for: row.identity)
+                // The identity, not a spelling of it. The candidate derives
+                // its own address, so writer and reader can no longer be on
+                // two rules — there is only one, and it lives on the type.
                 candidates.append(
                     BenchmarkCandidate(
-                        backend: backend, model: address, quantization: row.quantization.serialised))
+                        backend: backend, identity: row.identity,
+                        quantization: row.quantization.serialised))
             }
         }
         return Enumeration(candidates: candidates, notes: notes)
@@ -309,6 +307,11 @@ public struct BenchmarkRunner {
                     backend: candidate.backend.rawValue,
                     model: candidate.model,
                     quantization: candidate.quantization,
+                    // Carried, not re-derived. The runner has known the
+                    // identity since enumeration; dropping it here is what
+                    // forced the persist path to parse the address back into
+                    // one, and a parse can disagree with what it parses.
+                    identity: candidate.identity,
                     language: language,
                     metricKind: metricKind,
                     errorRate: errorRate,

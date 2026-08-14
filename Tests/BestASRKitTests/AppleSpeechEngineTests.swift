@@ -350,13 +350,14 @@ struct AppleSpeechGridTests {
         // A user types `--model system`; the catalog resolves it to one
         // identity because no other apple-speech family publishes that size.
         let named = try #require(
-            ModelGrid.identity(backend: ModelGrid.backendAppleSpeech, matching: "system"))
+            ModelGrid.identity(backend: ModelGrid.backendAppleSpeech, matching: "system")
+                .resolvedIdentity)
         let bare = try #require(
             ModelGrid.row(backend: ModelGrid.backendAppleSpeech, identity: named))
         let addressed = try #require(
             ModelGrid.identity(
                 backend: ModelGrid.backendAppleSpeech,
-                matching: "\(bare.family)/\(bare.size)"))
+                matching: "\(bare.family)/\(bare.size)").resolvedIdentity)
         #expect(named == addressed)
         #expect(bare.modelId == "apple-speech|speechanalyzer|system|n/a")
     }
@@ -364,6 +365,7 @@ struct AppleSpeechGridTests {
     @Test func `Declared languages are the probed locale set — never the multi sentinel`() throws {
         let row = try #require(
             ModelGrid.identity(backend: ModelGrid.backendAppleSpeech, matching: "system")
+                .resolvedIdentity
                 .flatMap { ModelGrid.row(backend: ModelGrid.backendAppleSpeech, identity: $0) })
         // "multi" is reserved for the 99+/1000+ class (ModelRow doc comment);
         // 45 locales over 25 base subtags is not that class, and #105 is the
@@ -388,6 +390,7 @@ struct AppleSpeechGridTests {
         // apart — anything the row advertises must be transcribable.
         let row = try #require(
             ModelGrid.identity(backend: ModelGrid.backendAppleSpeech, matching: "system")
+                .resolvedIdentity
                 .flatMap { ModelGrid.row(backend: ModelGrid.backendAppleSpeech, identity: $0) })
         for language in row.languages {
             let identifier = try AppleSpeechEngine.resolveLocaleIdentifier(
@@ -400,6 +403,7 @@ struct AppleSpeechGridTests {
     @Test func `The registry carries a memory estimate for the row`() throws {
         let row = try #require(
             ModelGrid.identity(backend: ModelGrid.backendAppleSpeech, matching: "system")
+                .resolvedIdentity
                 .flatMap { ModelGrid.row(backend: ModelGrid.backendAppleSpeech, identity: $0) })
         let requirements = try ModelRegistry.requirements(for: row.size)
         #expect(requirements.memoryGB == row.estMemoryGB)

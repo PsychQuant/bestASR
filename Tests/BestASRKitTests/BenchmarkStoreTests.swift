@@ -149,7 +149,7 @@ struct LegacyMigrationTests {
         let legacy = root.appendingPathComponent("benchmarks.json")
         let records = [
             Fixtures.record(errorRate: 0.05, timesRealtime: 12),
-            Fixtures.record(backend: .whisperCpp, model: "tiny", quantization: "q8_0",
+            Fixtures.record(backend: .whisperCpp, size: "tiny", quantization: "q8_0",
                             errorRate: 0.10, timesRealtime: 60),
         ]
         let encoder = JSONEncoder()

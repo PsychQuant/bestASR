@@ -152,10 +152,20 @@ public struct BenchmarkStore: Sendable {
             if seenCorpora.insert(corpus.corpusId).inserted {
                 try appendLine(table: "corpora", row: corpus)
             }
-            // family aligned with the live append path (#16 verify DA): the
-            // legacy era was whisper-only, and a diverging key ("tiny|tiny")
-            // would never collapse with re-benchmarked rows in the projection.
-            let modelId = ModelRow.id(
+            // The record's own identity when it has one; the whisper-only
+            // assumption only for records old enough to predate identities.
+            //
+            // Assuming the family unconditionally was correct while `model`
+            // held a bare size, and silently wrong the moment it held an
+            // address: `size: "whisper/large-v3-turbo"` is not a size, and the
+            // key it built named nothing (#183). The legacy era WAS
+            // whisper-only, so the fallback is still right for the rows it was
+            // written for — it just no longer applies to rows that know better.
+            let modelId = record.identity.map {
+                ModelRow.id(
+                    backend: record.backend, family: $0.family, size: $0.size,
+                    quantization: record.quantization)
+            } ?? ModelRow.id(
                 backend: record.backend, family: "whisper", size: record.model,
                 quantization: record.quantization)
             // Legacy flat-cache rows predate the #111 provenance fields — there

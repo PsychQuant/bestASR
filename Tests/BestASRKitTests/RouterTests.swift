@@ -14,10 +14,10 @@ private let allThreeAvailable: [BackendID: Bool] = [
 struct RouterCrossFamilyTests {
     @Test func `Cross-family candidate wins on measured merit`() throws {
         let records = [
-            Fixtures.record(backend: .whisperKit, model: "large-v3-turbo",
+            Fixtures.record(backend: .whisperKit, size: "large-v3-turbo",
                             language: "en", metricKind: .wer,
                             errorRate: 0.12, timesRealtime: 12),
-            Fixtures.record(backend: .fluidParakeet, model: "0.6b-v3",
+            Fixtures.record(backend: .fluidParakeet, family: "parakeet", size: "0.6b-v3",
                             language: "en", metricKind: .wer,
                             errorRate: 0.04, timesRealtime: 30),
         ]
@@ -27,7 +27,7 @@ struct RouterCrossFamilyTests {
             records: records, availability: allThreeAvailable
         )
         #expect(rec.backend == .fluidParakeet)
-        #expect(rec.model == "0.6b-v3")
+        #expect(rec.model == "parakeet/0.6b-v3")
         #expect(rec.dataSource == .measured)
     }
 
@@ -35,9 +35,9 @@ struct RouterCrossFamilyTests {
         // zh has whisper measurements only — family diversity never overrides
         // measured evidence (spec scenario).
         let records = [
-            Fixtures.record(backend: .whisperKit, model: "large-v3-turbo",
+            Fixtures.record(backend: .whisperKit, size: "large-v3-turbo",
                             language: "zh", errorRate: 0.06, timesRealtime: 12),
-            Fixtures.record(backend: .fluidParakeet, model: "0.6b-v3",
+            Fixtures.record(backend: .fluidParakeet, family: "parakeet", size: "0.6b-v3",
                             language: "en", metricKind: .wer,
                             errorRate: 0.04, timesRealtime: 30),
         ]
@@ -51,10 +51,10 @@ struct RouterCrossFamilyTests {
 
     @Test func `Explicit fluid-parakeet backend override locks the family`() throws {
         let records = [
-            Fixtures.record(backend: .whisperKit, model: "large-v3-turbo",
+            Fixtures.record(backend: .whisperKit, size: "large-v3-turbo",
                             language: "en", metricKind: .wer,
                             errorRate: 0.04, timesRealtime: 12),
-            Fixtures.record(backend: .fluidParakeet, model: "0.6b-v3",
+            Fixtures.record(backend: .fluidParakeet, family: "parakeet", size: "0.6b-v3",
                             language: "en", metricKind: .wer,
                             errorRate: 0.12, timesRealtime: 30),
         ]
@@ -72,13 +72,13 @@ struct RouterCrossFamilyTests {
             host: Fixtures.m5Max, profile: .high, requestedLanguage: "en",
             backendOverride: "fluid-parakeet", modelOverride: "0.6b-v3",
             records: [
-                Fixtures.record(backend: .fluidParakeet, model: "0.6b-v3",
+                Fixtures.record(backend: .fluidParakeet, family: "parakeet", size: "0.6b-v3",
                                 language: "en", metricKind: .wer,
                                 errorRate: 0.05, timesRealtime: 30)
             ],
             availability: allThreeAvailable
         )
-        #expect(rec.model == "0.6b-v3")
+        #expect(rec.model == "parakeet/0.6b-v3")
     }
 
     @Test func `Locked fluid-parakeet without records routes to its own catalog model`() throws {
@@ -93,7 +93,7 @@ struct RouterCrossFamilyTests {
             records: [], availability: allThreeAvailable
         )
         #expect(rec.backend == .fluidParakeet)
-        #expect(rec.model == "0.6b-v3")
+        #expect(rec.model == "parakeet/0.6b-v3")
         #expect(rec.dataSource == .coldStartPrior)
     }
 
@@ -108,7 +108,7 @@ struct RouterCrossFamilyTests {
             records: [], availability: [.fluidParaformer: true]
         )
         #expect(rec.backend == .fluidParaformer)
-        #expect(rec.model == "large-zh")
+        #expect(rec.model == "paraformer/large-zh")
         #expect(rec.reason.contains { $0.contains("unverified") })
     }
 
@@ -126,7 +126,7 @@ struct RouterCrossFamilyTests {
             records: [], availability: [.appleSpeech: true]
         )
         #expect(rec.backend == .appleSpeech)
-        #expect(rec.model == "system")
+        #expect(rec.model == "speechanalyzer/system")
         #expect(!rec.warnings.contains { $0.contains("unavailable") })
     }
 
@@ -147,19 +147,19 @@ struct RouterCrossFamilyTests {
         // its records; large-v3-turbo is broadly measured at ~0.09. The
         // candidate mean must rank, not the single best record.
         let records = [
-            Fixtures.record(backend: .whisperKit, model: "tiny",
+            Fixtures.record(backend: .whisperKit, size: "tiny",
                             language: "en", metricKind: .wer,
                             errorRate: 0.0, timesRealtime: 120),
-            Fixtures.record(backend: .whisperKit, model: "tiny",
+            Fixtures.record(backend: .whisperKit, size: "tiny",
                             language: "en", metricKind: .wer,
                             errorRate: 0.35, timesRealtime: 120),
-            Fixtures.record(backend: .whisperKit, model: "tiny",
+            Fixtures.record(backend: .whisperKit, size: "tiny",
                             language: "en", metricKind: .wer,
                             errorRate: 0.40, timesRealtime: 120),
-            Fixtures.record(backend: .whisperKit, model: "large-v3-turbo",
+            Fixtures.record(backend: .whisperKit, size: "large-v3-turbo",
                             language: "en", metricKind: .wer,
                             errorRate: 0.09, timesRealtime: 7),
-            Fixtures.record(backend: .whisperKit, model: "large-v3-turbo",
+            Fixtures.record(backend: .whisperKit, size: "large-v3-turbo",
                             language: "en", metricKind: .wer,
                             errorRate: 0.10, timesRealtime: 7),
         ]
@@ -168,16 +168,16 @@ struct RouterCrossFamilyTests {
             backendOverride: nil, modelOverride: nil,
             records: records, availability: allThreeAvailable
         )
-        #expect(rec.model == "large-v3-turbo")
+        #expect(rec.model == "whisper/large-v3-turbo")
         #expect(rec.reason.contains { $0.contains("mean over") })  // aggregation disclosed
     }
 
     @Test func `A candidate below the quality floor is never autonomously recommended`() throws {
         // #64: 93.5% CER at 273x realtime must not beat 19% CER at 6x.
         let records = [
-            Fixtures.record(backend: .fluidParakeet, model: "0.6b-v3",
+            Fixtures.record(backend: .fluidParakeet, family: "parakeet", size: "0.6b-v3",
                             language: "zh", errorRate: 0.935, timesRealtime: 273),
-            Fixtures.record(backend: .fluidSenseVoice, model: "small",
+            Fixtures.record(backend: .fluidSenseVoice, family: "sensevoice", size: "small",
                             language: "zh", errorRate: 0.194, timesRealtime: 6),
         ]
         let rec = try Router.recommend(
@@ -193,7 +193,7 @@ struct RouterCrossFamilyTests {
     @Test func `The floor never strands the router`() throws {
         // All measured candidates above the floor -> cold-start prior.
         let records = [
-            Fixtures.record(backend: .fluidParakeet, model: "0.6b-v3",
+            Fixtures.record(backend: .fluidParakeet, family: "parakeet", size: "0.6b-v3",
                             language: "zh", errorRate: 0.935, timesRealtime: 273)
         ]
         let rec = try Router.recommend(
@@ -206,7 +206,7 @@ struct RouterCrossFamilyTests {
 
     @Test func `An explicit backend lock bypasses the floor with a warning`() throws {
         let records = [
-            Fixtures.record(backend: .fluidParakeet, model: "0.6b-v3",
+            Fixtures.record(backend: .fluidParakeet, family: "parakeet", size: "0.6b-v3",
                             language: "zh", errorRate: 0.935, timesRealtime: 273)
         ]
         let rec = try Router.recommend(
@@ -223,9 +223,9 @@ struct RouterCrossFamilyTests {
         // Codex finding (#35 verify): the zh fairness case with BOTH families
         // measured — family diversity must not override measured evidence.
         let records = [
-            Fixtures.record(backend: .whisperKit, model: "large-v3-turbo",
+            Fixtures.record(backend: .whisperKit, size: "large-v3-turbo",
                             language: "zh", errorRate: 0.06, timesRealtime: 12),
-            Fixtures.record(backend: .fluidParakeet, model: "0.6b-v3",
+            Fixtures.record(backend: .fluidParakeet, family: "parakeet", size: "0.6b-v3",
                             language: "zh", errorRate: 0.45, timesRealtime: 30),
         ]
         let rec = try Router.recommend(
@@ -264,16 +264,16 @@ struct RouterCrossFamilyTests {
 struct RouterMeasuredTests {
     /// Spec SBE: same measurements, profile flips the winner.
     @Test(arguments: [
-        (RouterProfile.high, "large-v3-turbo"),
-        (RouterProfile.low, "small"),
+        (RouterProfile.high, "whisper/large-v3-turbo"),
+        (RouterProfile.low, "whisper/small"),
     ])
     func `Profile flips the winner on the same measurements`(
         profile: RouterProfile, expectedModel: String
     ) throws {
         let records = [
-            Fixtures.record(backend: .whisperKit, model: "large-v3-turbo",
+            Fixtures.record(backend: .whisperKit, size: "large-v3-turbo",
                             errorRate: 0.05, timesRealtime: 12),
-            Fixtures.record(backend: .whisperCpp, model: "small", quantization: "q5_0",
+            Fixtures.record(backend: .whisperCpp, size: "small", quantization: "q5_0",
                             errorRate: 0.15, timesRealtime: 20),
         ]
         let rec = try Router.recommend(
@@ -337,7 +337,8 @@ struct RouterColdStartTests {
             records: [], availability: bothAvailable
         )
         #expect(rec.backend == .whisperKit)
-        #expect(ModelRegistry.profileModels[.medium]!.contains { $0.size == rec.model })
+        #expect(ModelRegistry.profileModels[.medium]!
+            .contains { ModelGrid.address(for: $0) == rec.model })
         #expect(rec.dataSource == .coldStartPrior)
         #expect(rec.measured == nil)
         #expect(rec.reason.contains { $0.contains("bestasr benchmark") })
@@ -365,7 +366,7 @@ struct RouterColdStartTests {
             records: [], availability: bothAvailable
         )
         // 8 GB fits medium (5) and large-v3-turbo (6) but not large-v3 (10).
-        #expect(rec.model == "large-v3-turbo")
+        #expect(rec.model == "whisper/large-v3-turbo")
     }
 
     @Test func `Explicit model override is downgraded only when it cannot fit`() throws {
@@ -374,7 +375,7 @@ struct RouterColdStartTests {
             backendOverride: nil, modelOverride: "large-v3",
             records: [], availability: bothAvailable
         )
-        #expect(rec.model == "medium")  // 10 GB > 8 GB → one step down
+        #expect(rec.model == "whisper/medium")  // 10 GB > 8 GB → one step down
         #expect(rec.warnings.contains { $0.contains("large-v3") })
     }
 }

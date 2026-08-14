@@ -155,11 +155,14 @@ public struct ParakeetEngine: Engine {
     public func transcribeRaw(
         audioPath: String, options: TranscribeOptions
     ) async throws -> RawTranscription {
+        // FluidAudio's version table is keyed by size, not by address. The
+        // translation happens here, inside the engine, ahead of the load.
+        let engineModel = ModelGrid.engineName(backend: id.rawValue, address: options.model)
         let pipe: any ParakeetTranscribing
         do {
             let factory = pipelineFactory
-            pipe = try await pipelines.value(for: options.model) {
-                try await factory(options.model)
+            pipe = try await pipelines.value(for: engineModel) {
+                try await factory(engineModel)
             }
         } catch {
             throw TranscriptionError(

@@ -134,3 +134,36 @@ struct MemoryEstimateCollisionTests {
                 "same estimate today — the trap is armed by the SHAPE, not by today's data")
     }
 }
+
+/// The rule proposal.md deferred on a ground the store disproves: 44 of its
+/// 383 measurements canonicalise to an unrecorded quantization, so the rule
+/// does have data to act on.
+struct IncompleteMeasurementExclusionTests {
+    @Test func `A measurement with an unrecorded quantization never ranks`() throws {
+        let complete = Fixtures.record(
+            backend: .whisperKit, size: "large-v3-turbo", errorRate: 0.20, timesRealtime: 3)
+        // Worse on both axes than the complete record, so if it ranked at all
+        // it would still lose — which would make this test pass for the wrong
+        // reason. It is made the BETTER candidate instead.
+        let incomplete = BenchmarkRecord(
+            backend: BackendID.whisperKit.rawValue, model: "whisper/small",
+            quantization: Quantization.unknown.serialised,
+            identity: ModelID(family: "whisper", size: "small"),
+            language: "zh", metricKind: .cer, errorRate: 0.01, rtf: 1.0 / 50.0,
+            peakMemoryGB: 1, audioDuration: 60,
+            measuredAt: Date(timeIntervalSince1970: 1_780_000_000),
+            chip: Fixtures.m5Max.chip, macosVersion: "27.0", appVersion: BestASRVersion.current)
+        #expect(!incomplete.identityComplete)
+
+        let rec = try Router.recommend(
+            host: Fixtures.m5Max, profile: .high, requestedLanguage: "zh",
+            backendOverride: nil, modelOverride: nil,
+            records: [complete, incomplete],
+            availability: [.whisperKit: true])
+
+        #expect(rec.model == "whisper/large-v3-turbo",
+                "the unrecorded-quantization record won the ranking")
+        #expect(rec.reason.contains { $0.contains("quantization is unrecorded") },
+                "rows were dropped without saying so; reasons: \(rec.reason)")
+    }
+}

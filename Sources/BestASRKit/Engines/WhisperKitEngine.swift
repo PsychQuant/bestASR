@@ -58,9 +58,15 @@ public struct WhisperKitEngine: Engine {
     /// resolved WhisperKit 0.18 checkout; the turbo variant uses an underscore
     /// in the argmaxinc/whisperkit-coreml repo naming).
     static func whisperKitModelName(for model: String) -> String {
-        switch model {
-        case "large-v3-turbo": "large-v3_turbo"
-        default: model
+        // The address (`whisper/large-v3-turbo`) is ours; WhisperKit's catalog
+        // is spelled its own way. Translating HERE — inside the engine, ahead
+        // of the load — is what makes the step unskippable: round 8 put it at
+        // the caller, installed it at one of two call sites, and the missing
+        // one failed only in production.
+        let name = ModelGrid.engineName(backend: BackendID.whisperKit.rawValue, address: model)
+        switch name {
+        case "large-v3-turbo": return "large-v3_turbo"
+        default: return name
         }
     }
 

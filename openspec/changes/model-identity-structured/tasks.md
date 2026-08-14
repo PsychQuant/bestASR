@@ -15,7 +15,7 @@
 
 - [x] 3.1 `ModelRegistry.memoryEstimates` 改以 `ModelID` 為鍵。**`uniquingKeysWith: max` 保留**——原任務要求移除，round 4 證實那是錯的：它吸收的兩種碰撞裡，keying by identity 只解決一種（跨 family 同名），另一種（同一身分兩個精度）是 `ModelGrid` 自己文件稱為正常的情形，`whisper.cpp` 今天就有兩列。移除它會在 `ColdStartPrior.fits()` 的迴圈裡 fatalError。**行為**：`requirements(for: ModelID("sensevoice","small"))` 回 1.5 GB，不再被 `whisper small` 的 2.5 GB 覆蓋。**驗證**：測試加入 `Tests/BestASRKitTests/DataModelTests.swift` 內**既有的** `struct ModelRegistryTests`——原任務寫「新增測試檔 `ModelRegistryTests.swift`（目前不存在）」，該**檔名**確實不存在，但同名 struct 已存在於 `DataModelTests.swift`，另開新檔會重複宣告。內含一則測試主張該值為 1.5 且不等於 `ModelID("whisper","small")` 的 2.5。（滿足 asr-engine 的 "Memory estimates are keyed by the full model identity"）
 - [x] 3.2 `accuracyRank` / `nextSmaller` / `profileModels` 改以 `ModelID` 為鍵，並為每個 family 定義各自的順序與降級鏈。**行為**：非 whisper family 不再回傳 -1。accuracy ladder 由 grid 列的 `estMemoryGB` 依 family 分組排序導出（whisper 導出的順序與既有 `supportedModels` 相同，已由測試主張）；**降級鏈另行宣告、不與 ladder 共用**——whisper 的鏈刻意不含 `large-v3-turbo`（它是 `large-v3` 的同儕而非其下一階，兩者都降到 `medium`，#29），由記憶體導出會錯誤地把它插進中間。**驗證**：於任務 3.1 使用的 `DataModelTests.swift` 之 `ModelRegistryTests` 新增一則測試，對 `parakeet` / `paraformer` / `sensevoice` 三個 family 各主張其 rank 非負，且 `nextSmaller` 在同 family 內解析或於鏈尾回 nil。（實作 design D6：`accuracyRank` / `nextSmaller` / `profileModels` 改以 `ModelID` 為鍵。滿足 asr-routing 的 "Candidate ranking covers every family, not only the whisper ladder"）
-- [ ] 3.3 **（round-4 verify 退回 —— 只做了目錄那一半）** `Router` 與 `ColdStartPrior` 排除身分不完整（`Quantization.unknown`）的候選，並於 recommendation 的 notes 具名該列與原因。**行為**：被排除的列不出現在候選中，但其排除**可見**。**驗證**：新增一則測試，注入一列 `unknown` 的 grid row，主張它不在候選內且 notes 含該列名稱。（滿足 asr-routing 的 "Candidates with an incomplete identity are excluded and named"）
+- [x] 3.3 `Router` 與 `ColdStartPrior` 排除身分不完整（`Quantization.unknown`）的候選，並於 recommendation 的 notes 具名該列與原因。**行為**：被排除的列不出現在候選中，但其排除**可見**。**驗證**：新增一則測試，注入一列 `unknown` 的 grid row，主張它不在候選內且 notes 含該列名稱。**round 8 後補做**：先前以「canonical 化後 store 已無 unknown 量測，這條規則沒有可觸發的資料」為由延後——實測推翻該理由：本機 store 的 **383 筆量測中有 44 筆**（四個 mlx-audio key：`whisper|large-v3-turbo`、`parakeet|0.6b`、`moonshine|base`、`nemotron-asr|streaming`）canonical 化後 quantization 仍為 `unknown`。`Router` 現於 `usable` 過濾前排除 `!identityComplete` 的記錄，並在 reason 具名被排除的筆數與候選。**驗證**：`IncompleteMeasurementExclusionTests` 注入一筆在兩軸上都**更好**的 unknown 記錄（否則它落敗也會讓測試以錯的理由通過），主張它未勝出且 reason 具名排除。（滿足 asr-routing 的 "Candidates with an incomplete identity are excluded and named"）
 
 ## 4. store 投影
 
@@ -34,9 +34,17 @@
 
 > round 6 之後改採**讀時 canonical 化**（design D7），原本列在此處的四項——catalog re-key、從身分移除 `default`、`isComplete` 拒絕佔位字、兩筆 parakeet 為同一模型——**全部已落地**，因為它們的共同阻礙（「必須先遷移 383 筆記錄」）被證明不成立。剩下兩項：
 
-- [ ] 8.1 **`CommandCore` 的 seeding fallback 會捏造 family**。`ModelGrid.identity(backend:matching:)` 回 nil 時以 `family: "whisper"` 組出 `modelId` 並寫進 store，不論記錄來自哪個 runtime。正解不明顯（裸 size 解析不出來時我們是真的不知道 family），未擅自決定。註：`BenchmarkStore.swift` 的同款寫法是 legacy flat-cache 遷移路徑、註解明載「legacy era was whisper-only」，屬已知事實而非捏造，**不在此項內**。
+- [x] 8.1 **`CommandCore` 的 seeding fallback 會捏造 family** —— **已消除，做法與原先設想的不同**。原本假設要「在解析失敗時猜出 family」，正解是**不要走到那一步**：`BenchmarkRunner` 自枚舉起就握有 `row.identity`，卻把它壓成字串，逼 persist 端從字串解析回身分。現在 `BenchmarkCandidate` 持有 `ModelID`（`model` 為導出屬性）、`BenchmarkRecord` 帶著它、persist 端直接用，**沒有解析、也就沒有解析失敗**。`BenchmarkStore` 的 legacy 遷移同理改為優先採用記錄自身的身分——它原本的 `family: "whisper", size: record.model` 在 `model` 變成 address 之後會產出 `size: "whisper/large-v3-turbo"`，`ModelID` 拒收含 `/` 的 size，那筆記錄的身分因而為 nil（由 3.3 的排除過濾器照出來）。whisper-only 的 fallback 保留給真正的 legacy 列。
 - [ ] 8.2 **`mega-asr` 與 `qwen3-forcedaligner` 的 `size` 仍是佔位字**。兩者上游都沒有公布版本名，`ModelID` 又要求 size 非空。三個解各有代價：(i) 移除這兩列（`mlxFamilies` 從 15 掉到 13）；(ii) 另編一個 size 字串（換名字的佔位字）；(iii) 放寬 spec 容許 family-only 的 reference row。`ModelGridTests` 以**封閉列舉具名**這兩列。
 
 ## 7. 驗收
 
-- [ ] 7.1 **（round-4 verify 退回 —— 3.3 未完成）** 全套測試綠燈（本分支基線實測 493 筆 / 98 suites，於 `idd/183-model-identity-audit` 起點量得；先前寫的 453 是 PR #142 分支的數字），並確認 `StoreProjection` 中不再存在任何依 backend 分支的邏輯。**驗證**：執行 `swift test`，並以 grep 主張該檔案中不含 `backendMLXAudio` 的比較。
+- [x] 7.1 全套測試綠燈：`/usr/bin/swift test` 回 **exit 0**、**564 tests / 115 suites**、0 issue（分支起點基線為 493 / 98）。並確認 `StoreProjection` 中不再存在任何依 backend 分支的邏輯（grep：該檔不含 `backendMLXAudio`）。
+
+## 9. 收斂條件（round-8 verify 之後）
+
+> round 8 的 devil's advocate 判定本 change **沒有在收斂**：round 4 是 catalog re-key 與 store key 分岔、round 6 是 address 規則與 backend 綁定、round 7 是 projection 與 consumer 分岔、round 8 是翻譯器與其安裝點分岔——「每一輪修掉的是實例，沒有一輪修掉產生實例的機制」。以下三項針對機制。
+
+- [x] 9.1 **spy engine + 兩條路徑共用一則斷言**。`OptionsSpy` 記錄每次交給 engine 的 `TranscribeOptions`（`MockEngine.fixed` 原本把它丟棄，所以八輪以來沒有任何測試能觀察到任何路徑實際要求載入什麼）。`EngineSeam.expectCanonical` 是**唯一**的述詞，由 `transcribe`、`benchmark`、`--model` override 三處呼叫，另加一則 store-key 的端到端斷言。**變異驗證**（三次，各自 build + run）：(a) `transcribe` 退回 round-8 的「呼叫端先翻譯」→ 3 issues；(b) `WhisperKitEngine` 不翻譯 → 3 issues；(c) `BenchmarkRunner` 不帶 identity → store-key 斷言 3 issues。三者在修正後皆 exit 0。
+- [x] 9.2 **`Fixtures.record` 經 `ModelGrid.canonical` 產生**。改收 `family:` / `size:` 兩個參數而非 `model: String`——**address 交不進來**，因此 production 不會產生的拼法在測試裡是寫不出來的。36 個呼叫端全部改寫；改寫後 14 則既有斷言失敗，全部是主張裸 size 的舊期望（正是 round 7、8 能全綠的原因）。
+- [x] 9.3 **`ModelGrid.identity` 回三值**（`.resolved` / `.unknown` / `.ambiguous([ModelID])`）。編譯器逼出 8 個呼叫端逐一表態：`ExternalProcessEngine` 對 ambiguous 與 unknown **都不 pin**（理由不同，各自寫明）；`Router` 的 override 解析對 ambiguous **不再 fall through 到 `liveIdentity`**（那會答出第三個模型）並具名候選；`declaredSupport`（#105 安全閘）對 unknown **fail-open**、對 ambiguous **fail-closed**；`ModelRegistry.quantizations` 兩者皆回空。
