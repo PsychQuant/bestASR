@@ -80,20 +80,7 @@ public enum Router {
         }
 
         // Tier 1 — measured ranking (spec: Rank candidates by measured benchmark data).
-        // A measurement whose identity is incomplete names an artifact nobody
-        // can point at: two runs of it could have used different weights and
-        // the record would look identical, so it cannot be compared with
-        // another and must not rank.
-        //
-        // This is measured, not asserted: 44 of the 383 measurements in this
-        // machine's store canonicalise to an unrecorded quantization (four
-        // mlx-audio keys). proposal.md deferred this rule on the ground that
-        // canonicalisation had left it with no data to act on — which the
-        // count disproves.
-        let excludedForIdentity = records.filter { !$0.identityComplete }
         let usable = records.filter { record in
-            record.identityComplete
-                &&
             record.chip == host.chip
                 && BackendID(rawValue: record.backend).map { backend in
                     availableOrdered.contains(backend)
@@ -116,16 +103,24 @@ public enum Router {
         // error rate / realtime factor become equal-weight means over the
         // candidate's usable records, so one flattering short-corpus record
         // can never outrank a broadly measured candidate.
-        // Named, not merely dropped: excluding rows and not saying so reads
-        // exactly like having none (the same rule `ModelGrid.comparable` follows).
-        if !excludedForIdentity.isEmpty {
-            let names = Set(excludedForIdentity.map { "\($0.backend) \($0.model)" })
-                .sorted().joined(separator: ", ")
-            reasons.append(
-                "excluded \(excludedForIdentity.count) measurement(s) whose quantization is "
-                    + "unrecorded, so they could not be compared: \(names) (#183)")
-        }
         let aggregated = Self.aggregate(usable)
+        // Ranked and named, not excluded (#183, round-9 verify).
+        //
+        // The excluding version of this rule was measured against the store
+        // and its criterion ran BACKWARDS: it dropped the 44 measurements
+        // frozen by a commit sha and admitted the 47 whose precision was a
+        // dependency default, because it asked today's catalog instead of the
+        // record. A record that cannot say which artifact produced it is still
+        // evidence — it just cannot promise that its comparison with another
+        // candidate is like-for-like, and saying so is more use than deleting it.
+        let unattested = aggregated.map(\.record).filter { !$0.attestsArtifact }
+        if !unattested.isEmpty {
+            let names = Set(unattested.map { "\($0.backend) \($0.model)" }).sorted()
+            reasons.append(
+                "\(unattested.count) of \(aggregated.count) ranked candidate(s) do not record "
+                    + "which artifact produced them (\(names.joined(separator: ", "))) — "
+                    + "their comparison is not guaranteed like-for-like (#183)")
+        }
         // Quality floor: mean error rate above 0.5 has negative practical
         // value and is excluded from AUTONOMOUS ranking. A locked backend is
         // the user's will — it bypasses the floor with a warning; with no
@@ -156,6 +151,13 @@ public enum Router {
                     "backend '\(record.backend)' model '\(record.model)' does not list "
                         + "support for language '\(requestedLanguage)' — output quality "
                         + "is not established")
+            }
+            if !record.attestsArtifact {
+                warnings.append(
+                    "the recommended measurement does not record which artifact produced it "
+                        + "— '\(record.backend)' chose a published variant and the record does "
+                        + "not say which, so this number cannot promise to describe the same "
+                        + "artifact a re-run would load")
             }
             let percent = String(format: "%.1f", record.errorRate * 100)
             let speed = String(format: "%.1f", record.timesRealtime)
@@ -399,7 +401,11 @@ public enum Router {
             let record = BenchmarkRecord(
                 backend: latest.backend, model: latest.model,
                 quantization: latest.quantization,
-                identity: latest.identity, language: latest.language,
+                identity: latest.identity,
+                // Same rule as the projection's collapse: a merged candidate
+                // vouches for itself only if every component did.
+                artifactAttested: group.allSatisfy(\.attestsArtifact),
+                language: latest.language,
                 metricKind: latest.metricKind, errorRate: meanError,
                 rtf: meanTimesRealtime > 0 ? 1.0 / meanTimesRealtime : 0,
                 peakMemoryGB: latest.peakMemoryGB, audioDuration: latest.audioDuration,

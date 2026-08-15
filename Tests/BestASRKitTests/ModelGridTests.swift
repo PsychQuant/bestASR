@@ -207,3 +207,32 @@ struct ModelAddressingTests {
         #expect(ModelGrid.address(for: mms) == "mms/1b")
     }
 }
+
+/// Round-9 verify: `canonical` may answer for a stored placeholder only when
+/// the catalog answers with ONE value.
+struct CanonicalFabricationTests {
+    @Test func `An identity whose rows disagree yields unrecorded, not the first row's value`() throws {
+        // whisper.cpp ships tiny as both q5_1 and q8_0. Taking the first row
+        // would hand back `.named("q5_1")` for a record that never said it —
+        // and `isComplete` would then vouch for it as comparable.
+        let cppTiny = ModelGrid.rows(
+            backend: ModelGrid.backendWhisperCpp,
+            identity: try #require(ModelID(family: "whisper", size: "tiny")))
+        #expect(Set(cppTiny.map(\.quantization)).count == 2, "fixture no longer disagrees")
+
+        let canonical = try #require(ModelGrid.canonical(
+            backend: ModelGrid.backendWhisperCpp, family: "whisper", size: "tiny",
+            quantization: ModelID.removedPlaceholder))
+        #expect(canonical.quantization == .unknown)
+        #expect(canonical.quantization.isComplete == false,
+                "a value the catalog does not agree on was vouched for")
+    }
+
+    @Test func `A single-valued identity still resolves`() throws {
+        // The legitimate half stays: one row, one answer.
+        let canonical = try #require(ModelGrid.canonical(
+            backend: ModelGrid.backendFluidSenseVoice, family: "sensevoice", size: "small",
+            quantization: ModelID.removedPlaceholder))
+        #expect(canonical.quantization == .named("fp16"))
+    }
+}

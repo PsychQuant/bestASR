@@ -865,7 +865,12 @@ public struct CommandCore: Sendable {
             return Entry(
                 family: row.family, size: size, runtime: row.backend,
                 quantization: value, quantizationKind: kind,
-                identityComplete: size != nil && row.quantization.isComplete,
+                // The one definition (round-9 verify: three had drifted apart,
+                // and two of them vouched for a row whose SIZE was the
+                // placeholder). `size` above is the JSON's null-or-name; the
+                // predicate reads the row's own identity.
+                identityComplete: ModelGrid.namesCompletely(
+                    identity: row.identity, quantization: row.quantization),
                 verified: row.verified, priority: row.priority,
                 languages: row.languages, hfRepo: row.hfRepo, hfRevision: row.hfRevision,
                 estMemoryGB: row.estMemoryGB)

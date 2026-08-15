@@ -7,7 +7,10 @@ import Testing
 /// their pipelines yield plain text — one full-duration segment, nil
 /// confidence, no fabricated timings.
 struct ChineseEnginesTests {
-    let options = TranscribeOptions(model: "large-zh", quantization: "default", language: "zh")
+    /// The address the Router produces, not the bare size (round-9 verify:
+    /// with a bare size the engine's translation is unobservable).
+    let options = Fixtures.engineOptions(
+        backend: .fluidParaformer, family: "paraformer", size: "large-zh", language: "zh")
 
     struct SpyPipeline: TextTranscribing {
         let result: @Sendable (String, String?) throws -> String
@@ -97,5 +100,32 @@ struct ChineseEnginesTests {
         _ = try await engine.transcribeRaw(audioPath: "a.wav", options: options)
         _ = try await engine.transcribeRaw(audioPath: "b.wav", options: options)
         #expect(await counter.value == 1)
+    }
+}
+
+/// The engine's half of the seam, for both Chinese-family runtimes.
+struct ChineseFamilyTranslationTests {
+    @Test(arguments: [
+        (BackendID.fluidParaformer, "paraformer", "large-zh"),
+        (BackendID.fluidSenseVoice, "sensevoice", "small"),
+    ])
+    func `The pipeline factory receives the runtime's own name`(
+        backend: BackendID, family: String, size: String
+    ) async throws {
+        let spy = FactorySpy()
+        let engine = ChineseFamilyEngine(
+            id: backend,
+            probeDuration: { _ in 10.0 },
+            pipelineFactory: { model in
+                spy.record(model)
+                return ChineseEnginesTests.SpyPipeline { _, _ in "你好" }
+            })
+        _ = try await engine.transcribeRaw(
+            audioPath: "talk.wav",
+            options: Fixtures.engineOptions(
+                backend: backend, family: family, size: size, language: "zh"))
+
+        #expect(spy.seen == [size],
+                "\(backend.rawValue) handed its factory \(spy.seen), not '\(size)'")
     }
 }

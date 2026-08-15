@@ -100,7 +100,19 @@ public enum ModelGrid {
         guard quantization == ModelID.removedPlaceholder else {
             return (identity, Quantization(serialised: quantization))
         }
-        return (identity, row(backend: backend, identity: identity)?.quantization ?? .unknown)
+        // The catalog may answer only when it answers with ONE value.
+        //
+        // This used to take `row(backend:identity:)` — the FIRST of however
+        // many rows the identity has — and hand back its quantization. Under
+        // whisper.cpp an identity routinely has two (tiny ships q5_1 and
+        // q8_0), so a stored `…|tiny|default` would come back as
+        // `.named("q5_1")` and be marked complete: not a placeholder kept
+        // visible, a concrete value INVENTED for a record that never said it,
+        // and then vouched for as comparable (round-9 verify).
+        //
+        // Disagreement is unrecorded, and says so.
+        let claimed = Set(rows(backend: backend, identity: identity).map(\.quantization))
+        return (identity, claimed.count == 1 ? claimed.first! : .unknown)
     }
 
     /// How a model is addressed: `family/size`, always, for every runtime.
@@ -187,7 +199,22 @@ public enum ModelGrid {
     ) -> (rows: [ModelRow], excluded: [ModelRow]) {
         let all = rows(backend: backend, priorityCeiling: priorityCeiling)
         return (all.filter { $0.quantization.isComplete },
-                all.filter { !$0.quantization.isComplete })
+                all.filter { !namesCompletely(identity: $0.identity, quantization: $0.quantization) })
+    }
+
+    /// Whether an identity and a quantization together name a model completely.
+    ///
+    /// ONE definition, because round 9's verify found three that disagreed:
+    /// the MCP listing required a real size AND a complete quantization,
+    /// `comparable(...)` checked only the quantization, and
+    /// `BenchmarkRecord.identityComplete` checked only that an identity
+    /// existed — so a row whose SIZE was the removed placeholder was reported
+    /// `identity_complete: false` by one surface and ranked by another. A rule
+    /// written in three places is three rules.
+    public static func namesCompletely(identity: ModelID, quantization: Quantization) -> Bool {
+        identity.family != ModelID.removedPlaceholder
+            && identity.size != ModelID.removedPlaceholder
+            && quantization.isComplete
     }
 
     /// Why a row was left out of candidate enumeration, in one line naming it.

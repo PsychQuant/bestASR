@@ -22,10 +22,28 @@ extension BenchmarkStore.Snapshot {
             let identity = canon?.identity
             let quantization = canon?.quantization ?? Quantization(serialised: parts[3])
             let model = identity.map(ModelGrid.address(for:)) ?? "\(parts[1])/\(parts[2])"
+            // Can this record say WHICH artifact produced it? Answered from
+            // the record's OWN facts, never from today's catalog (round-9
+            // verify — judged by the catalog the answer came out backwards).
+            //
+            // Three ways it can say, and they are a CLOSED list:
+            //   1. the stored key names a concrete quantization;
+            //   2. the measurement carries the revision pin it was seeded
+            //      with (#16 put it on the row precisely because the catalog
+            //      table is rewritten wholesale on every seed);
+            //   3. the runtime has no quantization dimension to record.
+            // Anything else is unrecorded — including a stored `default` whose
+            // catalog row happens to state a value TODAY.
+            let storedQuantization = Quantization(serialised: parts[3])
+            let attested =
+                (parts[3] != ModelID.removedPlaceholder && storedQuantization.isComplete)
+                || row.hfRevision != nil
+                || quantization == .notApplicable
             return BenchmarkRecord(
                 backend: backend, model: model,
                 quantization: quantization.serialised,
                 identity: identity,
+                artifactAttested: attested,
                 language: corpus.language, metricKind: row.metricKind,
                 errorRate: row.errorRate, rtf: row.rtf,
                 peakMemoryGB: row.peakMemoryGB, audioDuration: corpus.duration,
@@ -58,7 +76,12 @@ extension BenchmarkStore.Snapshot {
                 // Carried, not defaulted: dropping it here is what let a
                 // candidate measured on several corpora be vouched for again
                 // (round-4 verify C3).
-                identity: latest.identity, language: latest.language,
+                identity: latest.identity,
+                // Carried like `identity`: a collapse that dropped it would
+                // vouch for a merged candidate the components could not
+                // vouch for (round-4 verify C3, same shape).
+                artifactAttested: group.allSatisfy(\.attestsArtifact),
+                language: latest.language,
                 metricKind: latest.metricKind, errorRate: meanError,
                 rtf: meanTimesRealtime > 0 ? 1.0 / meanTimesRealtime : 0,
                 peakMemoryGB: latest.peakMemoryGB, audioDuration: latest.audioDuration,

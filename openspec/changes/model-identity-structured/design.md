@@ -121,6 +121,16 @@ runtime 的詞彙是**資料不是規則**：`ModelGrid.engineVocabularies` 為�
 
 同一原則的另一半：**身分不提早壓成字串**。`BenchmarkCandidate` 持有 `ModelID`、`model` 為導出屬性；`BenchmarkRecord` 帶著 `identity`；`ASRRecommendation.model` 由 initialiser 從 `identity` 導出、**無法**獨立指定。每一輪的缺陷都是「某個值被提早壓成字串，之後被（或沒被）重新解析」——`ColdStartPrior.selectModel` 手上有 `ModelID` 卻回傳 `.size`，是這個形狀的第三個實例，也是讓裸 size 一路走到 engine 的那一個。
 
+### D9：「命名完整」與「能自證 artifact」是兩個問題，證據來自兩個時間
+
+`identityComplete` 問的是**這個身分被命名完整了嗎**（family / size / quantization 都說了什麼）。`artifactAttested` 問的是**這筆記錄能不能說出它跑在哪個 artifact 上**。把兩者當成同一件事，是 round 9 的排除規則方向反了的原因。
+
+關鍵在**證據的時間**。`ModelGrid.canonical` 拿今天的目錄值去補一個 stored placeholder——那對**分組與顯示**是合理的（「這筆記錄描述的是目錄今天理解的哪一個模型配置」），對**背書**則不是（「這筆記錄當時跑在什麼上」是過去的事實，今天的目錄不能回答）。實測把方向照了出來：帶 commit sha pin 的 44 筆被排除，量測當時精度由相依套件預設決定的 47 筆被追認。
+
+正解不是新機制——`MeasurementRow.hfRevision` 早在 #16 就為了完全相同的理由存在。所以 attestation 的證據是**封閉的三項**：stored key 有具體 quantization、measurement 自帶 revision pin、runtime 根本沒有量化維度。目錄不在列內。
+
+處置也跟著改：不能自證的記錄**照常排序、但具名**。刪掉證據不會讓它變成不存在，只會讓讀的人看不到它的限制。
+
 ## Implementation Contract
 
 **Behavior（可觀察的結果）**

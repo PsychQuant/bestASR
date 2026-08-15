@@ -233,3 +233,60 @@ extension ModelID {
         ModelID(family: family, size: size)!
     }
 }
+
+extension Fixtures {
+    /// Options in the shape a measured path actually hands an engine.
+    ///
+    /// The engine-layer counterpart of `Fixtures.record`, and the gap round 9's
+    /// devil's advocate found: engine tests spelled the model as a bare size —
+    /// a string the Router has not produced since #183 — so
+    /// `ModelGrid.engineName` was the IDENTITY FUNCTION in every one of them,
+    /// and deleting an engine's translation changed nothing anywhere. All 564
+    /// tests passed with three of the five engines no longer translating.
+    ///
+    /// Family and size are separate arguments for the same reason as `record`:
+    /// the address is derived, never handed in, so a spelling production does
+    /// not produce cannot be written here.
+    static func engineOptions(
+        backend: BackendID,
+        family: String,
+        size: String,
+        quantization: String = ModelID.removedPlaceholder,
+        language: String? = nil,
+        prompt: String? = nil,
+        deterministicDecode: Bool = false
+    ) -> TranscribeOptions {
+        guard let canonical = ModelGrid.canonical(
+            backend: backend.rawValue, family: family, size: size, quantization: quantization)
+        else {
+            fatalError("fixture names no model: \(backend.rawValue)|\(family)|\(size)")
+        }
+        return TranscribeOptions(
+            model: ModelGrid.address(for: canonical.identity),
+            quantization: canonical.quantization.serialised,
+            language: language, prompt: prompt,
+            deterministicDecode: deterministicDecode)
+    }
+}
+
+/// Records the model string a pipeline factory is handed.
+///
+/// An engine's translation is only observable at the point it loads a model,
+/// and every fluid-family test discarded that argument (`pipelineFactory:
+/// { _ in ... }`). Nothing could see whether the engine translated.
+final class FactorySpy: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storage: [String] = []
+
+    var seen: [String] {
+        lock.lock()
+        defer { lock.unlock() }
+        return storage
+    }
+
+    func record(_ model: String) {
+        lock.lock()
+        defer { lock.unlock() }
+        storage.append(model)
+    }
+}

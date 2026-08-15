@@ -339,17 +339,43 @@ public struct BenchmarkRecord: Codable, Sendable, Equatable {
     /// for again. Computing it from the record's own components removes both:
     /// there is no key to be missing and no argument to forget.
     public var identityComplete: Bool {
-        identity != nil && Quantization(serialised: quantization).isComplete
+        guard let identity else { return false }
+        return ModelGrid.namesCompletely(
+            identity: identity, quantization: Quantization(serialised: quantization))
     }
+
+    /// Whether the record can say WHICH artifact produced it — set by the
+    /// projection from the record's OWN facts, never from today's catalog.
+    ///
+    /// A DIFFERENT question from `identityComplete`, and round 9's verify
+    /// showed what conflating them costs. A record can name its model
+    /// completely and still be unable to say which published variant the
+    /// runtime chose for it; conversely a record whose stored quantization
+    /// segment reads `default` may carry a commit-sha pin that freezes the
+    /// artifact exactly. Judged by the catalog, the two groups came out
+    /// **backwards**: the 44 sha-pinned measurements were called incomparable
+    /// and the 47 whose precision was a dependency default were vouched for.
+    ///
+    /// `nil` for records that predate the field. A record that cannot say is
+    /// not attested, so `nil` and `false` mean the same thing to a caller —
+    /// but Optional is what lets legacy JSON decode at all (#183 round-4 C2:
+    /// a stored non-Optional `Bool` threw `keyNotFound` on every older record).
+    public var artifactAttested: Bool?
+
+    /// `artifactAttested`, with the two ways of not being attested collapsed —
+    /// which is correct HERE because a record that does not say and a record
+    /// that says no are equally unable to vouch for themselves.
+    public var attestsArtifact: Bool { artifactAttested == true }
 
     public init(
         backend: String, model: String, quantization: String,
-        identity: ModelID? = nil, language: String,
+        identity: ModelID? = nil, artifactAttested: Bool? = nil, language: String,
         metricKind: MetricKind, errorRate: Double, rtf: Double, peakMemoryGB: Double,
         audioDuration: Double, measuredAt: Date, chip: String, macosVersion: String,
         appVersion: String
     ) {
         self.identity = identity
+        self.artifactAttested = artifactAttested
         self.backend = backend
         self.model = model
         self.quantization = quantization

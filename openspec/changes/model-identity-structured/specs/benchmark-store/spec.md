@@ -18,10 +18,31 @@ The store's `model_id` SHALL remain the four-segment string `runtime|family|size
 
 A projected measurement SHALL expose whether the identity it references is complete. A record whose quantization is unknown SHALL be marked incomplete.
 
-#### Scenario: Incomplete identities are excluded from ranking
+### Requirement: Records carry whether they can attest which artifact produced them
 
-- **WHEN** the router ranks candidates from measured data
-- **THEN** records marked incomplete are still ranked for now, because 344 of 383 stored measurements carry the legacy placeholder and excluding them would send nearly every measured recommendation back to the cold-start prior. Excluding them travels with the record re-encoding, which is what stops them carrying it.
+A projected measurement SHALL expose, separately from identity completeness, whether it can say WHICH artifact produced it. That answer SHALL be derived from the record's own facts — a concrete quantization in its stored key, a revision pin recorded on the measurement itself, or a runtime with no quantization dimension — and SHALL NOT be derived from the catalog's present contents.
+
+A record that cannot attest its artifact SHALL still rank. The recommendation SHALL name what it cannot vouch for.
+
+#### Scenario: The catalog's present value does not attest a past measurement
+
+- **WHEN** a stored key records its quantization as the removed placeholder, and the catalog row for that model states a concrete value today
+- **THEN** the record is not attested, because the catalog describes what the runtime loads now and not what the measurement ran on
+
+#### Scenario: A recorded revision pin attests even without a named quantization
+
+- **WHEN** a measurement carries the revision it was seeded with
+- **THEN** it is attested, because the artifact is frozen by that pin whether or not its quantization was ever labelled
+
+#### Scenario: Unattested records rank and are named
+
+- **WHEN** the router ranks candidates and some cannot attest their artifact
+- **THEN** they are ranked rather than dropped, and the recommendation states which candidates cannot promise a like-for-like comparison
+
+#### Scenario: A merged candidate attests only if every run did
+
+- **WHEN** a candidate's measurements collapse into one record and any component could not attest its artifact
+- **THEN** the merged record cannot attest either
 
 #### Scenario: Incomplete records remain readable
 
