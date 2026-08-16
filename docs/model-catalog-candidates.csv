@@ -1,0 +1,60 @@
+repo_id,ecosystem,family,language_signal,language_evidence,downloads,revision,license,addable,in_catalog,note
+FluidInference/paraformer-large-zh-coreml,fluidaudio,paraformer,zh,model card (probed),,5dd557bd0634,other,yes — sha pinned,no,ALREADY CATALOGUED as fluid-paraformer|paraformer|large-zh|default with NO hf_repo — this fills that gap
+FluidInference/parakeet-ctc-0.6b-zh-cn-coreml,fluidaudio,parakeet,"zh,en",model card (probed),,ad0da3a453ce,cc-by-4.0,yes — sha pinned,no,dedicated Chinese parakeet; bestASR has no zh parakeet
+FluidInference/parakeet-0.6b-ja-coreml,fluidaudio,parakeet,ja,model card (probed),,2952296ff1da,cc-by-4.0,yes — sha pinned,no,dedicated Japanese parakeet; bestASR has no ja parakeet
+FluidInference/parakeet-unified-en-0.6b-coreml,fluidaudio,parakeet,en,model card (probed),,4252711f6f06,cc-by-4.0,yes — sha pinned,no,relates to parked issue #123 (idd/123-parakeet-unified)
+FluidInference/canary-1b-v2-coreml,fluidaudio,canary,unknown,unverified,,,,no — needs revision probe,no,CoreML canary; bestASR carries the MLX build only
+FluidInference/Nemotron-3.5-ASR-Streaming-Multilingual-0.6b-CoreML,fluidaudio,nemotron-asr,multi,from repo id,,,,no — needs revision probe,no,CoreML nemotron; bestASR carries the MLX build only
+FluidInference/nemotron-speech-streaming-en-0.6b-coreml,fluidaudio,nemotron-speech,en,from repo id,,,,no — needs revision probe,no,English streaming variant
+FluidInference/parakeet-ctc-110m-coreml,fluidaudio,parakeet,unknown,unverified,,,,no — needs revision probe,no,"small parakeet, CTC head"
+FluidInference/cohere-transcribe-03-2026-coreml,fluidaudio,cohere-transcribe,unknown,unverified,,,,no — needs revision probe,no,new family; MLX sibling also exists (see below)
+mlx-community/parakeet-tdt-0.6b-v2,mlx-audio,parakeet,unknown,card declares none — NOT to be read as English,1.87M,8ae155301e23,cc-by-4.0,yes — sha pinned,no,HIGHER downloads than the v3 bestASR carries; predecessor version
+mlx-community/parakeet-tdt_ctc-0.6b-ja,mlx-audio,parakeet,ja,card declares none — NOT to be read as English,4.04k,e3810190ff52,cc-by-4.0,yes — sha pinned,no,Japanese parakeet in MLX
+mlx-community/parakeet-tdt_ctc-110m,mlx-audio,parakeet,unknown,unverified,104k,,,no — needs revision probe,no,small parakeet
+mlx-community/parakeet-tdt-1.1b,mlx-audio,parakeet,unknown,unverified,1.2k,,,no — needs revision probe,no,larger parakeet
+mlx-community/whisper-large-v3-turbo-4bit,mlx-audio,whisper,multi,card declares none — NOT to be read as English,4.52k,0f058d38170d,apache-2.0,yes — sha pinned,no,EXPLICIT quant variant of a model bestASR records as quantization=default
+mlx-community/whisper-large-v3-turbo-8bit,mlx-audio,whisper,multi,card declares none — NOT to be read as English,1.06k,62103fc276a3,apache-2.0,yes — sha pinned,no,EXPLICIT quant variant of a model bestASR records as quantization=default
+mlx-community/whisper-large-v3-turbo-fp16,mlx-audio,whisper,multi,unverified,669,,,no — needs revision probe,no,EXPLICIT quant variant of a model bestASR records as quantization=default
+mlx-community/whisper-large-v3-mlx,mlx-audio,whisper,multi,unverified,25.7k,,,no — needs revision probe,no,
+mlx-community/whisper-small-mlx,mlx-audio,whisper,multi,unverified,28.3k,,,no — needs revision probe,no,
+mlx-community/whisper-medium-mlx,mlx-audio,whisper,multi,unverified,4.45k,,,no — needs revision probe,no,
+mlx-community/whisper-base-mlx,mlx-audio,whisper,multi,unverified,5.68k,,,no — needs revision probe,no,
+BRlin/Breeze-ASR-25-mlx-fp16,mlx-audio,breeze-asr,"zh,en",model card (probed),1.71k,9c3ad66c7bd6,apache-2.0,yes — sha pinned,no,Breeze is a Traditional-Chinese model family; zh-TW claim NOT verified from the listing
+BRlin/Breeze-ASR-25-mlx-bf16,mlx-audio,breeze-asr,zh-TW?,unverified,1.51k,,,no — needs revision probe,no,as above; bf16 sibling
+mlx-community/MiMo-V2.5-ASR-MLX-8bit,mlx-audio,mimo-asr,unknown,unverified,558,,,no — needs revision probe,no,language coverage NOT verified
+aufklarer/Qwen3-ASR-1.7B-MLX-4bit,mlx-audio,qwen3-asr,unknown,unverified,784,,,no — needs revision probe,no,larger than the qwen3-asr/small bestASR carries
+beshkenadze/cohere-transcribe-03-2026-mlx-8bit,mlx-audio,cohere-transcribe,unknown,unverified,495,,,no — needs revision probe,no,MLX sibling of the FluidInference CoreML build
+aufklarer/MOSS-Transcribe-Diarize-0.9B-MLX-5bit,mlx-audio,moss-transcribe,unknown,unverified,1.1k,,,no — needs revision probe,no,transcribe + diarize in one model
+majentik/MOSS-Transcribe-preview-2B-MLX-6bit,mlx-audio,moss-transcribe,unknown,unverified,601,,,no — needs revision probe,no,
+ai-babai/gigaam-multilingual-mlx,mlx-audio,gigaam,multi,unverified,451,,,no — needs revision probe,no,
+al-bo/gigaam-v3-rnnt-mlx,mlx-audio,gigaam,unknown,unverified,320,,,no — needs revision probe,no,
+leope/ark-asr-0.6B-mlx,mlx-audio,ark-asr,unknown,unverified,2.68k,,,no — needs revision probe,no,
+leope/ark-asr-3B-mlx,mlx-audio,ark-asr,unknown,unverified,1.17k,,,no — needs revision probe,no,
+NielsPeter/parakeet-tdt-0.6b-v3-mlx-bf16,mlx-audio,parakeet,unknown,unverified,2.31k,,,no — needs revision probe,no,bf16 build of the v3 bestASR already carries
+argmaxinc/whisperkit-coreml :: distil-whisper_distil-large-v3,whisperkit,whisper,multi,from variant name,,,,n/a — not a new model,variant-of-existing-row,published variant that bestASR's quantization=default does not distinguish
+argmaxinc/whisperkit-coreml :: distil-whisper_distil-large-v3_594MB,whisperkit,whisper,multi,from variant name,,,,n/a — not a new model,variant-of-existing-row,published variant that bestASR's quantization=default does not distinguish
+argmaxinc/whisperkit-coreml :: distil-whisper_distil-large-v3_turbo,whisperkit,whisper,multi,from variant name,,,,n/a — not a new model,variant-of-existing-row,published variant that bestASR's quantization=default does not distinguish
+argmaxinc/whisperkit-coreml :: distil-whisper_distil-large-v3_turbo_600MB,whisperkit,whisper,multi,from variant name,,,,n/a — not a new model,variant-of-existing-row,published variant that bestASR's quantization=default does not distinguish
+argmaxinc/whisperkit-coreml :: openai_whisper-base,whisperkit,whisper,multi,from variant name,,,,n/a — not a new model,variant-of-existing-row,published variant that bestASR's quantization=default does not distinguish
+argmaxinc/whisperkit-coreml :: openai_whisper-base.en,whisperkit,whisper,en-only,from variant name,,,,n/a — not a new model,variant-of-existing-row,published variant that bestASR's quantization=default does not distinguish
+argmaxinc/whisperkit-coreml :: openai_whisper-large-v2,whisperkit,whisper,multi,from variant name,,,,n/a — not a new model,variant-of-existing-row,published variant that bestASR's quantization=default does not distinguish
+argmaxinc/whisperkit-coreml :: openai_whisper-large-v2_949MB,whisperkit,whisper,multi,from variant name,,,,n/a — not a new model,variant-of-existing-row,published variant that bestASR's quantization=default does not distinguish
+argmaxinc/whisperkit-coreml :: openai_whisper-large-v2_turbo,whisperkit,whisper,multi,from variant name,,,,n/a — not a new model,variant-of-existing-row,published variant that bestASR's quantization=default does not distinguish
+argmaxinc/whisperkit-coreml :: openai_whisper-large-v2_turbo_955MB,whisperkit,whisper,multi,from variant name,,,,n/a — not a new model,variant-of-existing-row,published variant that bestASR's quantization=default does not distinguish
+argmaxinc/whisperkit-coreml :: openai_whisper-large-v3,whisperkit,whisper,multi,from variant name,,,,n/a — not a new model,variant-of-existing-row,published variant that bestASR's quantization=default does not distinguish
+argmaxinc/whisperkit-coreml :: openai_whisper-large-v3-v20240930,whisperkit,whisper,multi,from variant name,,,,n/a — not a new model,variant-of-existing-row,published variant that bestASR's quantization=default does not distinguish
+argmaxinc/whisperkit-coreml :: openai_whisper-large-v3-v20240930_547MB,whisperkit,whisper,multi,from variant name,,,,n/a — not a new model,variant-of-existing-row,published variant that bestASR's quantization=default does not distinguish
+argmaxinc/whisperkit-coreml :: openai_whisper-large-v3-v20240930_626MB,whisperkit,whisper,multi,from variant name,,,,n/a — not a new model,variant-of-existing-row,published variant that bestASR's quantization=default does not distinguish
+argmaxinc/whisperkit-coreml :: openai_whisper-large-v3-v20240930_turbo,whisperkit,whisper,multi,from variant name,,,,n/a — not a new model,variant-of-existing-row,published variant that bestASR's quantization=default does not distinguish
+argmaxinc/whisperkit-coreml :: openai_whisper-large-v3-v20240930_turbo_632MB,whisperkit,whisper,multi,from variant name,,,,n/a — not a new model,variant-of-existing-row,published variant that bestASR's quantization=default does not distinguish
+argmaxinc/whisperkit-coreml :: openai_whisper-large-v3_947MB,whisperkit,whisper,multi,from variant name,,,,n/a — not a new model,variant-of-existing-row,published variant that bestASR's quantization=default does not distinguish
+argmaxinc/whisperkit-coreml :: openai_whisper-large-v3_turbo,whisperkit,whisper,multi,from variant name,,,,n/a — not a new model,variant-of-existing-row,published variant that bestASR's quantization=default does not distinguish
+argmaxinc/whisperkit-coreml :: openai_whisper-large-v3_turbo_954MB,whisperkit,whisper,multi,from variant name,,,,n/a — not a new model,variant-of-existing-row,published variant that bestASR's quantization=default does not distinguish
+argmaxinc/whisperkit-coreml :: openai_whisper-medium,whisperkit,whisper,multi,from variant name,,,,n/a — not a new model,variant-of-existing-row,published variant that bestASR's quantization=default does not distinguish
+argmaxinc/whisperkit-coreml :: openai_whisper-medium.en,whisperkit,whisper,en-only,from variant name,,,,n/a — not a new model,variant-of-existing-row,published variant that bestASR's quantization=default does not distinguish
+argmaxinc/whisperkit-coreml :: openai_whisper-small,whisperkit,whisper,multi,from variant name,,,,n/a — not a new model,variant-of-existing-row,published variant that bestASR's quantization=default does not distinguish
+argmaxinc/whisperkit-coreml :: openai_whisper-small.en,whisperkit,whisper,en-only,from variant name,,,,n/a — not a new model,variant-of-existing-row,published variant that bestASR's quantization=default does not distinguish
+argmaxinc/whisperkit-coreml :: openai_whisper-small.en_217MB,whisperkit,whisper,en-only,from variant name,,,,n/a — not a new model,variant-of-existing-row,published variant that bestASR's quantization=default does not distinguish
+argmaxinc/whisperkit-coreml :: openai_whisper-small_216MB,whisperkit,whisper,multi,from variant name,,,,n/a — not a new model,variant-of-existing-row,published variant that bestASR's quantization=default does not distinguish
+argmaxinc/whisperkit-coreml :: openai_whisper-tiny,whisperkit,whisper,multi,from variant name,,,,n/a — not a new model,variant-of-existing-row,published variant that bestASR's quantization=default does not distinguish
+argmaxinc/whisperkit-coreml :: openai_whisper-tiny.en,whisperkit,whisper,en-only,from variant name,,,,n/a — not a new model,variant-of-existing-row,published variant that bestASR's quantization=default does not distinguish

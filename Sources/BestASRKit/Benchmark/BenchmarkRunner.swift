@@ -134,7 +134,13 @@ public struct BenchmarkRunner {
             // reference catalog never reaches here (engines drive the loop,
             // spec benchmark: Reference rows never enumerate).
             let ceiling: Int? = allGrid ? nil : 1
-            for row in ModelGrid.rows(backend: backend.rawValue, priorityCeiling: ceiling) {
+            // Every row is a candidate; the ones whose artifact is not
+            // determined are NAMED, not dropped (round-10 verify). Refusing to
+            // benchmark an unattested row is how it stays unattested forever.
+            let (comparable, excluded) = ModelGrid.comparable(
+                backend: backend.rawValue, priorityCeiling: ceiling)
+            notes += excluded.map(ModelGrid.exclusionNote(for:))
+            for row in comparable {
                 // --models accepts the bare size AND the family/size address
                 // that list-models prints (#65 verify F2 — the two must agree).
                 let rowAddress = "\(row.family)/\(row.size)".lowercased()
@@ -146,14 +152,13 @@ public struct BenchmarkRunner {
                 {
                     continue
                 }
-                // mlx-audio candidates are addressed family/size (#65 —
-                // bare sizes collide across families and trapped the report's
-                // keyed dictionaries: canary 1b vs mms 1b).
-                let address = backend.rawValue == ModelGrid.backendMLXAudio
-                    ? "\(row.family)/\(row.size)" : row.size
+                // The identity, not a spelling of it. The candidate derives
+                // its own address, so writer and reader can no longer be on
+                // two rules — there is only one, and it lives on the type.
                 candidates.append(
                     BenchmarkCandidate(
-                        backend: backend, model: address, quantization: row.quantization))
+                        backend: backend, identity: row.identity,
+                        quantization: row.quantization.serialised))
             }
         }
         return Enumeration(candidates: candidates, notes: notes)
@@ -302,6 +307,11 @@ public struct BenchmarkRunner {
                     backend: candidate.backend.rawValue,
                     model: candidate.model,
                     quantization: candidate.quantization,
+                    // Carried, not re-derived. The runner has known the
+                    // identity since enumeration; dropping it here is what
+                    // forced the persist path to parse the address back into
+                    // one, and a parse can disagree with what it parses.
+                    identity: candidate.identity,
                     language: language,
                     metricKind: metricKind,
                     errorRate: errorRate,

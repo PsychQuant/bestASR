@@ -146,8 +146,11 @@ public actor BestASRMCPServer {
             ),
             Tool(
                 name: "list_models",
-                description: "Show the model grid: whisper sizes plus the mlx-audio catalog "
-                    + "with priority tiers and pinned revisions.",
+                description: "The model catalog as structured rows: family, size and runtime "
+                    + "are separate fields, so the same model under two runtimes "
+                    + "groups by (family, size). Carries priority tiers, pinned "
+                    + "revisions, and whether each row identifies its artifact "
+                    + "well enough to be compared.",
                 inputSchema: .object([
                     "type": .string("object"),
                     "properties": .object([:]),
@@ -369,10 +372,10 @@ public actor BestASRMCPServer {
             return try await core.recommendJSON(audioPath: audioPath, selection: selection)
 
         case "list_backends":
-            return await core.listBackends()
+            return await core.listBackendsJSON()
 
         case "list_models":
-            return core.listModels()
+            return core.listModelsJSON()
 
         case "corpus_add":
             let row = try CorpusRegistry.add(

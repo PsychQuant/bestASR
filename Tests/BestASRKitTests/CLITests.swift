@@ -17,13 +17,6 @@ private func makeCore(
     )
 }
 
-private enum FakeClockProbe {
-    static func probe() -> MeasurementProbe {
-        let clock = FakeClock(step: 1.0)
-        return clock.probe()
-    }
-}
-
 private let auto = SelectionRequest(
     profileName: "medium", backendOverride: nil, modelOverride: nil, requestedLanguage: "auto")
 
@@ -253,6 +246,26 @@ struct ListCommandTests {
         #expect(output.contains("q5_0"))  // medium/large-tier row
     }
 
+    @Test func `list-models names the model first and the provider second`() throws {
+        // #183: the old output led with the runtime and printed the size
+        // alone, so a model was findable only through its provider. Every
+        // line now reads `family size (runtime)`.
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let core = makeCore(engines: [], cacheDir: dir)
+        let output = core.listModels()
+
+        #expect(output.contains("whisper large-v3-turbo"))
+        #expect(output.contains("sensevoice small"))
+        #expect(output.contains("parakeet 0.6b-v3"))
+        // The size never stands alone as a whole line's leading token.
+        let whisperLine = try #require(
+            output.split(separator: "\n").first { $0.contains("large-v3-turbo") })
+        #expect(whisperLine.hasPrefix("whisper "))
+        #expect(whisperLine.contains("whisperkit"))
+    }
+
+
     @Test func `Production wiring bundles every non-external engine`() {
         // #35/#51 (spec asr-engine + external-engine-protocol): live() always
         // carries the bundled engines; external backends join only when the
@@ -426,5 +439,51 @@ struct ContextCommandTests {
             try JSONSerialization.jsonObject(with: Data(output.utf8)) as? [String: Any])
         let reasons = try #require(json["reason"] as? [String])
         #expect(reasons.contains { $0.contains("context:") && $0.contains("5 value(s) injected") })
+    }
+}
+
+/// Task 6.2 of change `model-identity-structured` (issue #183).
+struct StructuredModelListingTests {
+    private func entries() throws -> [[String: Any]] {
+        let core = CommandCore(engines: [], store: BenchmarkStore())
+        let data = Data(core.listModelsJSON().utf8)
+        let object = try #require(
+            try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        return try #require(object["models"] as? [[String: Any]])
+    }
+
+
+
+    @Test func `A row that cannot be compared is marked, not omitted`() throws {
+        let rows = try entries()
+        let incomplete = rows.filter { $0["identity_complete"] as? Bool == false }
+        #expect(!incomplete.isEmpty)
+        // Marked, not dropped: every row is still listed.
+        #expect(rows.count == ModelGrid.rows.count)
+        // And every incomplete row says WHY — either no size or no quantization.
+        for row in incomplete {
+            let noSize = row["size"] == nil || row["size"] is NSNull
+            let unknownQuant = row["quantization_kind"] as? String == "unknown"
+            #expect(noSize || unknownQuant)
+        }
+    }
+
+}
+
+/// Round-5 verify (#183): `padding(toLength:)` truncates as well as pads, so a
+/// name longer than its column loses its tail — including a closing bracket.
+struct ListModelsColumnTests {
+    @Test func `A name longer than its column is not cut off`() throws {
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let output = makeCore(engines: [], cacheDir: dir).listModels()
+
+        for line in output.split(separator: "\n") {
+            let opens = line.filter { $0 == "(" }.count
+            let closes = line.filter { $0 == ")" }.count
+            #expect(opens == closes, "unbalanced bracket, name truncated: \(line)")
+        }
+        // The two rows with no upstream version name are the long ones.
+        #expect(output.contains("(version unnamed upstream)"))
     }
 }

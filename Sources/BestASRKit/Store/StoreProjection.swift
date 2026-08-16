@@ -9,20 +9,38 @@ extension BenchmarkStore.Snapshot {
         let machinesById = Dictionary(uniqueKeysWithValues: machines.map { ($0.machineId, $0) })
         let corporaById = Dictionary(uniqueKeysWithValues: corpora.map { ($0.corpusId, $0) })
         let projected = BenchmarkStore.latestMeasurements(measurements).compactMap { row -> BenchmarkRecord? in
-            var parts = row.modelId.split(separator: "|").map(String.init)
+            let parts = row.modelId.split(separator: "|").map(String.init)
             guard parts.count == 4, let corpus = corporaById[row.corpusId] else { return nil }
-            // Legacy-migrated ids carry family == size (the flat cache had no
-            // family); normalize to the whisper family so re-benchmarks of the
-            // same candidate supersede legacy rows (verify #14 M-9).
-            if parts[0] != ModelGrid.backendMLXAudio, parts[1] == parts[2] {
-                parts[1] = "whisper"
-            }
             let backend = parts[0]
-            // mlx-audio rows are addressed family/size; whisper backends by size.
-            let model = backend == ModelGrid.backendMLXAudio
-                ? "\(parts[1])/\(parts[2])" : parts[2]
+            // Canonicalise on READ (#183). The stored key is never rewritten;
+            // this says what it means in today's catalog, so a measurement
+            // taken before the catalog stated its quantization collapses with
+            // one taken after into a single candidate instead of competing
+            // with itself in the ranking pool.
+            let canon = ModelGrid.canonical(
+                backend: backend, family: parts[1], size: parts[2], quantization: parts[3])
+            let identity = canon?.identity
+            let quantization = canon?.quantization ?? Quantization(serialised: parts[3])
+            let model = identity.map(ModelGrid.address(for:)) ?? "\(parts[1])/\(parts[2])"
+            // Can this record say WHICH artifact produced it? Asked of the
+            // record's OWN facts — the STORED segment and the pin the
+            // measurement carries — never of `quantization` above, which for a
+            // stored placeholder is the catalog's present opinion.
+            //
+            // Round 10 caught all three arms of the previous version: it asked
+            // `isComplete`, which says true for `.deferred` and so attested
+            // every record this change writes; it took any non-nil revision as
+            // proof, so `""` and `"main"` bought silence; and its third arm
+            // read the canonical value, putting the catalog on a list whose
+            // comment said the catalog was not on it.
+            let attested = ModelGrid.determinesArtifact(
+                quantization: Quantization(serialised: parts[3]),
+                hfRevision: row.hfRevision)
             return BenchmarkRecord(
-                backend: backend, model: model, quantization: parts[3],
+                backend: backend, model: model,
+                quantization: quantization.serialised,
+                identity: identity,
+                artifactAttested: attested,
                 language: corpus.language, metricKind: row.metricKind,
                 errorRate: row.errorRate, rtf: row.rtf,
                 peakMemoryGB: row.peakMemoryGB, audioDuration: corpus.duration,
@@ -51,7 +69,16 @@ extension BenchmarkStore.Snapshot {
                 group.map(\.timesRealtime).reduce(0, +) / Double(group.count)
             return BenchmarkRecord(
                 backend: latest.backend, model: latest.model,
-                quantization: latest.quantization, language: latest.language,
+                quantization: latest.quantization,
+                // Carried, not defaulted: dropping it here is what let a
+                // candidate measured on several corpora be vouched for again
+                // (round-4 verify C3).
+                identity: latest.identity,
+                // Carried like `identity`: a collapse that dropped it would
+                // vouch for a merged candidate the components could not
+                // vouch for (round-4 verify C3, same shape).
+                artifactAttested: group.allSatisfy(\.attestsArtifact),
+                language: latest.language,
                 metricKind: latest.metricKind, errorRate: meanError,
                 rtf: meanTimesRealtime > 0 ? 1.0 / meanTimesRealtime : 0,
                 peakMemoryGB: latest.peakMemoryGB, audioDuration: latest.audioDuration,

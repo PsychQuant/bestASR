@@ -67,12 +67,14 @@ struct LanguageRoutingTests {
             host: host, profile: .medium, requestedLanguage: "zh",
             backendOverride: "fluid-parakeet", modelOverride: nil,
             records: [
-                BenchmarkRecord(
-                    backend: "fluid-parakeet", model: "0.6b-v3", quantization: "default",
-                    language: "zh", metricKind: .cer, errorRate: 0.10, rtf: 0.1,
-                    peakMemoryGB: 1, audioDuration: 60,
-                    measuredAt: Date(timeIntervalSince1970: 1_700_000_000),
-                    chip: "TestChip", macosVersion: "26.0", appVersion: "test")
+                // Built through the fixture so it carries the shape the
+                // projection produces — quantization included. A hand-rolled
+                // record spelling `default` names no comparable artifact and
+                // is now excluded from ranking before this gate is reached.
+                Fixtures.record(
+                    backend: .fluidParakeet, family: "parakeet", size: "0.6b-v3",
+                    language: "zh", errorRate: 0.10, timesRealtime: 10,
+                    chip: "TestChip")
             ],
             availability: [.whisperKit: true, .fluidParakeet: true])
         // The user's will governs (quality-floor doctrine) — but never silently.

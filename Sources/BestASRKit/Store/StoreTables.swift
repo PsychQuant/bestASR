@@ -30,12 +30,24 @@ public struct MachineRow: Codable, Sendable, Equatable {
 }
 
 /// The model grid row (catalog). Key: `model_id` = backend|family|size|quant.
+///
+/// The row holds a structured ``ModelID`` and a ``Quantization`` rather than
+/// four loose strings (#183), while the wire format stays exactly as it was:
+/// the same flat JSON columns and the same four-segment key. Nothing already
+/// written to `models.jsonl` needs rewriting for this change.
 public struct ModelRow: Codable, Sendable, Equatable {
     public let modelId: String
+    /// The runtime hosting this model. Not part of the identity — the same
+    /// model under two runtimes is one model measured two ways.
     public let backend: String
-    public let family: String
-    public let size: String
-    public let quantization: String
+    public let identity: ModelID
+    public let quantization: Quantization
+
+    /// The family half of ``identity``. Derived, so the two cannot disagree.
+    public var family: String { identity.family }
+    /// The version half of ``identity``. Derived, so the two cannot disagree.
+    public var size: String { identity.size }
+
     /// HuggingFace repo id; nil when no verified repo is known.
     public let hfRepo: String?
     /// Pinned repo revision (full commit sha) — verification freezes the
@@ -63,17 +75,16 @@ public struct ModelRow: Codable, Sendable, Equatable {
     }
 
     public init(
-        backend: String, family: String, size: String, quantization: String,
+        backend: String, identity: ModelID, quantization: Quantization,
         hfRepo: String? = nil, hfRevision: String? = nil,
         languages: [String] = ["multi"],
         estMemoryGB: Double, priority: Int, verified: Bool = false
     ) {
         self.backend = backend
-        self.family = family
-        self.size = size
+        self.identity = identity
         self.quantization = quantization
         self.modelId = Self.id(
-            backend: backend, family: family, size: size, quantization: quantization)
+            backend: backend, identity: identity, quantization: quantization)
         self.hfRepo = hfRepo
         self.hfRevision = hfRevision
         self.languages = languages
@@ -82,10 +93,95 @@ public struct ModelRow: Codable, Sendable, Equatable {
         self.verified = verified
     }
 
+    /// Build a row the way the catalog literals read: family and size spelled
+    /// out, quantization stated as one of the four facts it can be. Traps on a
+    /// family or size that names nothing, because a catalog row is a
+    /// compile-time constant — failing at launch, naming the row, beats
+    /// carrying an identity that identifies nothing.
+    public init(
+        backend: String, family: String, size: String, quantization: Quantization,
+        hfRepo: String? = nil, hfRevision: String? = nil,
+        languages: [String] = ["multi"],
+        estMemoryGB: Double, priority: Int, verified: Bool = false
+    ) {
+        guard let identity = ModelID(family: family, size: size) else {
+            preconditionFailure(
+                "catalog row names no model: family \"\(family)\", size \"\(size)\"")
+        }
+        self.init(
+            backend: backend, identity: identity, quantization: quantization,
+            hfRepo: hfRepo, hfRevision: hfRevision, languages: languages,
+            estMemoryGB: estMemoryGB, priority: priority, verified: verified)
+    }
+
+    /// The store key for a structured identity — how every row now gets its own.
+    public static func id(
+        backend: String, identity: ModelID, quantization: Quantization
+    ) -> String {
+        id(backend: backend, family: identity.family, size: identity.size,
+           quantization: quantization.serialised)
+    }
+
+    /// The store key from loose segments. Kept because reading history means
+    /// joining four strings that a `ModelID` may decline to carry — the
+    /// projection path parses records written before this change.
     public static func id(
         backend: String, family: String, size: String, quantization: String
     ) -> String {
         "\(backend)|\(family)|\(size)|\(quantization)"
+    }
+
+    // The row's JSON keeps the flat columns the store has always written —
+    // holding a `ModelID` is an in-memory shape, not a file-format change.
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let family = try container.decode(String.self, forKey: .family)
+        let size = try container.decode(String.self, forKey: .size)
+        guard let identity = ModelID(family: family, size: size) else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .family, in: container,
+                debugDescription:
+                    "a record must name a family and a size; got \"\(family)\" and \"\(size)\"")
+        }
+        self.identity = identity
+        self.backend = try container.decode(String.self, forKey: .backend)
+        self.quantization = Quantization(
+            serialised: try container.decode(String.self, forKey: .quantization))
+        self.hfRepo = try container.decodeIfPresent(String.self, forKey: .hfRepo)
+        self.hfRevision = try container.decodeIfPresent(String.self, forKey: .hfRevision)
+        self.languages = try container.decode([String].self, forKey: .languages)
+        self.estMemoryGB = try container.decode(Double.self, forKey: .estMemoryGB)
+        self.priority = try container.decode(Int.self, forKey: .priority)
+        self.verified = try container.decode(Bool.self, forKey: .verified)
+
+        // The key is derived, never trusted: a stored key that disagrees with
+        // the columns beside it means one of the two is lying, and a silent
+        // choice between them would decide which measurements get compared.
+        let derived = Self.id(
+            backend: backend, family: family, size: size,
+            quantization: quantization.serialised)
+        let stored = try container.decode(String.self, forKey: .modelId)
+        guard stored == derived else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .modelId, in: container,
+                debugDescription: "model_id \"\(stored)\" disagrees with its columns (\(derived))")
+        }
+        self.modelId = derived
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(modelId, forKey: .modelId)
+        try container.encode(backend, forKey: .backend)
+        try container.encode(identity.family, forKey: .family)
+        try container.encode(identity.size, forKey: .size)
+        try container.encode(quantization.serialised, forKey: .quantization)
+        try container.encodeIfPresent(hfRepo, forKey: .hfRepo)
+        try container.encodeIfPresent(hfRevision, forKey: .hfRevision)
+        try container.encode(languages, forKey: .languages)
+        try container.encode(estMemoryGB, forKey: .estMemoryGB)
+        try container.encode(priority, forKey: .priority)
+        try container.encode(verified, forKey: .verified)
     }
 }
 

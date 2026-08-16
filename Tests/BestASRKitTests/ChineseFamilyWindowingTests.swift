@@ -55,7 +55,8 @@ struct ChineseFamilyWindowingTests {
         defer { try? FileManager.default.removeItem(atPath: path) }
         let pipe = RecordingPipeline()
         let raw = try await engine(pipe).transcribeRaw(
-            audioPath: path, options: TranscribeOptions(model: "small", quantization: "default"))
+            audioPath: path, options: Fixtures.engineOptions(
+                backend: .fluidSenseVoice, family: "sensevoice", size: "small"))
         #expect(pipe.paths.count == 3)  // 30 + 30 + 15
         #expect(raw.segments.count == 3)
         #expect(raw.segments[0].start == 0 && raw.segments[0].end == 30)
@@ -74,7 +75,8 @@ struct ChineseFamilyWindowingTests {
         defer { try? FileManager.default.removeItem(atPath: path) }
         let pipe = RecordingPipeline()
         let raw = try await engine(pipe).transcribeRaw(
-            audioPath: path, options: TranscribeOptions(model: "small", quantization: "default"))
+            audioPath: path, options: Fixtures.engineOptions(
+                backend: .fluidSenseVoice, family: "sensevoice", size: "small"))
         #expect(pipe.paths == [path])  // untouched original, no temp slice
         #expect(raw.segments.count == 1)
         #expect(raw.segments[0].start == 0 && abs(raw.segments[0].end - 10) < 0.01)
@@ -85,7 +87,8 @@ struct ChineseFamilyWindowingTests {
         defer { try? FileManager.default.removeItem(atPath: path) }
         let pipe = RecordingPipeline()
         let raw = try await engine(pipe).transcribeRaw(
-            audioPath: path, options: TranscribeOptions(model: "small", quantization: "default"))
+            audioPath: path, options: Fixtures.engineOptions(
+                backend: .fluidSenseVoice, family: "sensevoice", size: "small"))
         #expect(pipe.paths.count == 1)
         #expect(raw.segments.count == 1)
         #expect(raw.segments[0].end == 30)

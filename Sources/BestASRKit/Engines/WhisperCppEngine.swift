@@ -59,7 +59,11 @@ public struct WhisperCppEngine: Engine {
     /// ggml model file name for a (model, quantization) pair, matching the
     /// naming of the ggerganov/whisper.cpp model distribution.
     static func modelFileName(model: String, quantization: String) -> String {
-        "ggml-\(model)-\(quantization).bin"
+        // ggml files are named by size; the address is not a file name.
+        // Translated inside the engine, at the point the path is built — the
+        // one step no load can skip.
+        let name = ModelGrid.engineName(backend: BackendID.whisperCpp.rawValue, address: model)
+        return "ggml-\(name)-\(quantization).bin"
     }
 
     /// whisper-cli argument assembly — pure so tests can assert the prompt

@@ -7,7 +7,12 @@ import Testing
 /// the injectable pipeline seam (same discipline as WhisperKitEngine #9) so
 /// no CoreML model ever loads here.
 struct ParakeetEngineTests {
-    let options = TranscribeOptions(model: "0.6b-v3", quantization: "default", language: "en")
+    /// The shape the Router actually produces (`parakeet/0.6b-v3`), not the
+    /// bare size this used to spell. With a bare size `ModelGrid.engineName`
+    /// is the identity function, so every assertion below held whether or not
+    /// the engine translated at all (round-9 verify).
+    let options = Fixtures.engineOptions(
+        backend: .fluidParakeet, family: "parakeet", size: "0.6b-v3", language: "en")
 
     /// Spy pipeline standing in for the FluidAudio-backed adapter.
     struct SpyPipeline: ParakeetTranscribing {
@@ -268,4 +273,30 @@ struct ParakeetEngineTests {
         #expect(raw.segments.first?.end ?? 0 > 0)  // SRT cue is no longer 0 --> 0
     }
 
+}
+
+/// The engine's half of the seam (round-9 verify): the caller hands over an
+/// address, and the engine must turn it into what FluidAudio's own tables are
+/// keyed by. `EngineSeamTests` cannot assert this — it drives `MockEngine`,
+/// which has no translation step.
+struct ParakeetTranslationTests {
+    @Test func `The pipeline factory receives FluidAudio's name, not the address`() async throws {
+        let spy = FactorySpy()
+        let engine = ParakeetEngine(pipelineFactory: { model in
+            spy.record(model)
+            return ParakeetEngineTests.SpyPipeline { _, _ in
+                ParakeetOutput(text: "hi", confidence: 0.9, duration: 1.0, tokenTimings: [])
+            }
+        })
+        _ = try await engine.transcribeRaw(
+            audioPath: "clip.wav",
+            options: Fixtures.engineOptions(
+                backend: .fluidParakeet, family: "parakeet", size: "0.6b-v3", language: "en"))
+
+        #expect(spy.seen == ["0.6b-v3"],
+                "the engine handed its factory \(spy.seen), not FluidAudio's own name")
+        // And that name is a key of the version table the engine would use in
+        // production — the lookup that returns nil when the address crosses.
+        #expect(ParakeetEngine.modelVersions[try #require(spy.seen.first)] != nil)
+    }
 }

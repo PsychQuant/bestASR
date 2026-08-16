@@ -279,12 +279,23 @@ public enum RunKind: String, Codable, Sendable, CaseIterable {
 /// One (backend × model × quantization) configuration to measure.
 public struct BenchmarkCandidate: Sendable, Equatable, Hashable {
     public let backend: BackendID
-    public let model: String
+    /// The model itself, not a spelling of it.
+    ///
+    /// A candidate is always built from a catalog row, so its identity is
+    /// known at construction. Storing the identity rather than an address is
+    /// what stops the string from being flattened here and re-parsed later:
+    /// every round of this change fixed one instance of "a consumer re-derived
+    /// something the producer already knew".
+    public let identity: ModelID
     public let quantization: String
 
-    public init(backend: BackendID, model: String, quantization: String) {
+    /// Derived, never stored — a candidate cannot carry an address that
+    /// disagrees with the model it names.
+    public var model: String { ModelGrid.address(for: identity) }
+
+    public init(backend: BackendID, identity: ModelID, quantization: String) {
         self.backend = backend
-        self.model = model
+        self.identity = identity
         self.quantization = quantization
     }
 }
@@ -307,12 +318,64 @@ public struct BenchmarkRecord: Codable, Sendable, Equatable {
     public let macosVersion: String
     public let appVersion: String
 
+    /// Which model this measured, as a value — `nil` when the record predates
+    /// #183 or its stored key carried no usable family or size. `model` above
+    /// is how the record is ADDRESSED; this is what it IS.
+    ///
+    /// Optional on purpose: `Decodable` gives Optionals `decodeIfPresent`, so
+    /// a `benchmarks.json` written before this change still reads.
+    public var identity: ModelID?
+
+    /// Whether the record names its artifact well enough to be compared with
+    /// another.
+    ///
+    /// **Derived, not stored** (round-4 verify, findings C2/C3). It was a
+    /// stored `Bool` defaulting to `true`, which failed in two directions at
+    /// once: Swift's synthesized `Decodable` does not consult property
+    /// defaults, so every pre-#183 record threw `keyNotFound` and was
+    /// reported as a corrupt cache; and both paths that rebuild a record —
+    /// the per-candidate collapse here and `Router.aggregate` — omitted it,
+    /// so any candidate measured on more than one corpus was silently vouched
+    /// for again. Computing it from the record's own components removes both:
+    /// there is no key to be missing and no argument to forget.
+    public var identityComplete: Bool {
+        guard let identity else { return false }
+        return ModelGrid.namesCompletely(
+            identity: identity, quantization: Quantization(serialised: quantization))
+    }
+
+    /// Whether the record can say WHICH artifact produced it — set by the
+    /// projection from the record's OWN facts, never from today's catalog.
+    ///
+    /// A DIFFERENT question from `identityComplete`, and round 9's verify
+    /// showed what conflating them costs. A record can name its model
+    /// completely and still be unable to say which published variant the
+    /// runtime chose for it; conversely a record whose stored quantization
+    /// segment reads `default` may carry a commit-sha pin that freezes the
+    /// artifact exactly. Judged by the catalog, the two groups came out
+    /// **backwards**: the 44 sha-pinned measurements were called incomparable
+    /// and the 47 whose precision was a dependency default were vouched for.
+    ///
+    /// `nil` for records that predate the field. A record that cannot say is
+    /// not attested, so `nil` and `false` mean the same thing to a caller —
+    /// but Optional is what lets legacy JSON decode at all (#183 round-4 C2:
+    /// a stored non-Optional `Bool` threw `keyNotFound` on every older record).
+    public var artifactAttested: Bool?
+
+    /// `artifactAttested`, with the two ways of not being attested collapsed —
+    /// which is correct HERE because a record that does not say and a record
+    /// that says no are equally unable to vouch for themselves.
+    public var attestsArtifact: Bool { artifactAttested == true }
+
     public init(
-        backend: String, model: String, quantization: String, language: String,
+        backend: String, model: String, quantization: String,
+        identity: ModelID? = nil, artifactAttested: Bool? = nil, language: String,
         metricKind: MetricKind, errorRate: Double, rtf: Double, peakMemoryGB: Double,
         audioDuration: Double, measuredAt: Date, chip: String, macosVersion: String,
         appVersion: String
     ) {
+        self.identity = identity
+        self.artifactAttested = artifactAttested
         self.backend = backend
         self.model = model
         self.quantization = quantization
@@ -355,7 +418,19 @@ public struct MeasuredSummary: Codable, Sendable, Equatable {
 /// A chosen backend/model/quantization plus the reasoning behind it.
 public struct ASRRecommendation: Sendable, Equatable {
     public let backend: BackendID
+    /// How the model is spelled for a user and for the store.
+    ///
+    /// Derived from `identity` wherever one is known — never assigned
+    /// independently of it. The cold-start path used to assign a bare size
+    /// here while every later layer treated the field as an address, and the
+    /// bare size travelled untouched to the engine (#183, round-8 verify).
     public let model: String
+    /// The model itself, when this catalog can name one.
+    ///
+    /// `nil` only for a `--model` string the catalog cannot place, which
+    /// travels as the user typed it because there is nothing else true to say
+    /// about it.
+    public let identity: ModelID?
     public let quantization: String
     public let profile: RouterProfile
     public let language: String?
@@ -364,13 +439,26 @@ public struct ASRRecommendation: Sendable, Equatable {
     public let reason: [String]
     public let warnings: [String]
 
+    /// - Parameters:
+    ///   - identity: the model, when this catalog can name one.
+    ///   - unplaceableName: the string to carry when it cannot — a `--model`
+    ///     value no runtime here publishes. Ignored whenever `identity` is
+    ///     present, so the spelling can never disagree with the model.
+    ///
+    /// There is deliberately no way to pass `model` directly. The cold-start
+    /// path used to set it to a bare size while `identity` said otherwise, and
+    /// nothing could notice: the two were independent fields saying the same
+    /// thing (#183, round-8 verify).
     public init(
-        backend: BackendID, model: String, quantization: String, profile: RouterProfile,
+        backend: BackendID, identity: ModelID?, unplaceableName: String? = nil,
+        quantization: String,
+        profile: RouterProfile,
         language: String?, dataSource: RecommendationDataSource, measured: MeasuredSummary?,
         reason: [String], warnings: [String]
     ) {
         self.backend = backend
-        self.model = model
+        self.model = identity.map(ModelGrid.address(for:)) ?? unplaceableName ?? ""
+        self.identity = identity
         self.quantization = quantization
         self.profile = profile
         self.language = language
@@ -385,8 +473,9 @@ public struct ASRRecommendation: Sendable, Equatable {
     public func prepending(reasons: [String]) -> ASRRecommendation {
         guard !reasons.isEmpty else { return self }
         return ASRRecommendation(
-            backend: backend, model: model, quantization: quantization, profile: profile,
-            language: language, dataSource: dataSource, measured: measured,
+            backend: backend, identity: identity, unplaceableName: model,
+            quantization: quantization,
+            profile: profile, language: language, dataSource: dataSource, measured: measured,
             reason: reasons + reason, warnings: warnings)
     }
 
@@ -396,8 +485,9 @@ public struct ASRRecommendation: Sendable, Equatable {
         -> ASRRecommendation {
         guard !extraReasons.isEmpty || !extraWarnings.isEmpty else { return self }
         return ASRRecommendation(
-            backend: backend, model: model, quantization: quantization, profile: profile,
-            language: language, dataSource: dataSource, measured: measured,
+            backend: backend, identity: identity, unplaceableName: model,
+            quantization: quantization,
+            profile: profile, language: language, dataSource: dataSource, measured: measured,
             reason: extraReasons + reason, warnings: warnings + extraWarnings)
     }
 }

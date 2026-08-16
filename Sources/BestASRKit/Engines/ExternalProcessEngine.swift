@@ -57,11 +57,30 @@ public struct ExternalProcessEngine: Engine {
         audioPath: String, options: TranscribeOptions
     ) async throws -> RawTranscription {
         var arguments = Array(command.dropFirst())
-        arguments += ["transcribe", "--audio", audioPath, "--model", options.model]
+        // Translated inside the engine, ahead of the call, like every other
+        // engine: the subprocess speaks its runtime's vocabulary, not ours.
+        let engineModel = ModelGrid.engineName(backend: id.rawValue, address: options.model)
+        arguments += ["transcribe", "--audio", audioPath, "--model", engineModel]
         if let language = options.language {
             arguments += ["--language", language]
         }
-        let row = ModelGrid.row(backend: id.rawValue, modelAddress: options.model)
+        // The three outcomes are three different situations and this engine
+        // states its position on each, rather than inheriting one from a
+        // collapsed `nil` (#183):
+        //
+        // - resolved  → pin the row's repo and revision.
+        // - ambiguous → NO pin. Passing one model's repo for another's name is
+        //               exactly the guessed repo id the supply-chain rule
+        //               forbids, and a coin flip is worse than nothing.
+        // - unknown   → NO pin. The adapter may know a model our catalog does
+        //               not; that is its business, and we have nothing to add.
+        let row: ModelRow?
+        switch ModelGrid.identity(backend: id.rawValue, matching: options.model) {
+        case .resolved(let identity):
+            row = ModelGrid.row(backend: id.rawValue, identity: identity)
+        case .ambiguous, .unknown:
+            row = nil
+        }
         if let repo = row?.hfRepo {
             arguments += ["--hf-repo", repo]
         }
