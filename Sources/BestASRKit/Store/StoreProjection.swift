@@ -22,23 +22,20 @@ extension BenchmarkStore.Snapshot {
             let identity = canon?.identity
             let quantization = canon?.quantization ?? Quantization(serialised: parts[3])
             let model = identity.map(ModelGrid.address(for:)) ?? "\(parts[1])/\(parts[2])"
-            // Can this record say WHICH artifact produced it? Answered from
-            // the record's OWN facts, never from today's catalog (round-9
-            // verify — judged by the catalog the answer came out backwards).
+            // Can this record say WHICH artifact produced it? Asked of the
+            // record's OWN facts — the STORED segment and the pin the
+            // measurement carries — never of `quantization` above, which for a
+            // stored placeholder is the catalog's present opinion.
             //
-            // Three ways it can say, and they are a CLOSED list:
-            //   1. the stored key names a concrete quantization;
-            //   2. the measurement carries the revision pin it was seeded
-            //      with (#16 put it on the row precisely because the catalog
-            //      table is rewritten wholesale on every seed);
-            //   3. the runtime has no quantization dimension to record.
-            // Anything else is unrecorded — including a stored `default` whose
-            // catalog row happens to state a value TODAY.
-            let storedQuantization = Quantization(serialised: parts[3])
-            let attested =
-                (parts[3] != ModelID.removedPlaceholder && storedQuantization.isComplete)
-                || row.hfRevision != nil
-                || quantization == .notApplicable
+            // Round 10 caught all three arms of the previous version: it asked
+            // `isComplete`, which says true for `.deferred` and so attested
+            // every record this change writes; it took any non-nil revision as
+            // proof, so `""` and `"main"` bought silence; and its third arm
+            // read the canonical value, putting the catalog on a list whose
+            // comment said the catalog was not on it.
+            let attested = ModelGrid.determinesArtifact(
+                quantization: Quantization(serialised: parts[3]),
+                hfRevision: row.hfRevision)
             return BenchmarkRecord(
                 backend: backend, model: model,
                 quantization: quantization.serialised,

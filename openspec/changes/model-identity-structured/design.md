@@ -131,6 +131,18 @@ runtime 的詞彙是**資料不是規則**：`ModelGrid.engineVocabularies` 為�
 
 處置也跟著改：不能自證的記錄**照常排序、但具名**。刪掉證據不會讓它變成不存在，只會讓讀的人看不到它的限制。
 
+**round 10 更正——述詞的三臂當時全錯，而且錯法各不相同**：
+
+| 臂 | 當時寫的 | 為什麼錯 |
+|---|---|---|
+| 1 | `storedQuantization.isComplete` | `isComplete` 對 `.deferred` 回 true（它是完整的**標籤**）。於是**本 change 寫出的每一筆記錄**都自我背書——`CommandCore` 把新的 whisperkit 量測寫成 `deferred:runtime`、無 pin，回來就是 attested。規則今天成立只因為舊 key 寫的是 `default` |
+| 2 | `row.hfRevision != nil` | 完全沒有驗證。`""`、`"main"`、`"HEAD"` 都是「證據」。述詞在垃圾輸入下 **fail open**，而它唯一可觀察的效果是**移除**警告 |
+| 3 | `quantization == .notApplicable` | `quantization` 是 canonical 值 —— **目錄**。這一臂唯一可達的效果就是本節明令禁止的那個情形 |
+
+真正的教訓在第三臂：那張封閉列舉與違反它的實作**寫在同一個函式裡**，中間隔三行。所以現在它是一個具名、可直接測試的述詞（`ModelGrid.determinesArtifact(quantization:hfRevision:)`），由**排序側與枚舉側共用**——round 10 也證實那兩側當時各持一套判準，而枚舉側的那套把 mlx-audio 三列有 sha pin 的 verified 列排除、留下唯一一列沒有 pin 的。
+
+「命名完整」與「artifact 已決定」是兩個問題（`namesCompletely` / `determinesArtifact`）。`.deferred` 是**完整的名字**與**未決定的 artifact**——把兩者當同一件事就是這一輪的全部病灶。
+
 ## Implementation Contract
 
 **Behavior（可觀察的結果）**
@@ -162,15 +174,17 @@ runtime 的詞彙是**資料不是規則**：`ModelGrid.engineVocabularies` 為�
 
 - `DataModelTests` 的 `ModelRegistryTests`（該 struct 已存在於該檔，非新檔）：主張 `requirements(for: ModelID("sensevoice","small"))` 回 1.5 GB 且不等於 `ModelID("whisper","small")` 的 2.5 GB。**`uniquingKeysWith: max` 保留**——round 4 證實同一身分在兩個精度下是正常情形（`whisper.cpp` 今天就有兩列），移除它會在 `ColdStartPrior.fits()` 的迴圈裡 fatalError
 - `ModelGridTests`：主張 `ModelID("canary","1b")` 與 `ModelID("mms","1b")` 各自命中自己的列且互不返回對方；主張裸字串 `"1b"` 解析為 nil（歧義）而 `whisper.cpp` 的 `"tiny"` 仍解析成功
-- `CatalogKeyStabilityTests`：每一列 catalog 的 `model_id` 與已提交的 `models.jsonl` 快照比對，**0 rotated / 0 orphaned**。這是本 change 的核心驗收——它承諾不動任何一把既有的 key
+- `CatalogCanonicalisationTests`：每一把**已儲存**的 key 都能 canonical 化到目錄今天持有的一個模型，**0 orphaned**。承諾的是「不改檔案裡的任何一個 byte」，**不是**「不動任何一把目錄 key」——D7 刻意旋轉 37 把裡的 19 把，這正是它成立的方式。（round 10 更正：此處原本引用 `CatalogKeyStabilityTests`，那個測試不存在，而它宣稱的「0 rotated」是 D7 的反面。round 5 就把「引用不存在的測試」標記為本 change 的慣犯缺陷、從 tasks.md 清掉了，這一處活了下來。）
 - `ModelRowCodecTests`：37 筆 `model_id` 逐一 decode 成 `ModelRow` 再 encode，主張 key 逐字相同（不是字串 split∘join 的恆真式——round 4 指出原版是）
 - `StoreProjection` 中不再存在針對特定 backend 的分支（mlx 三元運算子已移除）。**`parts[1] == parts[2]` 的 legacy 修補保留**——store 內仍有 4 筆這種 id
 - 全套測試綠燈（本分支基線實測 493 筆 / 98 suites）
 
-**不在本 change 的驗收範圍內**（移至 #187）：`Sources/` 不含 `default` 作為值、8 列 `unknown` 的封閉列舉、兩筆 parakeet 為同一 `ModelID`、`Router` 排除不完整候選。
+**不在本 change 的驗收範圍內**（移至 #187）：383 筆歷史量測的實體重新編碼。
+
+> **round 10 更正**：此行原本還列了四項——`Sources/` 不含 `default`、8 列 `unknown` 的封閉列舉、兩筆 parakeet 為同一 `ModelID`、`Router` 處理不完整候選——**四項全部由本 change 落地**，其中「兩筆 parakeet 為同一 `ModelID`」還是 issue #183 的 EXPECTED #2（`CanonicalIdentityTests` 有對應斷言）。一份把自己交付的 issue 需求列在驗收範圍外的 design，無法用來判斷這個 change 做完了沒——而這正是本節開頭那段警語在講的事，寫在同一份文件裡。
 
 **Scope boundaries**
 
 - **In scope**：型別（`ModelID` / `Quantization`）、目錄查找與歧義回報、記憶體估計與 router 排序鍵、`StoreProjection` 去 vendor 分支、CLI 與 MCP 對外字串、engine 的 precision 顯式化、對應測試、六份 spec delta
-- **Out of scope（→ #187）**：catalog re-key（quantization 值 + parakeet size）、從身分移除 `default`、`isComplete` 拒絕該佔位字、`Router` 排除不完整候選、383 筆歷史量測的重新編碼
+- **Out of scope（→ #187）**：383 筆歷史量測的實體重新編碼。（round 10 更正：原文另列 catalog re-key、從身分移除 `default`、`isComplete` 拒絕佔位字、`Router` 處理不完整候選——皆已於本 change 落地，見上方更正。）
 - **Out of scope（其他）**：新模型納入（#185 / #123）、多因子比較語意（#184）、`fluid-*` 三 case 的收攏、WhisperKit 實際 variant 的查明

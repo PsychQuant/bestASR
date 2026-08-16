@@ -269,3 +269,92 @@ struct ArtifactAttestationTests {
         #expect(!rec.warnings.contains { $0.contains("does not record which artifact") })
     }
 }
+
+/// Round-10 verify: the attestation predicate had all three of its arms wrong.
+/// Tested directly here — the projection tests reach it only through a store
+/// snapshot, and that indirection is what let three defects live in one
+/// four-line expression.
+struct DeterminesArtifactTests {
+    @Test func `A deferred quantization is a complete LABEL and not a determined artifact`() {
+        // The distinction the previous version collapsed. `isComplete` says
+        // true for `.deferred` — correctly, as a label — and asking it here
+        // attested every record this change writes.
+        #expect(Quantization.deferred(.runtime).isComplete)
+        #expect(ModelGrid.determinesArtifact(
+            quantization: .deferred(.runtime), hfRevision: nil) == false)
+        #expect(ModelGrid.determinesArtifact(
+            quantization: .deferred(.dependency), hfRevision: nil) == false)
+    }
+
+    @Test func `Only a full commit sha counts as a pin`() {
+        let sha = "7a73d8d55ac0ba2ef3ae761593f6784b51f96dcf"
+        #expect(ModelGrid.isCommitSHA(sha))
+        // Fails CLOSED: the only effect of answering yes is to remove a
+        // warning, so an unrecognised string must not buy that silence.
+        for junk in ["", "main", "HEAD", "latest", "v1.0", String(sha.dropLast()), sha + "0",
+                     sha.uppercased(), "z" + sha.dropFirst()] {
+            #expect(ModelGrid.isCommitSHA(junk) == false, "'\(junk)' passed as a commit sha")
+        }
+        #expect(ModelGrid.isCommitSHA(nil) == false)
+    }
+
+    @Test func `An unknown quantization is determined by its pin, and not otherwise`() {
+        // The 44: the catalog cannot label them, the pin freezes them anyway.
+        #expect(ModelGrid.determinesArtifact(
+            quantization: .unknown,
+            hfRevision: "7a73d8d55ac0ba2ef3ae761593f6784b51f96dcf"))
+        #expect(ModelGrid.determinesArtifact(quantization: .unknown, hfRevision: nil) == false)
+    }
+
+    @Test func `A concrete named value determines without a pin; a reserved spelling does not`() {
+        #expect(ModelGrid.determinesArtifact(quantization: .named("q8_0"), hfRevision: nil))
+        #expect(ModelGrid.determinesArtifact(quantization: .notApplicable, hfRevision: nil))
+        // `.named` is a public case, so a reserved spelling is constructible.
+        // It is not a value this type would accept, so it vouches for nothing.
+        #expect(ModelGrid.determinesArtifact(
+            quantization: .named("unknown"), hfRevision: nil) == false)
+    }
+
+    @Test func `Enumeration and ranking now ask the same question`() {
+        // Round 10: `comparable` kept rows by the catalog's label, so it
+        // excluded mlx-audio's three verified sha-pinned priority-1 rows —
+        // holding 42 of the 44 mlx-audio measurements — and kept the one
+        // unverified row with no repo pin. The inverse of this change's thesis,
+        // on the enumeration side of the seam.
+        let (kept, excluded) = ModelGrid.comparable(
+            backend: ModelGrid.backendMLXAudio, priorityCeiling: 1)
+        let keptIds = Set(kept.map(\.modelId))
+        #expect(keptIds.contains("mlx-audio|whisper|large-v3-turbo|unknown"))
+        #expect(keptIds.contains("mlx-audio|parakeet|0.6b-v3|unknown"))
+        #expect(keptIds.contains("mlx-audio|moonshine|base|unknown"))
+        // Every row either side must agree with the shared predicate.
+        for row in kept {
+            #expect(ModelGrid.determinesArtifact(
+                quantization: row.quantization, hfRevision: row.hfRevision),
+                "\(row.modelId) was enumerated but does not determine its artifact")
+        }
+        for row in excluded {
+            #expect(!ModelGrid.determinesArtifact(
+                quantization: row.quantization, hfRevision: row.hfRevision),
+                "\(row.modelId) was excluded but does determine its artifact")
+        }
+    }
+
+    @Test func `A newly written whisperkit record does not attest itself`() throws {
+        // The shape this change's own write path produces: the seeded row's
+        // quantization is `deferred:runtime` and whisperkit rows carry no pin.
+        let corpus = CorpusRow(
+            name: "c", language: "en", audioSHA256: String(repeating: "c", count: 64),
+            referenceSHA256: "", duration: 30, audioPath: "", referencePath: "")
+        let record = try #require(BenchmarkStore.Snapshot(
+            machines: [], models: [], corpora: [corpus],
+            measurements: [MeasurementRow(
+                modelId: "whisperkit|whisper|tiny|deferred:runtime", corpusId: corpus.corpusId,
+                machineId: "h", measuredAt: Date(timeIntervalSince1970: 1), metricKind: .wer,
+                errorRate: 0.1, rtf: 0.1, peakMemoryGB: 1, warmupSeconds: 1,
+                appVersion: "v", macosVersion: "27.0", hfRevision: nil)],
+            warnings: []).projectedRecords().first)
+        #expect(record.attestsArtifact == false,
+                "a record written by this change vouched for an artifact it never named")
+    }
+}

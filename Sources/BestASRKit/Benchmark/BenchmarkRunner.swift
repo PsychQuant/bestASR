@@ -134,9 +134,9 @@ public struct BenchmarkRunner {
             // reference catalog never reaches here (engines drive the loop,
             // spec benchmark: Reference rows never enumerate).
             let ceiling: Int? = allGrid ? nil : 1
-            // A row whose quantization nobody recorded cannot be compared with
-            // anything, so it is not a candidate — and every drop is named,
-            // because a silent one is indistinguishable from having no rows.
+            // Every row is a candidate; the ones whose artifact is not
+            // determined are NAMED, not dropped (round-10 verify). Refusing to
+            // benchmark an unattested row is how it stays unattested forever.
             let (comparable, excluded) = ModelGrid.comparable(
                 backend: backend.rawValue, priorityCeiling: ceiling)
             notes += excluded.map(ModelGrid.exclusionNote(for:))

@@ -185,21 +185,27 @@ public enum ModelGrid {
         }
     }
 
-    /// Rows split into those a measurement may be compared against and those
-    /// whose identity is too incomplete to be one (#183).
+    /// Every enumerable row, plus the ones whose artifact is not determined.
     ///
-    /// A row whose quantization is `unknown` names an artifact nobody can
-    /// point at: two runs of it could have used different weights and the
-    /// record would look identical. Such a row stays listable — it is still
-    /// reference information — but it does not enter candidate enumeration.
-    /// Both halves are returned because "excluded" must be sayable: dropping
-    /// rows and not saying so reads exactly like having none.
+    /// The second half is **named, not dropped** — the same decision the
+    /// ranking side took, applied here so the two sides cannot diverge again.
+    /// Round 10 found them diverged in the worst direction: this function kept
+    /// rows by the catalog's LABEL, so it excluded mlx-audio's three verified,
+    /// sha-pinned priority-1 rows (holding 42 of the 44 mlx-audio measurements
+    /// in the live store) and kept the one unverified row with no repo pin —
+    /// the inverse of this change's own thesis.
+    ///
+    /// Excluding was the wrong repair for that. A row nobody can attest is
+    /// precisely a row worth MEASURING: refusing to benchmark it is how you
+    /// guarantee it never acquires provenance. What the run owes its reader is
+    /// the caveat, and that is what the second half carries.
     public static func comparable(
         backend: String, priorityCeiling: Int?
     ) -> (rows: [ModelRow], excluded: [ModelRow]) {
         let all = rows(backend: backend, priorityCeiling: priorityCeiling)
-        return (all.filter { $0.quantization.isComplete },
-                all.filter { !namesCompletely(identity: $0.identity, quantization: $0.quantization) })
+        return (all, all.filter {
+            !determinesArtifact(quantization: $0.quantization, hfRevision: $0.hfRevision)
+        })
     }
 
     /// Whether an identity and a quantization together name a model completely.
@@ -211,16 +217,63 @@ public enum ModelGrid {
     /// existed — so a row whose SIZE was the removed placeholder was reported
     /// `identity_complete: false` by one surface and ranked by another. A rule
     /// written in three places is three rules.
+    ///
+    /// Distinct from ``determinesArtifact(quantization:hfRevision:)``: this
+    /// asks whether the model is fully NAMED, that one asks whether the
+    /// artifact is DETERMINED. Round 10 is what happens when they are
+    /// conflated — `.deferred` is a complete name and an undetermined artifact.
     public static func namesCompletely(identity: ModelID, quantization: Quantization) -> Bool {
         identity.family != ModelID.removedPlaceholder
             && identity.size != ModelID.removedPlaceholder
             && quantization.isComplete
     }
 
-    /// Why a row was left out of candidate enumeration, in one line naming it.
+    /// Whether the artifact behind a quantization is DETERMINED — i.e. whether
+    /// two runs of it must have loaded the same weights.
+    ///
+    /// ONE definition, over the two facts that can settle it, so the ranking
+    /// side and the enumeration side cannot answer differently. Round 10 found
+    /// them answering differently: ranking had been taught to read the pin
+    /// while `comparable` still read the catalog's label, and the label-only
+    /// rule excluded exactly the three mlx-audio rows that ARE sha-pinned.
+    ///
+    /// A CLOSED list of three, and the catalog's opinion is not on it:
+    ///
+    /// 1. a **concrete named** value the type would accept. `.deferred` is
+    ///    NOT concrete — round 10: `isComplete` says true for it (it is a
+    ///    complete *label*), and asking `isComplete` here made every record
+    ///    this change writes attest itself. WhisperKit picks among 27
+    ///    published variants and the record never says which.
+    /// 2. a **well-formed commit sha**. The field's own doc says "full commit
+    ///    sha"; the type never enforced it, so `""`, `"main"` and `"HEAD"` all
+    ///    bought silence. A moving ref is the opposite of a pin.
+    /// 3. `.notApplicable` — the runtime has no quantization dimension, so
+    ///    there is nothing about it left to record.
+    public static func determinesArtifact(quantization: Quantization, hfRevision: String?) -> Bool {
+        switch quantization {
+        case .named(let value) where Quantization(named: value) != nil: return true
+        case .notApplicable: return true
+        case .named, .deferred, .unknown: return isCommitSHA(hfRevision)
+        }
+    }
+
+    /// A full commit sha, and nothing else. Fails CLOSED: the only effect of
+    /// answering yes is to remove a warning, so a string we cannot recognise
+    /// must not buy that silence.
+    public static func isCommitSHA(_ value: String?) -> Bool {
+        guard let value else { return false }
+        return value.count == 40 && value.allSatisfy { $0.isHexDigit && !$0.isUppercase }
+    }
+
+    /// What a run owes its reader about a row it cannot attest, in one line.
+    ///
+    /// It is measured, not skipped: the wording says what the number will and
+    /// will not be able to promise, rather than announcing a drop that no
+    /// longer happens.
     public static func exclusionNote(for row: ModelRow) -> String {
-        "excluded '\(row.identity)' on \(row.backend): its quantization is unrecorded, "
-            + "so a measurement of it could not be compared with another (#183)"
+        "'\(row.identity)' on \(row.backend) states no concrete quantization and carries no "
+            + "revision pin, so a measurement of it cannot promise to describe the same "
+            + "artifact a re-run would load (#183)"
     }
 
     /// What a user's model string names under one runtime.
