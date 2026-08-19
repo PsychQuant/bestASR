@@ -3,7 +3,7 @@ import Testing
 import WhisperKit
 
 @testable import BestASRKit
-@testable import bestasr
+@testable import BestASRCLICore
 
 /// spec asr-engine (#101): WhisperKit decode-param knobs. nil = ride
 /// WhisperKit's own defaults (the pre-#101 behavior, byte-for-byte).

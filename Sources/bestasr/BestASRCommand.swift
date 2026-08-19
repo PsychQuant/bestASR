@@ -1,4 +1,5 @@
 import ArgumentParser
+import BestASRCLICore
 import BestASRKit
 import Foundation
 
@@ -26,12 +27,6 @@ struct BestASR: AsyncParsableCommand {
     )
 }
 
-// The library enum is ArgumentParser-free (BestASRKit has no such dependency);
-// the CLI adds the conformance here. RawValue is String, so ArgumentParser
-// derives `init?(argument:)` and lists the cases (off | denylist) in --help.
-// (Same package as the enum, so no @retroactive.)
-extension HallucinationFilterMode: ExpressibleByArgument {}
-
 // #120 item 2: --run-kind used to take an arbitrary String, so a typo travelled
 // verbatim into the store and only failed in the bench repo's CI — fail-loud at
 // the wrong end. Typing the option rejects unknown values at the CLI boundary
@@ -46,18 +41,6 @@ extension RunKind: ExpressibleByArgument {}
 
 /// Maps typed library errors to the design-D10 exit codes: usage → 2,
 /// runtime/transcription → 1. Everything else falls through to ArgumentParser.
-func runMapped(_ body: () async throws -> Void) async throws {
-    do {
-        try await body()
-    } catch let error as BestASRError {
-        FileHandle.standardError.write(Data("error: \(error.errorDescription ?? "failed")\n".utf8))
-        throw ExitCode(error.exitCode)
-    } catch let error as TranscriptionError {
-        FileHandle.standardError.write(
-            Data("error: \(error.errorDescription ?? "transcription failed")\n".utf8))
-        throw ExitCode(1)
-    }
-}
 
 struct Diagnose: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
@@ -88,70 +71,6 @@ struct Recommend: AsyncParsableCommand {
             print(
                 try await CommandCore.live().recommendJSON(
                     audioPath: audio, selection: selection.resolved()))
-        }
-    }
-}
-
-struct Transcribe: AsyncParsableCommand {
-    static let configuration = CommandConfiguration(
-        commandName: "transcribe",
-        abstract: "Transcribe an audio file with the best setup for this machine"
-    )
-
-    @Argument(help: "Path to the input audio file")
-    var audio: String
-
-    @OptionGroup var selection: SelectionOptions
-
-    @Option(help: "Output format: \(OutputFormat.allNames.joined(separator: " | "))")
-    var format: String = OutputFormat.txt.rawValue
-
-    @Option(help: "Output file path (default: derived from the input file name)")
-    var output: String?
-
-    @Flag(help: "Explain why this backend/model was chosen (printed to stderr)")
-    var explain = false
-
-    @Flag(help: "Label each cue with an acoustic speaker (SPEAKER_1…); downloads CoreML diarization models on first use")
-    var diarize = false
-
-    @Option(help: "Strip decoder hallucinations before writing: off | denylist | full (confidence-gated, WhisperKit signals; default denylist)")
-    var hallucinationFilter: HallucinationFilterMode = .denylist
-
-    @Option(help: "Decode knob (WhisperKit only): mark segments above this no-speech probability as silence (default: WhisperKit's)")
-    var noSpeechThreshold: Double?
-
-    @Option(help: "Decode knob (WhisperKit only): treat segments above this compression ratio as failed/repetitive (default: WhisperKit's)")
-    var compressionRatioThreshold: Double?
-
-    // parsing: .unconditional — the meaningful domain is all-negative (it's a
-    // log-prob floor), and ArgumentParser's default strategy rejects a leading
-    // dash ("--logprob-threshold -1.0" → 'Missing value'). Unconditional
-    // consumes the next token as the value (verify #101 HIGH).
-    @Option(
-        parsing: .unconditional,
-        help:
-            "Decode knob (WhisperKit only): average-logprob floor below which a segment decode is retried/marked (negative, e.g. -1.0; default: WhisperKit's). Note: with --decode-deterministic, threshold trips mark/skip segments instead of triggering a fallback retry"
-    )
-    var logprobThreshold: Double?
-
-    func run() async throws {
-        try await runMapped {
-            let result = try await CommandCore.live().transcribe(
-                audioPath: audio,
-                selection: selection.resolved(),
-                formatName: format,
-                outputPath: output,
-                diarize: diarize,
-                hallucinationFilter: hallucinationFilter,
-                noSpeechThreshold: noSpeechThreshold,
-                compressionRatioThreshold: compressionRatioThreshold,
-                logProbThreshold: logprobThreshold
-            )
-            print("Wrote \(result.format) transcript to \(result.outputPath)")
-            if explain {
-                FileHandle.standardError.write(Data((result.explanation + "\n").utf8))
-            }
         }
     }
 }
@@ -258,43 +177,6 @@ struct ListModels: AsyncParsableCommand {
 }
 
 /// Shared selection flags for `recommend` and `transcribe`.
-struct SelectionOptions: ParsableArguments {
-    @Option(
-        help:
-            "Effort profile: auto | low | medium | high | xhigh | max — auto adapts to machine pressure; max = most accurate regardless of time"
-    )
-    var profile: String = "auto"
-
-    @Option(
-        help: ArgumentHelp(
-            "Force a backend: auto | "
-                + BackendID.allCases.map(\.rawValue).joined(separator: " | ")))
-    var backend: String = "auto"
-
-    @Option(
-        help: "Force a model size: auto | \(ModelRegistry.supportedModels.joined(separator: " | ")) | 0.6b-v3 (fluid-parakeet)")
-    var model: String = "auto"
-
-    @Option(help: "Audio language code, or 'auto'")
-    var language: String = "auto"
-
-    @Option(
-        help: "Context documents directory for context biasing (top-down / prompt biasing: bias decoding toward your domain vocabulary, names, and terms; default: three-layer resolution)"
-    )
-    var contextDir: String?
-
-    func resolved() -> SelectionRequest {
-        SelectionRequest(
-            profileName: profile,
-            backendOverride: backend == "auto" ? nil : backend,
-            modelOverride: model == "auto" ? nil : model,
-            requestedLanguage: language,
-            contextDir: contextDir
-        )
-    }
-}
-
-
 // MARK: - corpus (spec corpora, #14)
 
 struct Corpus: AsyncParsableCommand {

@@ -1,4 +1,5 @@
 import ArgumentParser
+import BestASRCLICore
 import BestASRKit
 import Foundation
 
