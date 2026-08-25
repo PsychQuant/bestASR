@@ -29,6 +29,17 @@ Changes can be parked（暫存）— temporarily moved out of `openspec/changes/
 
 ## Conventions
 
+### 轉錄一律顯式指定模型（見 `.claude/rules/explicit-model.md`）
+
+呼叫 `bestasr transcribe` / MCP `transcribe` 時**必須寫出 `--model`**，不得只給
+`--backend` 就送出。同一 backend 底下的模型準確率差距是量級性的（本機量測 `whisperkit base`
+CER 17.0%），且 **async 模式不揭露選型、事後也查不回**
+（#189），產出物無法回溯用了什麼模型。
+
+例外只有 `benchmark` 與 `recommend` 兩個子命令（它們的工作就是枚舉／推薦）。
+
+失敗史與完整理由見 [`.claude/rules/explicit-model.md`](.claude/rules/explicit-model.md)（#191）。
+
 ### Context directory — `.bestasr/context/` (post-#107, breaking)
 
 Context bundles (`context.json` + `*.txt`/`*.md` term lists for context biasing) resolve in this order:

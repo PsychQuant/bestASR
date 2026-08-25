@@ -40,8 +40,10 @@ skill 接受任意來源，依類型分支。**沒有固定的 import 資料夾*
 1. **先驗證，再交給任何工具**。URL 必須是 well-formed `http(s)://`；本地路徑必須實際存在。
 2. **拒絕 `-` 開頭的來源**——否則會被 yt-dlp/ffmpeg/bestasr 當成 flag（`--exec=…` 之類 = 任意命令執行）。
 3. **拒絕含 shell 元字元**的來源（`` $ ` ; | & < > ( ) `` 與換行）——雙引號**不能**中和 `$(…)`／backtick／`${…}`。
-4. **一律用 `--` 結束選項**，把來源當 positional 傳——且**所有選項必須在 `--` 之前**（`yt-dlp -x … -- "$SRC"`、`bestasr transcribe --format srt --output "$OUT" -- "$AUDIO"`）；`--` 之後的任何 token 都會被 ArgumentParser 當 positional（#37 的實測錯誤即三處範本把選項接在 `--` 後）。
-5. 用 shell 變數承接來源並**加雙引號**，不要把原始字串直接拼進指令列。
+4. **模型必須顯式指定**——`--backend` 只決定 runtime，模型是另一回事。同一個 backend 底下不同模型的準確率差距是量級性的（本機量測 `whisperkit base` CER 17.0%），且長音檔用小模型會讓分段塌成 30 秒固定窗格、靜默漏掉一至兩成語音（#190）。**只給 `--backend` 就送出 = 讓 router 替你決定，而 async 模式不揭露它選了什麼、事後也查不回**（#189）。挑法：`bestasr recommend <audio>` 讀量測值，然後把名字寫死進指令。完整理由見 `.claude/rules/explicit-model.md`。
+
+5. **一律用 `--` 結束選項**，把來源當 positional 傳——且**所有選項必須在 `--` 之前**（`yt-dlp -x … -- "$SRC"`、`bestasr transcribe --backend whisperkit --model large-v3-turbo --format srt --output "$OUT" -- "$AUDIO"`）；`--` 之後的任何 token 都會被 ArgumentParser 當 positional（#37 的實測錯誤即三處範本把選項接在 `--` 後）。
+6. 用 shell 變數承接來源並**加雙引號**，不要把原始字串直接拼進指令列。
 
 驗證範本（交給工具前先跑）：
 
@@ -106,7 +108,7 @@ yt-dlp -x --audio-format wav --audio-quality 0 \
   -o "$WORK/source.%(ext)s" -- "$SRC" || { echo "✗ yt-dlp 下載失敗（私人／地區限制／404？）" >&2; exit 1; }
 AUDIO=$(ls "$WORK"/source.* 2>/dev/null | head -1)   # 不硬編副檔名——實際抽出什麼就用什麼
 [ -n "$AUDIO" ] && [ -f "$AUDIO" ] || { echo "✗ 抽音訊後找不到檔案" >&2; exit 1; }
-bestasr transcribe --format srt --output "$OUT" --explain -- "$AUDIO" \
+bestasr transcribe --backend whisperkit --model large-v3-turbo --format srt --output "$OUT" --explain -- "$AUDIO" \
   || { echo "✗ 轉錄失敗" >&2; exit 1; }
 echo "✓ 完成：$OUT"
 ```
@@ -122,7 +124,7 @@ WORK=$(mktemp -d "${TMPDIR:-/tmp}/transcript.XXXXXX"); trap 'rm -rf "$WORK"' EXI
 # 抽 PCM WAV（無損，ASR 保真）；bestASR 用 AVAudioFile 讀音訊、不吃視訊容器
 ffmpeg -nostdin -i "$SRC" -vn -acodec pcm_s16le -ar 16000 -y "$WORK/source.wav" \
   || { echo "✗ ffmpeg 抽音訊失敗" >&2; exit 1; }
-bestasr transcribe --format srt --output "$OUT" --explain -- "$WORK/source.wav" \
+bestasr transcribe --backend whisperkit --model large-v3-turbo --format srt --output "$OUT" --explain -- "$WORK/source.wav" \
   || { echo "✗ 轉錄失敗" >&2; exit 1; }
 echo "✓ 完成：$OUT"
 ```
@@ -132,7 +134,7 @@ echo "✓ 完成：$OUT"
 ```bash
 SRC="<audio-path>"
 validate_source "$SRC" || exit 1
-bestasr transcribe --format srt --output "./$(來源檔名).srt" --explain -- "$SRC"
+bestasr transcribe --backend whisperkit --model large-v3-turbo --format srt --output "./$(來源檔名).srt" --explain -- "$SRC"
 ```
 
 **承接 bestASR 全部能力**（依使用者需要，加在 `bestasr transcribe` 上）：

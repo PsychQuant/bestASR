@@ -43,7 +43,7 @@ description: context pipeline 第一步（轉錄前）：把任意格式的領�
    - [ ] `names[]` 每項至少有 `name`；`aliases`/`role` 選填
    - [ ] 高價值詞在前——bestASR 的 prompt 預算約 200 tokens，超出的**依 names → terms → phrases 優先序**截斷，所以每類內部把最重要的排前面
    - [ ] `notes` 只放給校對 agent 的補充脈絡，不放詞彙（它不進 prompt）
-5. **回報**：寫入路徑、各類值數量、建議下一步（`bestasr transcribe <audio> --explain` 檢查注入；`bestasr benchmark --context-dir` 量測 delta）。
+5. **回報**：寫入路徑、各類值數量、建議下一步（`bestasr transcribe --backend whisperkit --model large-v3-turbo --explain -- <audio>` 檢查注入（模型須顯式指定，見 `.claude/rules/explicit-model.md`）；`bestasr benchmark --context-dir` 量測 delta）。
 
 ## 鐵律
 
